@@ -7,7 +7,7 @@ import { engine, timing, hexExpr, type Mark, type Row } from "./engine";
 import { buildLayers, MapView, quantileDomain, viridisCss, type GridCell, type StatRow } from "./map";
 import { DepthStrip, YearStrip, SectionPlot, CruiseSeries, StationCard, type DepthRow, type YearRow, type SectionCell, type CruiseRow } from "./charts";
 import { resolveVersion, fetchCatalog, fetchVersions, sources, sidecarUrl, earlySidecar, type Catalog } from "./release";
-import { buildBundle, saveBlob } from "./bundle";
+import { buildBundle, saveBlob, copyAs } from "./bundle";
 import {
   fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LAYERS, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, STAT_LABEL,
   type Sel, type Lens, type Den, type Stat, type PickerRow,
@@ -363,6 +363,14 @@ export function App() {
     setBundling(null);
   };
   (window as any).__download = download; // spike/verify hook
+  const lensTpl = () => sel.lens === "hex" ? "hex" : sel.lens === "region" ? "region" : sel.lens === "cruise" ? "cruise" : sel.lens === "section" ? (sel.realm === "env" ? "section" : "section_bio") : "station";
+  const lensPar = (): Record<string, any> => sel.lens === "hex" ? { hex: hexExpr(sel.res) } : sel.lens === "region" ? { layer: sel.layer } : sel.lens === "section" ? { line: sel.line, cruise: sel.cruise } : {};
+  const copy = async (kind: "sql" | "r" | "py") => {
+    if (!catalog || !version) return;
+    const text = copyAs(kind, { sel, catalog, version, params, lensParams: lensPar(), lensTemplate: lensTpl() });
+    try { await navigator.clipboard.writeText(text); setStatus(`copied ${kind.toUpperCase()} (${text.length.toLocaleString()} chars)`); } catch { setStatus("clipboard blocked"); }
+    (window as any).__lastCopy = text;
+  };
   const getTooltip = (info: PickingInfo) => {
     const o: any = info.object; if (!o) return null;
     const id = info.layer?.id;
@@ -474,6 +482,8 @@ export function App() {
           <div className="row" style={{ marginTop: 4 }}>
             <button className="pill" disabled={!sliceKey || !!bundling} onClick={download} title="README · CITATION · summary (+GeoJSON) · observations (parquet/CSV) · the exact SQL against the release's object URLs · reproduce.R / .py">
               {bundling ? `bundle: ${bundling}` : "⬇ download bundle"}</button>
+            <span className="hint">copy as</span>
+            <span className="seg"><button onClick={() => copy("sql")} title="the SQL this view ran, against the release's object URLs">SQL</button><button onClick={() => copy("r")} title="R (DBI + duckdb; calcofi4r noted)">R</button><button onClick={() => copy("py")} title="Python (duckdb; calcofi4py noted)">Python</button></span>
           </div>
           <div className="hint" style={{ marginTop: "auto" }}>{LENS_TITLE[sel.lens]}. Release {rel}{catalog ? ` · ${catalog.tables.length} tables` : ""} · DuckDB-WASM in a worker, no extensions, objects fetched whole from the release catalog.</div>
         </div>
