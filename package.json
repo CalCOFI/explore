@@ -10,7 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@duckdb/duckdb-wasm": "1.33.1-dev57.0",
+    "@duckdb/duckdb-wasm": "^1.29.0",
     "deck.gl": "^9.3.10",
     "h3-js": "^4.5.0",
     "jszip": "^3.10.1",

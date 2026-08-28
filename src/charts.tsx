@@ -1,7 +1,9 @@
 // Plotly panels: the water-column strip (brush = depth band), the year strip (brush = year range),
 // the section heatmap (zsmooth best, anomaly toggle) and the per-cruise series (click = cruise).
 import { useEffect, useRef } from "react";
-import Plotly from "plotly.js-dist-min";
+// Plotly is ~3.5 MB of the bundle and no panel needs it before the slice answers: load it lazily
+let PlotlyMod: any = null;
+const plotly = () => PlotlyMod ? Promise.resolve(PlotlyMod) : import("plotly.js-dist-min").then((m) => (PlotlyMod = m.default ?? m));
 
 function cssVar(n: string) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
 function base(theme: string) {
@@ -17,15 +19,15 @@ function base(theme: string) {
 }
 const CFG = { displayModeBar: false, responsive: true } as const;
 
-function usePlot(deps: any[], draw: (div: HTMLDivElement) => void) {
+function usePlot(deps: any[], draw: (div: HTMLDivElement, Plotly: any) => void) {
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (ref.current) draw(ref.current); }, deps);
+  useEffect(() => { let live = true; plotly().then((P) => { if (live && ref.current) draw(ref.current, P); }); return () => { live = false; }; }, deps);
   return ref;
 }
 
 export interface DepthRow { depth_bin: number; n: number; med: number; q1: number; q3: number }
 export function DepthStrip(p: { rows: DepthRow[]; band: [number, number]; theme: string; unit: string; onBand: (b: [number, number] | null) => void }) {
-  const ref = usePlot([p.rows, p.band, p.theme, p.unit], (div) => {
+  const ref = usePlot([p.rows, p.band, p.theme, p.unit], (div, Plotly) => {
     const b = base(p.theme);
     const r = p.rows;
     const data: any[] = r.length ? [
@@ -59,7 +61,7 @@ export interface YearRow { year: number; n: number; n_samples: number; mean: num
 // mode "n": rows per year (coverage); mode "mean": the time series — mean ± standard error per year,
 // the line broken across unsampled years (db-viz-hex's series, cc_ts_gaps in spirit)
 export function YearStrip(p: { rows: YearRow[]; years: [number, number]; theme: string; mode: "n" | "mean"; unit: string; onYears: (y: [number, number] | null) => void }) {
-  const ref = usePlot([p.rows, p.years, p.theme, p.mode, p.unit], (div) => {
+  const ref = usePlot([p.rows, p.years, p.theme, p.mode, p.unit], (div, Plotly) => {
     const b = base(p.theme);
     const r = p.rows;
     // insert nulls where a year is missing so the line breaks instead of bridging the gap
@@ -98,7 +100,7 @@ export function YearStrip(p: { rows: YearRow[]; years: [number, number]; theme: 
 
 export interface SectionCell { station: number; y: number; v: number; n: number }
 export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | null; anom: boolean; yLabel: string; theme: string; unit: string; title: string }) {
-  const ref = usePlot([p.cells, p.clim, p.anom, p.theme, p.yLabel, p.unit, p.title], (div) => {
+  const ref = usePlot([p.cells, p.clim, p.anom, p.theme, p.yLabel, p.unit, p.title], (div, Plotly) => {
     const b = base(p.theme);
     const xs = [...new Set(p.cells.map((c) => c.station))].sort((a, c) => a - c);
     const ys = [...new Set(p.cells.map((c) => c.y))].sort((a, c) => a - c);
@@ -129,7 +131,7 @@ export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | nul
 
 export interface CruiseRow { cruise_key: string; n: number; n_samples: number; n_sta: number; mean: number | null; med: number | null; t0: number; t1: number }
 export function CruiseSeries(p: { rows: CruiseRow[]; stat: "mean" | "med" | "n"; selected: string | null; theme: string; unit: string; onPick: (k: string) => void }) {
-  const ref = usePlot([p.rows, p.stat, p.selected, p.theme, p.unit], (div) => {
+  const ref = usePlot([p.rows, p.stat, p.selected, p.theme, p.unit], (div, Plotly) => {
     const b = base(p.theme);
     const y = p.rows.map((d) => (p.stat === "n" ? d.n : d[p.stat]));
     Plotly.react(div, [{
@@ -161,7 +163,7 @@ export function StationCard(p: {
   </div>;
 }
 function StationDatasetRow(p: { d: { dataset_key: string; n_obs: number; year_min: number; year_max: number; years: [number, number][]; months: number[] }; theme: string; short: (d: string) => string }) {
-  const ref = usePlot([p.d, p.theme], (div) => {
+  const ref = usePlot([p.d, p.theme], (div, Plotly) => {
     const b = base(p.theme);
     const ys = p.d.years ?? [];
     Plotly.react(div, [
