@@ -72,7 +72,9 @@ export function YearStrip(p: { rows: YearRow[]; years: [number, number]; theme: 
       x: r.map((d) => d.year), y: r.map((d) => d.n), type: "bar", marker: { color: b.accent },
       customdata: r.map((d) => d.n_samples), hovertemplate: "%{x}: %{y} rows, %{customdata} samples<extra></extra>",
     }] : [
-      { x: [...xs, ...xs.slice().reverse()], y: [...hi, ...lo.slice().reverse()], type: "scatter", mode: "lines", fill: "toself", fillcolor: "rgba(77,171,247,0.22)", line: { width: 0 }, hoverinfo: "skip", connectgaps: false },
+      // lo then hi with tonexty: a null in either breaks the band at the gap instead of bridging it
+      { x: xs, y: lo, type: "scatter", mode: "lines", line: { width: 0 }, hoverinfo: "skip", connectgaps: false, showlegend: false },
+      { x: xs, y: hi, type: "scatter", mode: "lines", fill: "tonexty", fillcolor: "rgba(77,171,247,0.22)", line: { width: 0 }, hoverinfo: "skip", connectgaps: false, showlegend: false },
       { x: xs, y: ys, type: "scatter", mode: "lines+markers", line: { color: b.accent, width: 2 }, marker: { size: 4 }, connectgaps: false,
         customdata: r.map((d) => d.n), hovertemplate: "%{x}: mean %{y:.3g} ± se<br>n %{customdata}<extra></extra>" },
     ];
