@@ -7,6 +7,7 @@ import { engine, timing, hexExpr, type Mark, type Row } from "./engine";
 import { buildLayers, MapView, quantileDomain, viridisCss, type GridCell, type StatRow } from "./map";
 import { DepthStrip, YearStrip, SectionPlot, CruiseSeries, StationCard, type DepthRow, type YearRow, type SectionCell, type CruiseRow } from "./charts";
 import { resolveVersion, fetchCatalog, fetchVersions, sources, sidecarUrl, type Catalog } from "./release";
+import { buildBundle, saveBlob } from "./bundle";
 import {
   fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LAYERS, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, STAT_LABEL,
   type Sel, type Lens, type Den, type Stat, type PickerRow,
@@ -79,6 +80,8 @@ export function App() {
   const [yearRows, setYearRows] = useState<YearRow[]>([]);
   const [time, setTime] = useState(0);
   const [lastSql, setLastSql] = useState("");
+  const [bundling, setBundling] = useState<string | null>(null);
+  const [seriesMode, setSeriesMode] = useState<"n" | "mean">("n");
   const lensClickAt = useRef<number | null>(null);
   const opened = useRef(false);
   const gen = useRef(0);
@@ -332,6 +335,23 @@ export function App() {
   }, [sel.station, cov, covStations, grid]);
 
   const onLens = (l: Lens) => { lensClickAt.current = performance.now(); setSel({ lens: l }); };
+  const download = async () => {
+    if (!catalog || !version || bundling) return;
+    try {
+      const lensTemplate = sel.lens === "hex" ? "hex" : sel.lens === "region" ? "region" : sel.lens === "cruise" ? "cruise" : sel.lens === "section" ? (sel.realm === "env" ? "section" : "section_bio") : "station";
+      const lensParams: Record<string, any> = sel.lens === "hex" ? { hex: hexExpr(sel.res) } : sel.lens === "region" ? { layer: sel.layer } : sel.lens === "section" ? { line: sel.line, cruise: sel.cruise } : {};
+      const summary = sel.lens === "hex" ? hexRows : sel.lens === "region" ? regionRows : sel.lens === "cruise" ? cruiseRows : sel.lens === "section" ? sectionCells : stationRows;
+      const { blob, name } = await buildBundle({
+        sel, version, catalog, params, lensParams, lensTemplate, summary: summary as Row[], summaryKey: sel.lens, grid, regionFeatures: layerFeatures,
+        datasets, unit: unitLabel, envFile: sel.realm === "env" ? envReg(sel.var) : null, bioSrcName: REG.obs_bio, hexRes: sel.res, onStatus: setBundling,
+      });
+      (window as any).__lastBundle = { name, bytes: blob.size };
+      saveBlob(blob, name);
+      timing.add("bundle", 0, `${name} ${(blob.size / 1e6).toFixed(1)} MB`);
+    } catch (e: any) { console.error(e); setStatus(`bundle error: ${e.message}`); }
+    setBundling(null);
+  };
+  (window as any).__download = download; // spike/verify hook
   const getTooltip = (info: PickingInfo) => {
     const o: any = info.object; if (!o) return null;
     const id = info.layer?.id;
@@ -440,6 +460,10 @@ export function App() {
             <div className="row" style={{ justifyContent: "space-between" }}><b>{stationCard.grid_key}</b><span className="hint">line {stationCard.cell?.line} · station {stationCard.cell?.station}</span><button className="pill" onClick={() => setSel({ station: null })}>×</button></div>
             <StationCard summary={stationCard.summary} detail={stationCard.detail} theme={theme} short={short} />
           </div>}
+          <div className="row" style={{ marginTop: 4 }}>
+            <button className="pill" disabled={!sliceKey || !!bundling} onClick={download} title="README · CITATION · summary (+GeoJSON) · observations (parquet/CSV) · the exact SQL against the release's object URLs · reproduce.R / .py">
+              {bundling ? `bundle: ${bundling}` : "⬇ download bundle"}</button>
+          </div>
           <div className="hint" style={{ marginTop: "auto" }}>{LENS_TITLE[sel.lens]}. Release {rel}{catalog ? ` · ${catalog.tables.length} tables` : ""} · DuckDB-WASM in a worker, no extensions, objects fetched whole from the release catalog.</div>
         </div>
         <div className="panel mapwrap">
@@ -476,7 +500,8 @@ export function App() {
           <DepthStrip rows={depthRows} band={sel.depth} theme={theme} unit={unitLabel} onBand={(b) => setSel({ depth: b ?? [0, 500] })} />
         </div>
         <div className="panel strip">
-          <YearStrip rows={yearRows} years={sel.years} theme={theme} onYears={(y) => setSel({ years: y ?? [1949, 2023] })} />
+          <YearStrip rows={yearRows} years={sel.years} theme={theme} mode={seriesMode} unit={unitLabel} onYears={(y) => setSel({ years: y ?? [1949, 2023] })} />
+          <span className="seg strip-mode"><button className={seriesMode === "n" ? "on" : ""} onClick={() => setSeriesMode("n")}>rows</button><button className={seriesMode === "mean" ? "on" : ""} onClick={() => setSeriesMode("mean")}>mean ± se</button></span>
         </div>
       </div>
     </div>

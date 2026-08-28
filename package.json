@@ -13,6 +13,7 @@
     "@duckdb/duckdb-wasm": "1.33.1-dev57.0",
     "deck.gl": "^9.3.10",
     "h3-js": "^4.5.0",
+    "jszip": "^3.10.1",
     "maplibre-gl": "^5.24.0",
     "plotly.js-dist-min": "^4.0.0",
     "react": "^18.3.1",

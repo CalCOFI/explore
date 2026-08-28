@@ -55,16 +55,30 @@ export function DepthStrip(p: { rows: DepthRow[]; band: [number, number]; theme:
   return <div ref={ref} className="plot fill" />;
 }
 
-export interface YearRow { year: number; n: number; n_samples: number; mean: number | null }
-export function YearStrip(p: { rows: YearRow[]; years: [number, number]; theme: string; onYears: (y: [number, number] | null) => void }) {
-  const ref = usePlot([p.rows, p.years, p.theme], (div) => {
+export interface YearRow { year: number; n: number; n_samples: number; mean: number | null; se?: number | null }
+// mode "n": rows per year (coverage); mode "mean": the time series — mean ± standard error per year,
+// the line broken across unsampled years (db-viz-hex's series, cc_ts_gaps in spirit)
+export function YearStrip(p: { rows: YearRow[]; years: [number, number]; theme: string; mode: "n" | "mean"; unit: string; onYears: (y: [number, number] | null) => void }) {
+  const ref = usePlot([p.rows, p.years, p.theme, p.mode, p.unit], (div) => {
     const b = base(p.theme);
-    Plotly.react(div, [{
-      x: p.rows.map((d) => d.year), y: p.rows.map((d) => d.n), type: "bar", marker: { color: b.accent },
-      customdata: p.rows.map((d) => d.n_samples), hovertemplate: "%{x}: %{y} rows, %{customdata} samples<extra></extra>",
-    }], {
+    const r = p.rows;
+    // insert nulls where a year is missing so the line breaks instead of bridging the gap
+    const xs: (number | null)[] = [], ys: (number | null)[] = [], lo: (number | null)[] = [], hi: (number | null)[] = [];
+    for (let i = 0; i < r.length; i++) {
+      if (i > 0 && r[i].year - r[i - 1].year > 1) { xs.push(r[i].year - 1); ys.push(null); lo.push(null); hi.push(null); }
+      xs.push(r[i].year); ys.push(r[i].mean); lo.push(r[i].mean != null && r[i].se != null ? r[i].mean! - r[i].se! : null); hi.push(r[i].mean != null && r[i].se != null ? r[i].mean! + r[i].se! : null);
+    }
+    const data: any[] = p.mode === "n" ? [{
+      x: r.map((d) => d.year), y: r.map((d) => d.n), type: "bar", marker: { color: b.accent },
+      customdata: r.map((d) => d.n_samples), hovertemplate: "%{x}: %{y} rows, %{customdata} samples<extra></extra>",
+    }] : [
+      { x: [...xs, ...xs.slice().reverse()], y: [...hi, ...lo.slice().reverse()], type: "scatter", mode: "lines", fill: "toself", fillcolor: "rgba(77,171,247,0.22)", line: { width: 0 }, hoverinfo: "skip", connectgaps: false },
+      { x: xs, y: ys, type: "scatter", mode: "lines+markers", line: { color: b.accent, width: 2 }, marker: { size: 4 }, connectgaps: false,
+        customdata: r.map((d) => d.n), hovertemplate: "%{x}: mean %{y:.3g} ± se<br>n %{customdata}<extra></extra>" },
+    ];
+    Plotly.react(div, data, {
       ...b, showlegend: false, dragmode: "select", selectdirection: "h", bargap: 0.15,
-      xaxis: { ...b.xaxis, range: [1948, 2024], fixedrange: true }, yaxis: { ...b.yaxis, title: { text: "rows", standoff: 2 }, fixedrange: true },
+      xaxis: { ...b.xaxis, range: [1948, 2024], fixedrange: true }, yaxis: { ...b.yaxis, title: { text: p.mode === "n" ? "rows" : `mean ${p.unit}`, standoff: 2 }, fixedrange: true },
       margin: { l: 44, r: 8, t: 6, b: 22 },
       shapes: (p.years[0] <= 1949 && p.years[1] >= 2023) ? [] : [{ type: "rect", yref: "paper", y0: 0, y1: 1, x0: p.years[0] - 0.5, x1: p.years[1] + 0.5, fillcolor: "rgba(255,214,10,0.10)", line: { color: "rgba(255,214,10,0.6)", width: 1 } }],
     }, CFG);
