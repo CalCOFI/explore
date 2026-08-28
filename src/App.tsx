@@ -85,6 +85,7 @@ export function App() {
   const lensClickAt = useRef<number | null>(null);
   const opened = useRef(false);
   const gen = useRef(0);
+  const lensGen = useRef(0); // a lens effect that finishes after a newer selection must not touch the view
   const catRef = useRef<Catalog | null>(null);
   const loads = useRef(new Map<string, Promise<void>>());
   const setSel = (patch: Partial<Sel>) => setSelRaw((s) => ({ ...s, ...patch }));
@@ -201,20 +202,24 @@ export function App() {
   useEffect(() => {
     if (!sliceKey || (sel.realm === "bio" && !sel.den)) return;
     const g = gen.current;
+    const lg = ++lensGen.current;
+    const stale = () => g !== gen.current || lg !== lensGen.current;
     const lens = sel.lens;
     (async () => {
       const t = performance.now();
       const need_station = !opened.current || lens === "station";
-      if (need_station) setStationRows(await engine.query("station", params));
-      if (lens === "hex") setHexRows(await engine.query("hex", { ...params, hex: hexExpr(sel.res) }));
+      if (need_station) { const r = await engine.query("station", params); if (stale()) return; setStationRows(r); }
+      if (lens === "hex") { const r = await engine.query("hex", { ...params, hex: hexExpr(sel.res) }); if (stale()) return; setHexRows(r); }
       if (lens === "region") {
         await ensure(REG.sample_spatial); await ensure(REG.sample_root);
-        setRegionRows(await engine.query("region", { ...params, layer: sel.layer, spatial_src: q(REG.sample_spatial) }));
+        const rr = await engine.query("region", { ...params, layer: sel.layer, spatial_src: q(REG.sample_spatial) });
         const rs = await engine.query("region_station", { layer: sel.layer, root_src: q(REG.sample_root), spatial_src: q(REG.sample_spatial) });
-        setRegionStation(new Map(rs.map((r) => [r.grid_key, r.spatial_key])));
+        if (stale()) return;
+        setRegionRows(rr); setRegionStation(new Map(rs.map((r) => [r.grid_key, r.spatial_key])));
       }
       if (lens === "cruise") {
         const cr = (await engine.query("cruise", params)) as CruiseRow[];
+        if (stale()) return;
         setCruiseRows(cr);
         let ck = sel.cruise && cr.some((c) => c.cruise_key === sel.cruise) ? sel.cruise : null;
         if (!ck && cr.length) ck = cr.slice().sort((a, b) => b.n_sta - a.n_sta || b.t0 - a.t0)[0].cruise_key;
@@ -222,33 +227,39 @@ export function App() {
         if (ck) {
           await ensure(REG.sample_root);
           const tr = await engine.query("cruise_track", { cruise: ck, root_src: q(REG.sample_root) });
+          const cs2 = await engine.query("cruise_samples", { ...params, cruise: ck });
+          if (stale()) return;
           if (tr.length > 1) {
             const t0 = tr[0].t, t1 = tr[tr.length - 1].t || t0 + 1;
             setTrack({ path: tr.map((r) => [r.longitude, r.latitude]), ts: tr.map((r) => ((r.t - t0) / (t1 - t0)) * 1000) });
           } else setTrack(null);
-          setCruiseSamples(await engine.query("cruise_samples", { ...params, cruise: ck }));
+          setCruiseSamples(cs2);
         }
       }
       if (lens === "section") {
         const cs = await engine.query("section_cruises", { ...params, line: sel.line });
+        if (stale()) return;
         setSectionCruises(cs);
         let ck = sel.cruise && cs.some((c) => c.cruise_key === sel.cruise) ? sel.cruise : null;
         if (!ck && cs.length) ck = cs[0].cruise_key;
         if (ck !== sel.cruise) { setSel({ cruise: ck }); return; }
         if (sel.realm === "env") {
           const sc = ck ? await engine.query("section", { ...params, line: sel.line, cruise: ck }) : [];
-          setSectionCells(sc.map((r) => ({ station: r.station, y: r.depth_bin, v: r.v, n: r.n })));
           const cl = await engine.query("section_clim", { ...params, line: sel.line });
+          if (stale()) return;
+          setSectionCells(sc.map((r) => ({ station: r.station, y: r.depth_bin, v: r.v, n: r.n })));
           setClimCells(cl.map((r) => ({ station: r.station, y: r.depth_bin, v: r.v, n: r.n })));
         } else {
           const sc = await engine.query("section_bio", { ...params, line: sel.line });
+          if (stale()) return;
           setSectionCells(sc.map((r) => ({ station: r.station, y: r.year, v: r.v, n: r.n })));
           setClimCells(null);
         }
       }
-      setDepthRows((await engine.query("depth_strip", params)) as DepthRow[]);
-      setYearRows((await engine.query("years", params)) as YearRow[]);
-      if (g !== gen.current) return;
+      const dr = (await engine.query("depth_strip", params)) as DepthRow[];
+      const yr = (await engine.query("years", params)) as YearRow[];
+      if (stale()) return;
+      setDepthRows(dr); setYearRows(yr);
       setLastSql(engine.lastSql);
       const ms = performance.now() - t;
       if (lensClickAt.current != null) { timing.add(`grain_switch:${lens}`, performance.now() - lensClickAt.current, `${LENS_SHORT[lens]} data ready (transition ${duration} ms on top)`); lensClickAt.current = null; }
