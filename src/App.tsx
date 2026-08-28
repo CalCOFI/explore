@@ -6,7 +6,7 @@ import type { PickingInfo } from "@deck.gl/core";
 import { engine, timing, hexExpr, type Mark, type Row } from "./engine";
 import { buildLayers, MapView, quantileDomain, viridisCss, type GridCell, type StatRow } from "./map";
 import { DepthStrip, YearStrip, SectionPlot, CruiseSeries, StationCard, type DepthRow, type YearRow, type SectionCell, type CruiseRow } from "./charts";
-import { resolveVersion, fetchCatalog, fetchVersions, sources, sidecarUrl, type Catalog } from "./release";
+import { resolveVersion, fetchCatalog, fetchVersions, sources, sidecarUrl, earlySidecar, type Catalog } from "./release";
 import { buildBundle, saveBlob } from "./bundle";
 import {
   fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LAYERS, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, STAT_LABEL,
@@ -122,8 +122,8 @@ export function App() {
       fetchVersions().then((vs) => setVersions(vs.filter((x: any) => !x.retired).map((x: any) => x.version)));
       // static first paint: grid cells + the coverage cube (no WASM in the path)
       const [gj, cv] = await Promise.all([
-        fetch(sidecarUrl(v, "grid.geojson")).then((r) => r.json()),
-        fetch(sidecarUrl(v, "coverage.json")).then((r) => r.json()) as Promise<Coverage>,
+        earlySidecar("grid") ?? fetch(sidecarUrl(v, "grid.geojson")).then((r) => r.json()),
+        (earlySidecar("coverage") ?? fetch(sidecarUrl(v, "coverage.json")).then((r) => r.json())) as Promise<Coverage>,
       ]);
       const cells: GridCell[] = gj.features.map((f: any) => ({
         grid_key: f.properties.grid_key, line: f.properties.line, station: f.properties.station, home: [f.properties.lon_ctr, f.properties.lat_ctr],

@@ -14,6 +14,9 @@
 <script defer src="https://calcofi.io/brand/v1/theme.js"></script>
 <!-- /brand -->
 <script>window.__t0 = performance.now();</script>
+<!-- start the release fetches before the app bundle parses: latest.txt -> catalog.json + coverage.json +
+     grid.geojson. release.ts / App.tsx pick these promises up if they exist (first paint before any WASM). -->
+<script>(function(){var b="%VITE_DATA_URL%",p="%VITE_RELEASE_PREFIX%";if(b.indexOf("%")===0)b="https://storage.googleapis.com/calcofi-db/";if(p.indexOf("%")===0)p="ducklake/releases";b=b.replace(/\/?$/,"/");var m=/[?&]release=([^&]+)/.exec(location.search),v=m?decodeURIComponent(m[1]):null;var ver=v&&v!=="latest"?Promise.resolve(v):fetch(b+p+"/latest.txt",{cache:"no-cache"}).then(function(r){return r.text()}).then(function(t){return t.trim()});var dir=ver.then(function(x){return b+p+"/"+x+"/"});window.__early={version:ver,catalog:dir.then(function(d){return fetch(d+"catalog.json",{cache:"no-cache"}).then(function(r){return r.json()})}),coverage:dir.then(function(d){return fetch(d+"coverage.json").then(function(r){return r.json()})}),grid:dir.then(function(d){return fetch(d+"grid.geojson").then(function(r){return r.json()})})};})();</script>
 </head>
 <body>
 <div id="root"></div>

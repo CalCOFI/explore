@@ -24,7 +24,11 @@ export const objectUrl = (path: string) => BASE + path.replace(/^\//, "");
 export const releaseDir = (version: string) => `${BASE}${PREFIX}/${version}/`;
 export const sidecarUrl = (version: string, name: string) => releaseDir(version) + name;
 
+// index.html starts these before the bundle parses; use them when they are there
+const early = (window as any).__early as { version: Promise<string>; catalog: Promise<Catalog>; coverage: Promise<any>; grid: Promise<any> } | undefined;
+export const earlySidecar = (name: "coverage" | "grid") => early?.[name];
 export async function resolveVersion(v: string | null | undefined): Promise<string> {
+  if (early) return early.version;
   if (v && v !== "latest") return v;
   const r = await fetch(`${BASE}${PREFIX}/latest.txt`, { cache: "no-cache" });
   if (!r.ok) throw new Error(`latest.txt: ${r.status}`);
@@ -37,6 +41,7 @@ export async function fetchVersions(): Promise<{ version: string; release_date?:
   return (j.versions ?? j) as any[];
 }
 export async function fetchCatalog(version: string): Promise<Catalog> {
+  if (early) { const c = await early.catalog; if (c.version === version) return c; }
   const r = await fetch(sidecarUrl(version, "catalog.json"), { cache: "no-cache" });
   if (!r.ok) throw new Error(`catalog.json ${version}: ${r.status}`);
   return (await r.json()) as Catalog;
