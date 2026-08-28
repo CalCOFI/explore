@@ -1,9 +1,9 @@
--- the working slice: one env variable (one hive object), uniform columns shared with slice_bio.sql
+-- the working slice: one env variable — one hive object of obs_env, whose partition key (measurement_type)
+-- lives in the object's PATH, not its columns, so the template supplies it as a literal
 CREATE OR REPLACE TABLE slice AS
-SELECT root_id, dataset_key, grid_key,
+SELECT obs_id, dataset_key, root_id, grid_key,
        regexp_extract(grid_key, 'ln([0-9.]+)', 1)::DOUBLE AS line, regexp_extract(grid_key, 'st(-?[0-9.]+)', 1)::DOUBLE AS station,
-       cruise_key, latitude, longitude, datetime, year, quarter,
-       depth_min_m, depth_max_m, depth_bin, life_stage, NULL::VARCHAR AS tow_type, unit, value,
-       NULL::DOUBLE AS density_per_10m2, NULL::DOUBLE AS density_per_1000m3, 'env' AS effort_class, qual_ok,
-       hex_r3, hex_r4, hex_r5, hex_r6, hex_r7
-FROM {{env_file}}
+       cruise_key, latitude, longitude, datetime, year, quarter, depth_min_m, depth_max_m, depth_bin,
+       taxon_key, life_stage, {{var}} AS measurement_type, units, value, measurement_qual, qual_ok,
+       tow_type, std_haul_factor, prop_sorted, volume_sampled_m3, density_per_10m2, density_per_1000m3, effort_class, hex7
+FROM {{src}}

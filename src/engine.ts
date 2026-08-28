@@ -32,7 +32,15 @@ export function template(name: string): string {
 }
 export type Param = string | number | boolean | null;
 export interface Params { [k: string]: Param }
-const RAW = new Set(["val", "hex", "where", "where_nodepth", "where_noyear", "env_file"]);
+const RAW = new Set(["val", "hex", "where", "where_nodepth", "where_noyear", "src", "taxon_src", "root_src", "spatial_src"]);
+
+// an H3 parent as plain bit arithmetic (calcofi4db::h3_parent_sql): resolution in bits 52–55, one
+// 3-bit digit per resolution, unused digits = 7. printf('%x') is the standard H3 string.
+export function h3ParentSql(hex: string, res: number): string {
+  if (res < 0 || res > 15) throw new Error(`h3 res ${res}`);
+  return `(((${hex} & ~(15::UBIGINT << 52)) | (${res}::UBIGINT << 52)) | ((1::UBIGINT << ${3 * (15 - res)}) - 1))`;
+}
+export function hexExpr(res: number): string { return res >= 7 ? "printf('%x', hex7)" : `printf('%x', ${h3ParentSql("hex7", res)})`; }
 export function lit(v: Param): string {
   if (v === null || v === undefined) return "NULL";
   if (typeof v === "number") return Number.isFinite(v) ? String(v) : "NULL";

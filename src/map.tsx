@@ -55,6 +55,7 @@ export interface LayerInputs {
   section: { line: number; cruiseStations: Set<string> };
   duration: number;
   domain: [number, number];
+  selectedStation?: string | null;
 }
 
 function statOf(r: StatRow | undefined, stat: Stat): number | null {
@@ -187,8 +188,10 @@ export function buildLayers(inp: LayerInputs): Layer[] {
     getPosition: dotTarget,
     getFillColor: dotColor,
     getRadius: dotRadius,
-    stroked: true, lineWidthMinPixels: 0.5, getLineColor: [0, 0, 0, 90],
-    updateTriggers: { getPosition: [lens, inp.res, inp.region.stationTo], getFillColor: [lens, inp.res, stat, inp.domain, inp.station, inp.hex, inp.region.stats, inp.section], getRadius: [lens, inp.station, inp.section] },
+    stroked: true, lineWidthMinPixels: 0.5,
+    getLineColor: (c: GridCell) => (c.grid_key === inp.selectedStation ? [255, 214, 10, 255] : [0, 0, 0, 90]),
+    getLineWidth: (c: GridCell) => (c.grid_key === inp.selectedStation ? 3 : 1), lineWidthUnits: "pixels",
+    updateTriggers: { getPosition: [lens, inp.res, inp.region.stationTo], getFillColor: [lens, inp.res, stat, inp.domain, inp.station, inp.hex, inp.region.stats, inp.section], getRadius: [lens, inp.station, inp.section], getLineColor: [inp.selectedStation], getLineWidth: [inp.selectedStation] },
     transitions: trans(),
   }));
   return layers;

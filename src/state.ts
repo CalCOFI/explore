@@ -21,6 +21,8 @@ export interface Sel {
   stat: Stat;
   anom: boolean;               // section: anomaly vs climatology
   tour: boolean;               // ?tour=off suppresses the opening morph
+  release: string | null;      // ?release=vYYYY.MM.DD; null = latest.txt
+  station: string | null;      // a selected grid cell (its coverage card)
   theme: "dark" | "light" | null;
 }
 
@@ -36,7 +38,7 @@ export const LENS_SHORT: Record<Lens, string> = {
   station: "Stations", hex: "Hexagons", cruise: "Cruises", region: "Regions", section: "Sections",
 };
 export const LAYERS = ["Marine Protected Areas", "National Marine Sanctuaries", "CDFW Regions", "CA Counties"];
-export const ENV_VARS: Record<string, string> = { temperature: "Temperature (°C)", oxygen_ml_l: "Oxygen (ml/L)" };
+export const ENV_VARS_FALLBACK: Record<string, string> = { temperature: "Temperature (°C)", oxygen_ml_l: "Oxygen (ml/L)" };
 export const VAL_COL: Record<Den, string> = { per_10m2: "density_per_10m2", per_1000m3: "density_per_1000m3", raw: "value" };
 export const DEN_LABEL: Record<Den, string> = {
   per_10m2: "per 10 m² (areal, depth-integrated)",
@@ -50,7 +52,7 @@ export const DEFAULT_TAXON = "worms:217452"; // Pacific sardine
 export const DEFAULTS: Sel = {
   lens: "station", res: 5, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature",
   stage: null, den: null, years: [1949, 2023], depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
-  line: 90, cruise: null, stat: "mean", anom: false, tour: true, theme: null,
+  line: 90, cruise: null, stat: "mean", anom: false, tour: true, theme: null, release: null, station: null,
 };
 
 const num = (v: string | null, d: number) => (v != null && v !== "" && !isNaN(+v) ? +v : d);
@@ -70,9 +72,9 @@ export function fromUrl(): Sel {
     ...DEFAULTS,
     lens,
     res: Math.min(7, Math.max(3, num(p.get("res"), DEFAULTS.res))),
-    realm: v && ENV_VARS[v] ? "env" : "bio",
+    realm: v ? "env" : "bio",
     taxon: p.get("taxon") ?? DEFAULTS.taxon,
-    var: v && ENV_VARS[v] ? v : DEFAULTS.var,
+    var: v ?? DEFAULTS.var,
     stage: p.get("stage"),
     den: den && (den in VAL_COL) ? (den as Den) : null,
     years: pair(p.get("years"), DEFAULTS.years),
@@ -84,6 +86,8 @@ export function fromUrl(): Sel {
     stat: stat && (stat in STAT_LABEL) ? (stat as Stat) : DEFAULTS.stat,
     anom: p.get("anom") === "1",
     tour: p.get("tour") !== "off",
+    release: p.get("release"),
+    station: p.get("station"),
     theme: (p.get("theme") as Sel["theme"]) ?? null,
   };
 }
@@ -105,6 +109,8 @@ export function toUrl(s: Sel) {
   if ((s.lens === "section" || s.lens === "cruise") && s.cruise) p.set("cruise", s.cruise);
   if (s.stat !== DEFAULTS.stat) p.set("stat", s.stat);
   if (!s.tour) p.set("tour", "off");
+  if (s.release) p.set("release", s.release);
+  if (s.station) p.set("station", s.station);
   if (s.theme) p.set("theme", s.theme);
   const url = `${location.pathname}?${p.toString()}`;
   if (url !== location.pathname + location.search) history.replaceState(null, "", url);
@@ -112,7 +118,7 @@ export function toUrl(s: Sel) {
 
 // the picker's rule-4 defaults, from picker.sql rows
 export interface PickerRow {
-  dataset_key: string; life_stage: string | null; effort_class: string; tow_type: string | null; unit: string;
+  dataset_key: string; life_stage: string | null; effort_class: string; tow_type: string | null; units: string;
   n: number; n_10m2: number; n_1000m3: number; n_flagged: number;
 }
 export function defaultStage(rows: PickerRow[]): string | null {

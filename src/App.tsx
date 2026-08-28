@@ -1,27 +1,41 @@
 // the shell: brand header, controls (lens · picker · years · stat), map + legend + status, depth strip,
-// year strip, section / cruise panels, timing panel. every view is a pure function of the slice + the URL.
+// year strip, section / cruise / station panels, timing panel. every view is a pure function of the
+// release slice + the URL. data comes from the release catalog (release.ts), never a hand-built path.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PickingInfo } from "@deck.gl/core";
-import { engine, timing, type Mark, type Row } from "./engine";
+import { engine, timing, hexExpr, type Mark, type Row } from "./engine";
 import { buildLayers, MapView, quantileDomain, viridisCss, type GridCell, type StatRow } from "./map";
-import { DepthStrip, YearStrip, SectionPlot, CruiseSeries, type DepthRow, type YearRow, type SectionCell, type CruiseRow } from "./charts";
+import { DepthStrip, YearStrip, SectionPlot, CruiseSeries, StationCard, type DepthRow, type YearRow, type SectionCell, type CruiseRow } from "./charts";
+import { resolveVersion, fetchCatalog, fetchVersions, sources, sidecarUrl, type Catalog } from "./release";
 import {
-  fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LAYERS, ENV_VARS, VAL_COL, DEN_LABEL, STAT_LABEL, RELEASE,
+  fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LAYERS, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, STAT_LABEL,
   type Sel, type Lens, type Den, type Stat, type PickerRow,
 } from "./state";
 
-// objects: the local symlink in dev, GCS (or the release catalog, Phase 1) when built for Pages
-const DATA = (import.meta.env.VITE_DATA_URL as string | undefined) ?? "data/";
-const ENV_FILE = (v: string) => `obs_env_${v}.parquet`;
 const DS_SHORT: Record<string, string> = {
-  swfsc_ichthyo: "ichthyo", swfsc_cufes: "CUFES", calcofi_bottle: "bottle", "calcofi_ctd-cast": "CTD", cce_lter_zoodb: "zoodb",
+  swfsc_ichthyo: "ichthyo", swfsc_cufes: "CUFES", calcofi_bottle: "bottle", "calcofi_ctd-cast": "CTD", calcofi_dic: "DIC", calcofi_mets: "METS",
   "cce-lter_zoodb": "zoodb", "cce-lter_zooscan": "zooscan", "cce-lter_euphausiids": "euphausiids", calcofi_phytoplankton: "phyto",
   calcofi_phyllosoma: "phyllosoma", "sio_mesopelagic-fish": "mesopelagic", "farallon_bird-mammal": "farallon", "cdfw_dungeness-crab": "dungeness",
+  "sio_pic-zooplankton": "PIC", "calcofi_picoplankton": "picoplankton",
 };
 const short = (d: string) => DS_SHORT[d] ?? d;
 const fmt = (v: number | null | undefined, d = 2) => (v == null || !Number.isFinite(v) ? "–" : v.toLocaleString(undefined, { maximumFractionDigits: d }));
 const fmtN = (v: number) => v.toLocaleString();
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// registered buffer names: the SQL templates read these (`{{src}}` etc.), never a URL
+const REG = { obs_bio: "obs_bio.parquet", sample_root: "sample_root.parquet", sample_spatial: "sample_spatial.parquet", taxon: "taxon.parquet", measurement_type: "measurement_type.parquet", dataset: "dataset.parquet" } as const;
+const envReg = (v: string) => `obs_env_${v}.parquet`;
+const q = (name: string) => `'${name}'`;
+
+export interface Coverage {
+  version: string;
+  datasets: { dataset_key: string; realm: string; n_obs: number; n_roots: number; year_min: number; year_max: number }[];
+  stations: { grid_key: string; datasets: { dataset_key: string; n_obs: number; n_roots: number; year_min: number; year_max: number }[] }[];
+  years: { dataset_key: string; year: number; n_obs: number; n_roots: number }[];
+  variables: { dataset_key: string; realm: string; measurement_type: string; n_obs: number; n_roots: number; year_min: number; year_max: number; depth_min_m: number | null; depth_max_m: number | null }[];
+}
+export interface CoverageStations { version: string; stations: { grid_key: string; datasets: { dataset_key: string; n_obs: number; year_min: number; year_max: number; years: [number, number][]; months: number[] }[] }[] }
 
 function polyCentroid(f: any): [number, number] {
   const g = f.geometry;
@@ -37,9 +51,16 @@ export function App() {
   const [sel, setSelRaw] = useState<Sel>(() => fromUrl());
   const [displayLens, setDisplayLens] = useState<Lens>("station");
   const [theme, setTheme] = useState<"dark" | "light">(document.documentElement.dataset.theme === "light" ? "light" : "dark");
+  const [version, setVersion] = useState<string | null>(null);
+  const [versions, setVersions] = useState<string[]>([]);
+  const [catalog, setCatalog] = useState<Catalog | null>(null);
+  const [cov, setCov] = useState<Coverage | null>(null);
+  const [covStations, setCovStations] = useState<CoverageStations | null>(null);
   const [grid, setGrid] = useState<GridCell[]>([]);
   const [spatial, setSpatial] = useState<any[]>([]);
   const [taxa, setTaxa] = useState<Row[]>([]);
+  const [envVars, setEnvVars] = useState<{ key: string; label: string; n: number }[]>([]);
+  const [datasets, setDatasets] = useState<Row[]>([]);
   const [picker, setPicker] = useState<PickerRow[]>([]);
   const [sliceKey, setSliceKey] = useState<string | null>(null);
   const [status, setStatus] = useState("grid (static)");
@@ -61,49 +82,99 @@ export function App() {
   const lensClickAt = useRef<number | null>(null);
   const opened = useRef(false);
   const gen = useRef(0);
+  const catRef = useRef<Catalog | null>(null);
   const loads = useRef(new Map<string, Promise<void>>());
-  const ensure = (name: string) => {
-    if (!loads.current.has(name)) loads.current.set(name, engine.load(name, DATA + (name.startsWith("obs_env_") ? `obs_env/measurement_type=${name.slice(8, -8)}/data.parquet` : name)));
-    return loads.current.get(name)!;
-  };
   const setSel = (patch: Partial<Sel>) => setSelRaw((s) => ({ ...s, ...patch }));
   const duration = reducedMotion ? 0 : 700;
 
-  // ── boot: static grid first, engine + objects behind it ───────────────────
+  // fetch a release object whole and register it under its short name (idempotent)
+  const ensure = (name: string, url?: string) => {
+    if (!loads.current.has(name)) {
+      const cat = catRef.current;
+      let u = url;
+      if (!u && cat) {
+        if (name.startsWith("obs_env_")) {
+          const v = name.slice(8, -8);
+          u = sources(cat, "obs_env").partitions.get(v);
+          if (!u) return Promise.reject(new Error(`obs_env has no object for ${v} in ${cat.version}`));
+        } else u = sources(cat, name.replace(/\.parquet$/, "")).urls[0];
+      }
+      if (!u) return Promise.reject(new Error(`no catalog yet for ${name}`));
+      loads.current.set(name, engine.load(name, u));
+    }
+    return loads.current.get(name)!;
+  };
+
+  // ── boot: catalog + sidecars (static first paint), engine + objects behind it ─
   useEffect(() => {
     timing.subscribe(() => setMarks(timing.marks));
     document.addEventListener("cc:theme", (e: any) => setTheme(e.detail.theme));
     if (sel.theme && document.documentElement.dataset.theme !== sel.theme) document.documentElement.dataset.theme = sel.theme;
-    const t = performance.now();
-    fetch(DATA + "grid.geojson").then((r) => r.json()).then((gj) => {
+    (async () => {
+      const t = performance.now();
+      const v = await resolveVersion(sel.release);
+      const cat = await fetchCatalog(v);
+      catRef.current = cat; setCatalog(cat); setVersion(v);
+      timing.add("catalog", performance.now() - t, `${v} · ${cat.tables.length} tables`);
+      fetchVersions().then((vs) => setVersions(vs.filter((x: any) => !x.retired).map((x: any) => x.version)));
+      // static first paint: grid cells + the coverage cube (no WASM in the path)
+      const [gj, cv] = await Promise.all([
+        fetch(sidecarUrl(v, "grid.geojson")).then((r) => r.json()),
+        fetch(sidecarUrl(v, "coverage.json")).then((r) => r.json()) as Promise<Coverage>,
+      ]);
       const cells: GridCell[] = gj.features.map((f: any) => ({
         grid_key: f.properties.grid_key, line: f.properties.line, station: f.properties.station, home: [f.properties.lon_ctr, f.properties.lat_ctr],
       })).sort((a: GridCell, b: GridCell) => a.line - b.line || a.station - b.station);
-      setGrid(cells);
-      timing.add("fetch:grid.geojson", performance.now() - t, `${cells.length} cells`);
-    });
-    fetch(DATA + "spatial_spike.geojson").then((r) => r.json()).then((gj) => setSpatial(gj.features));
-    setStatus("engine warming…");
-    ensure("obs_bio.parquet"); ensure("taxon_bio.parquet"); ensure("sample_spatial.parquet"); // sample_root (11 MB) waits for the Cruise lens
-    if (sel.realm === "env") ensure(ENV_FILE(sel.var));
-    Promise.all([ensure("obs_bio.parquet"), ensure("taxon_bio.parquet")]).then(() => engine.query("taxa", {})).then((r) => setTaxa(r.slice(0, 300)));
+      setGrid(cells); setCov(cv);
+      timing.add("fetch:sidecars", performance.now() - t, `${cells.length} cells · coverage ${cv.datasets.length} datasets`);
+      // the engine + the objects every lens needs, in parallel with the paint
+      setStatus("engine warming…");
+      ensure(REG.obs_bio); ensure(REG.taxon); ensure(REG.measurement_type); ensure(REG.sample_spatial); ensure(REG.dataset);
+      if (sel.realm === "env") ensure(envReg(sel.var));
+      Promise.all([ensure(REG.obs_bio), ensure(REG.taxon)])
+        .then(() => engine.query("taxa", { src: q(REG.obs_bio), taxon_src: q(REG.taxon) })).then((r) => setTaxa(r.slice(0, 400)));
+      Promise.all([ensure(REG.measurement_type), ensure(REG.dataset)]).then(async () => {
+        const mt = await engine.exec(`SELECT measurement_type, description, units FROM ${q(REG.measurement_type)}`, "measurement_type");
+        const lab = new Map(mt.map((r) => [r.measurement_type, r]));
+        const env = cv.variables.filter((x) => x.realm === "env");
+        const byType = new Map<string, number>();
+        for (const x of env) byType.set(x.measurement_type, (byType.get(x.measurement_type) ?? 0) + x.n_obs);
+        setEnvVars([...byType.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => {
+          const m = lab.get(k); return { key: k, label: `${m?.description ?? ENV_VARS_FALLBACK[k] ?? k}${m?.units ? ` (${m.units})` : ""}`, n };
+        }));
+        setDatasets(await engine.exec(`SELECT * FROM ${q(REG.dataset)}`, "dataset"));
+      });
+    })().catch((e) => { console.error(e); setStatus(`error: ${e.message}`); });
   }, []);
 
   useEffect(() => { toUrl(sel); }, [sel]);
 
+  // the per-station card's detail is its own sidecar, fetched on the first station selection
+  useEffect(() => {
+    if (!sel.station || !version || covStations) return;
+    fetch(sidecarUrl(version, "coverage_stations.json")).then((r) => r.json()).then(setCovStations).catch(console.error);
+  }, [sel.station, version]);
+  // the polygon layers are heavy (all layers, simplified): only the Regions lens needs them
+  useEffect(() => {
+    if (sel.lens !== "region" || !version || spatial.length) return;
+    const t = performance.now();
+    fetch(sidecarUrl(version, "spatial.geojson")).then((r) => r.json()).then((gj) => { setSpatial(gj.features); timing.add("fetch:spatial.geojson", performance.now() - t, `${gj.features.length} polygons`); }).catch(console.error);
+  }, [sel.lens, version]);
+
   // ── the slice: one taxon or one variable, materialized in the worker ───────
   useEffect(() => {
+    if (!catalog) return;
     const key = sel.realm === "bio" ? `bio:${sel.taxon}` : `env:${sel.var}`;
     if (key === sliceKey) return;
     const g = ++gen.current;
     (async () => {
-      const file = sel.realm === "bio" ? "obs_bio.parquet" : ENV_FILE(sel.var);
+      const file = sel.realm === "bio" ? REG.obs_bio : envReg(sel.var);
       setStatus(`fetching ${file}…`);
       await ensure(file);
       if (g !== gen.current) return;
       setStatus("building slice…");
       const t = performance.now();
-      await (sel.realm === "bio" ? engine.query("slice_bio", { taxon: sel.taxon }) : engine.query("slice_env", { env_file: `'${file}'` }));
+      await (sel.realm === "bio" ? engine.query("slice_bio", { src: q(file), taxon: sel.taxon }) : engine.query("slice_env", { src: q(file), var: sel.var }));
       const rows = (await engine.query("picker", {})) as PickerRow[];
       if (g !== gen.current) return;
       timing.add(`slice:${key}`, performance.now() - t, `${fmtN(rows.reduce((a, r) => a + r.n, 0))} rows`);
@@ -116,7 +187,7 @@ export function App() {
       }
       setSliceKey(key);
     })().catch((e) => { console.error(e); setStatus(`error: ${e.message}`); });
-  }, [sel.realm, sel.taxon, sel.var]);
+  }, [catalog, sel.realm, sel.taxon, sel.var]);
 
   // ── lens queries ───────────────────────────────────────────────────────────
   const val = sel.realm === "bio" ? VAL_COL[sel.den ?? "raw"] : "value";
@@ -132,10 +203,11 @@ export function App() {
       const t = performance.now();
       const need_station = !opened.current || lens === "station";
       if (need_station) setStationRows(await engine.query("station", params));
-      if (lens === "hex") setHexRows(await engine.query("hex", { ...params, hex: `hex_r${sel.res}` }));
+      if (lens === "hex") setHexRows(await engine.query("hex", { ...params, hex: hexExpr(sel.res) }));
       if (lens === "region") {
-        setRegionRows(await engine.query("region", { ...params, layer: sel.layer }));
-        const rs = await engine.query("region_station", { layer: sel.layer });
+        await ensure(REG.sample_spatial); await ensure(REG.sample_root);
+        setRegionRows(await engine.query("region", { ...params, layer: sel.layer, spatial_src: q(REG.sample_spatial) }));
+        const rs = await engine.query("region_station", { layer: sel.layer, root_src: q(REG.sample_root), spatial_src: q(REG.sample_spatial) });
         setRegionStation(new Map(rs.map((r) => [r.grid_key, r.spatial_key])));
       }
       if (lens === "cruise") {
@@ -145,8 +217,8 @@ export function App() {
         if (!ck && cr.length) ck = cr.slice().sort((a, b) => b.n_sta - a.n_sta || b.t0 - a.t0)[0].cruise_key;
         if (ck !== sel.cruise) { setSel({ cruise: ck }); return; } // the effect re-runs once with the cruise set
         if (ck) {
-          await ensure("sample_root.parquet");
-          const tr = await engine.query("cruise_track", { cruise: ck });
+          await ensure(REG.sample_root);
+          const tr = await engine.query("cruise_track", { cruise: ck, root_src: q(REG.sample_root) });
           if (tr.length > 1) {
             const t0 = tr[0].t, t1 = tr[tr.length - 1].t || t0 + 1;
             setTrack({ path: tr.map((r) => [r.longitude, r.latitude]), ts: tr.map((r) => ((r.t - t0) / (t1 - t0)) * 1000) });
@@ -200,23 +272,30 @@ export function App() {
   // ── derived ────────────────────────────────────────────────────────────────
   const stat: Stat = sel.stat;
   const statOf = (r: Row) => (stat === "n" ? r.n : r[stat]);
-  const stationMap = useMemo(() => new Map<string, StatRow>(stationRows.map((r) => [r.grid_key, r as StatRow])), [stationRows]);
+  // before the slice answers, the station dots carry the coverage cube (root samples, all datasets)
+  const covStation = useMemo(() => {
+    const m = new Map<string, StatRow>();
+    for (const s of cov?.stations ?? []) { const n = s.datasets.reduce((a, d) => a + d.n_roots, 0); m.set(s.grid_key, { n, n_samples: n, mean: n, med: n }); }
+    return m;
+  }, [cov]);
+  const stationMap = useMemo(() => (stationRows.length ? new Map<string, StatRow>(stationRows.map((r) => [r.grid_key, r as StatRow])) : covStation), [stationRows, covStation]);
   const layerFeatures = useMemo(() => spatial.filter((f) => f.properties.layer === sel.layer), [spatial, sel.layer]);
   const centroids = useMemo(() => new Map<string, [number, number]>(layerFeatures.map((f) => [f.properties.spatial_key, polyCentroid(f)])), [layerFeatures]);
   const regionStats = useMemo(() => new Map(regionRows.map((r) => [r.spatial_key, r as any])), [regionRows]);
   const cruiseStations = useMemo(() => new Set<string>(cruiseSamples.map((r) => r.grid_key).filter(Boolean)), [cruiseSamples]);
+  const preSlice = !stationRows.length;
   const domain = useMemo(() => {
-    const rows = displayLens === "hex" ? hexRows : displayLens === "region" ? regionRows : displayLens === "cruise" ? cruiseSamples : stationRows;
-    return quantileDomain(rows.map(statOf), stat);
-  }, [displayLens, hexRows, regionRows, cruiseSamples, stationRows, stat]);
+    const rows = displayLens === "hex" ? hexRows : displayLens === "region" ? regionRows : displayLens === "cruise" ? cruiseSamples : stationRows.length ? stationRows : [...covStation.values()];
+    return quantileDomain(rows.map(stationRows.length || displayLens !== "station" ? statOf : (r) => r.n), stationRows.length ? stat : "n");
+  }, [displayLens, hexRows, regionRows, cruiseSamples, stationRows, covStation, stat]);
 
   const layers = useMemo(() => buildLayers({
-    lens: displayLens, res: sel.res, stat, grid, station: stationMap, hex: hexRows as any,
+    lens: displayLens, res: sel.res, stat: preSlice ? "n" : stat, grid, station: stationMap, hex: hexRows as any,
     region: { features: layerFeatures, stats: regionStats, stationTo: regionStation, centroid: centroids, selected: sel.region },
     cruise: { track, samples: cruiseSamples as any, time },
     section: { line: sel.line, cruiseStations },
-    duration, domain,
-  }), [displayLens, sel.res, stat, grid, stationMap, hexRows, layerFeatures, regionStats, regionStation, centroids, sel.region, track, cruiseSamples, time, sel.line, cruiseStations, domain]);
+    duration, domain, selectedStation: sel.station,
+  }), [displayLens, sel.res, stat, preSlice, grid, stationMap, hexRows, layerFeatures, regionStats, regionStation, centroids, sel.region, track, cruiseSamples, time, sel.line, cruiseStations, domain, sel.station]);
 
   // picker derivations (D8 rule 4)
   const stages = useMemo(() => {
@@ -237,18 +316,26 @@ export function App() {
     return { ok: [...ok], off: [...all].filter((d) => !ok.has(d)), excluded, rows };
   };
   const inView = stageRows.reduce((a, r) => a + (sel.den === "per_10m2" ? r.n_10m2 : sel.den === "per_1000m3" ? r.n_1000m3 : r.n), 0);
-  const unitLabel = sel.realm === "bio" ? (sel.den === "raw" ? "count" : sel.den === "per_10m2" ? "per 10 m²" : "per 1000 m³") : (picker[0]?.unit ?? sel.var);
+  const envVar = envVars.find((v) => v.key === sel.var);
+  const unitLabel = sel.realm === "bio" ? (sel.den === "raw" ? "count" : sel.den === "per_10m2" ? "per 10 m²" : "per 1000 m³") : (picker[0]?.units ?? sel.var);
   const taxonRow = taxa.find((t) => t.taxon_key === sel.taxon);
-  const legendTitle = sel.realm === "bio"
+  const legendTitle = preSlice ? "root samples · all datasets (coverage.json, before the engine is warm)" : sel.realm === "bio"
     ? `${STAT_LABEL[stat]} · ${taxonRow?.common_name ?? taxonRow?.scientific_name ?? sel.taxon} · ${sel.stage ?? "all stages"} · ${unitLabel}`
-    : `${STAT_LABEL[stat]} · ${ENV_VARS[sel.var]} · ${sel.depth[0]}–${sel.depth[1]} m`;
+    : `${STAT_LABEL[stat]} · ${envVar?.label ?? sel.var} · ${sel.depth[0]}–${sel.depth[1]} m`;
   const lines = useMemo(() => [...new Set(grid.map((c) => c.line))].sort((a, b) => a - b), [grid]);
+  const stationCard = useMemo(() => {
+    if (!sel.station) return null;
+    const detail = covStations?.stations.find((s) => s.grid_key === sel.station);
+    const summary = cov?.stations.find((s) => s.grid_key === sel.station);
+    const cell = grid.find((c) => c.grid_key === sel.station);
+    return { grid_key: sel.station, cell, summary, detail };
+  }, [sel.station, cov, covStations, grid]);
 
   const onLens = (l: Lens) => { lensClickAt.current = performance.now(); setSel({ lens: l }); };
   const getTooltip = (info: PickingInfo) => {
     const o: any = info.object; if (!o) return null;
     const id = info.layer?.id;
-    if (id === "stations") { const s = stationMap.get(o.grid_key); return { text: `${o.grid_key} · line ${o.line} station ${o.station}\n${s ? `${STAT_LABEL[stat]} ${fmt(statOf(s))} · ${s.n} rows · ${s.n_samples} samples · ${s.y0}–${s.y1}` : "no rows in selection"}` }; }
+    if (id === "stations") { const s = stationMap.get(o.grid_key); return { text: `${o.grid_key} · line ${o.line} station ${o.station}\n${s ? (preSlice ? `${fmtN(s.n)} root samples, all datasets` : `${STAT_LABEL[stat]} ${fmt(statOf(s))} · ${s.n} rows · ${s.n_samples} samples · ${s.y0}–${s.y1}`) : "no rows in selection"}\nclick for the station's coverage card` }; }
     if (id === "hexes") return { text: `${o.hex}\n${STAT_LABEL[stat]} ${fmt(statOf(o))} · ${o.n} rows · ${o.n_samples} samples` };
     if (id === "regions") { const s = regionStats.get(o.properties.spatial_key); return { text: `${o.properties.name}\n${s ? `${STAT_LABEL[stat]} ${fmt(statOf(s))} · ${s.n} rows · ${s.n_samples} samples · ${s.y0}–${s.y1}` : "no data"}` }; }
     if (id === "cruise-samples") return { text: `${o.grid_key ?? "—"} · ${new Date(o.t * 1000).toISOString().slice(0, 10)}\n${STAT_LABEL[stat]} ${fmt(statOf(o))} · ${o.n} rows` };
@@ -258,6 +345,7 @@ export function App() {
     const o: any = info.object; if (!o) return;
     if (info.layer?.id === "regions") setSel({ region: o.properties.spatial_key === sel.region ? null : o.properties.spatial_key });
     if (info.layer?.id === "stations" && sel.lens === "section") setSel({ line: o.line, cruise: null });
+    else if (info.layer?.id === "stations") setSel({ station: o.grid_key === sel.station ? null : o.grid_key });
   };
 
   // ── timing summary ─────────────────────────────────────────────────────────
@@ -269,6 +357,7 @@ export function App() {
   const grain = marks.filter((m) => m.name.startsWith("grain_switch")).slice(-1)[0];
   const anyCached = [...engine.files.values()].some((f) => f.cached);
   const go = (v: number | undefined, lim: number) => (v == null ? "" : v < lim ? "go" : "nogo");
+  const rel = version ?? sel.release ?? "…";
 
   return (
     <div className="app">
@@ -278,9 +367,11 @@ export function App() {
           <img className="cc-logo-light" src="https://calcofi.io/brand/v1/logo_calcofi_light.svg" alt="CalCOFI" width="32" height="32" />
         </a>
         <a className="cc-title" href="./">CalCOFI Explorer<small>{LENS_TITLE[sel.lens]}</small></a>
-        <a className="cc-release" href={`https://calcofi.io/db-schema/#erd?v=${RELEASE}`}>release <b>{RELEASE}</b></a>
+        <a className="cc-release" href={`https://calcofi.io/db-schema/#erd?v=${rel}`} title="CalCOFI integrated database release — every value shown comes from this frozen release; schema and release notes">release <b>{rel}</b></a>
+        {versions.length > 1 && <select className="cc-versions" value={version ?? ""} onChange={(e) => { setSel({ release: e.target.value }); location.search = new URLSearchParams({ ...Object.fromEntries(new URLSearchParams(location.search)), release: e.target.value }).toString(); }} title="switch release (reloads)">
+          {versions.map((v) => <option key={v} value={v}>{v}</option>)}</select>}
         <span className="cc-spacer" />
-        <nav className="cc-links"><a href="https://calcofi.io/db-query/">query</a><a href="https://calcofi.io/docs/">docs</a></nav>
+        <nav className="cc-links"><a href="https://calcofi.io/db-query/">query</a><a href="https://calcofi.io/db-schema/">schema</a><a href="https://calcofi.io/docs/">docs</a></nav>
         <button className="cc-theme-toggle" type="button" aria-label="Toggle dark / light theme">🌓</button>
       </header>
       <div className="main">
@@ -320,9 +411,11 @@ export function App() {
             </div>
             <div className="hint">{fmtN(inView)} rows in view · {sel.den === "raw" ? "raw counts are not comparable across gear or datasets" : "nothing averaged across denominators, datasets or stages"}</div>
           </> : <>
-            <label className="f">variable
-              <select value={sel.var} onChange={(e) => setSel({ var: e.target.value, cruise: null })}>{Object.entries(ENV_VARS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
-            <div className="pills">{picker.map((r) => <span key={r.dataset_key} className="pill" title="bottle and CTD temperature are comparable">{short(r.dataset_key)} {fmtN(r.n)}{r.n_flagged ? ` · ${fmtN(r.n_flagged)} flagged` : ""}</span>)}</div>
+            <label className="f">variable ({envVars.length || "…"} in this release)
+              <select value={sel.var} onChange={(e) => setSel({ var: e.target.value, cruise: null })}>
+                {!envVars.length && <option value={sel.var}>{sel.var}</option>}
+                {envVars.map((v) => <option key={v.key} value={v.key}>{v.label} · {fmtN(v.n)}</option>)}</select></label>
+            <div className="pills">{picker.map((r) => <span key={r.dataset_key} className="pill" title="bottle and CTD values of one variable are comparable">{short(r.dataset_key)} {fmtN(r.n)}{r.n_flagged ? ` · ${fmtN(r.n_flagged)} flagged` : ""}</span>)}</div>
           </>}
           <div className="row">
             <label className="f">years <span className="row"><input type="number" style={{ width: 62 }} value={sel.years[0]} min={1949} max={2023} onChange={(e) => setSel({ years: [+e.target.value, sel.years[1]] })} />–<input type="number" style={{ width: 62 }} value={sel.years[1]} min={1949} max={2023} onChange={(e) => setSel({ years: [sel.years[0], +e.target.value] })} /></span></label>
@@ -330,9 +423,9 @@ export function App() {
           </div>
           <div className="row"><span className="hint">depth band {sel.depth[0]}–{sel.depth[1]} m (brush the strip)</span>{(sel.depth[0] !== 0 || sel.depth[1] !== 500) && <button className="pill" onClick={() => setSel({ depth: [0, 500] })}>reset</button>}</div>
           {sel.lens === "region" && <>
-            <label className="f">layer<select value={sel.layer} onChange={(e) => setSel({ layer: e.target.value, region: null })}>{LAYERS.map((l) => <option key={l}>{l}</option>)}</select></label>
+            <label className="f">layer<select value={sel.layer} onChange={(e) => setSel({ layer: e.target.value, region: null })}>{(spatial.length ? [...new Set(spatial.map((f) => f.properties.layer))].sort() : LAYERS).map((l) => <option key={l}>{l}</option>)}</select></label>
             <div className="pills">{regionRows.slice().sort((a, b) => b.n - a.n).slice(0, 10).map((r) => <span key={r.spatial_key} className={`pill ${sel.region === r.spatial_key ? "" : "off"}`} onClick={() => setSel({ region: sel.region === r.spatial_key ? null : r.spatial_key })} style={{ cursor: "pointer" }}>{r.spatial_name} · {fmt(statOf(r))} ({fmtN(r.n)})</span>)}</div>
-            <div className="hint">{layerFeatures.length} polygons · {regionRows.length} with data · membership exact per root sample</div>
+            <div className="hint">{layerFeatures.length} polygons · {regionRows.length} with data · membership exact per root sample (sample_spatial)</div>
           </>}
           {sel.lens === "section" && <>
             <label className="f">line<select value={sel.line} onChange={(e) => setSel({ line: +e.target.value, cruise: null })}>{lines.map((l) => <option key={l} value={l}>{l}</option>)}</select></label>
@@ -343,7 +436,11 @@ export function App() {
             <label className="f">cruise<select value={sel.cruise ?? ""} onChange={(e) => setSel({ cruise: e.target.value })}>{cruiseRows.slice().reverse().map((c) => <option key={c.cruise_key} value={c.cruise_key}>{c.cruise_key} ({c.n_sta} sta, {c.n} rows)</option>)}</select></label>
             <div className="hint">{track ? `${track.path.length} root sampling events on the track` : "no track"}</div>
           </>}
-          <div className="hint" style={{ marginTop: "auto" }}>{LENS_TITLE[sel.lens]}. Phase-0 spike over release {RELEASE}: DuckDB-WASM in a worker, no extensions, objects fetched whole.</div>
+          {stationCard && <div className="station-card">
+            <div className="row" style={{ justifyContent: "space-between" }}><b>{stationCard.grid_key}</b><span className="hint">line {stationCard.cell?.line} · station {stationCard.cell?.station}</span><button className="pill" onClick={() => setSel({ station: null })}>×</button></div>
+            <StationCard summary={stationCard.summary} detail={stationCard.detail} theme={theme} short={short} />
+          </div>}
+          <div className="hint" style={{ marginTop: "auto" }}>{LENS_TITLE[sel.lens]}. Release {rel}{catalog ? ` · ${catalog.tables.length} tables` : ""} · DuckDB-WASM in a worker, no extensions, objects fetched whole from the release catalog.</div>
         </div>
         <div className="panel mapwrap">
           <MapView layers={layers} theme={theme} getTooltip={getTooltip} onClick={onClick} onFirstFrame={() => timing.add("first_paint", performance.now() - window.__t0, "basemap + grid dots")} />
@@ -352,7 +449,7 @@ export function App() {
             <div className="ttl">{legendTitle}</div>
             <div className="bar" style={{ background: viridisCss }} />
             <div className="ticks"><span>{fmt(domain[0])}</span><span>5–95 %</span><span>{fmt(domain[1])}</span></div>
-            {sel.realm === "bio" && <div className="hint">{stageRows.filter((r) => (sel.den === "per_10m2" ? r.n_10m2 : sel.den === "per_1000m3" ? r.n_1000m3 : r.n) > 0).map((r) => r.dataset_key).filter((v, i, a) => a.indexOf(v) === i).map(short).join(" + ") || "—"}{denInfo(sel.den ?? "raw").excluded ? ` · ${fmtN(denInfo(sel.den ?? "raw").excluded)} rows excluded` : ""}</div>}
+            {!preSlice && sel.realm === "bio" && <div className="hint">{stageRows.filter((r) => (sel.den === "per_10m2" ? r.n_10m2 : sel.den === "per_1000m3" ? r.n_1000m3 : r.n) > 0).map((r) => r.dataset_key).filter((v, i, a) => a.indexOf(v) === i).map(short).join(" + ") || "—"}{denInfo(sel.den ?? "raw").excluded ? ` · ${fmtN(denInfo(sel.den ?? "raw").excluded)} rows excluded` : ""}</div>}
           </div>
           {displayLens === "section" && <div className="section-panel">
             <SectionPlot cells={sectionCells} clim={climCells} anom={sel.anom && sel.realm === "env"} yLabel={sel.realm === "env" ? "depth (m)" : "year"} theme={theme} unit={unitLabel}

@@ -17,9 +17,12 @@ measurement of the D4 cold-start budget, not Phase 2. Ugly is fine; slow is a fi
   in `App.tsx` + `state.ts::defaultStage/defaultDen`.
 
 ```sh
-ln -s ~/_big/calcofi/explore-spike/data public/data   # the hand-cut objects (see the plan)
 npm install
-npm run dev            # http://localhost:5178/  (+ --host for a phone)
+# data comes from a release catalog: VITE_DATA_URL is the bucket root, VITE_RELEASE_PREFIX the releases
+# prefix under it (default https://storage.googleapis.com/calcofi-db/ + ducklake/releases). for dev,
+# a catalog-shaped local copy of the Phase-1 objects (built by ~/_big/calcofi/explore-spike/data2/build_dev_catalog.R):
+ln -s ~/_big/calcofi/explore-spike/data2 public/data2
+VITE_DATA_URL=data2/ VITE_RELEASE_PREFIX=explore-dev/releases npm run dev   # http://localhost:5178/
 npm run build && npx vite preview --host --port 5179   # the numbers are taken here
 node scripts/verify.mjs http://localhost:5179/ shots/prod   # headed Chrome, fresh profile → screenshots + results.json
 ```

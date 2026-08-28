@@ -130,3 +130,37 @@ export function CruiseSeries(p: { rows: CruiseRow[]; stat: "mean" | "med" | "n";
   });
   return <div ref={ref} className="plot fill" />;
 }
+
+// the station coverage card (db-viz-station's per-dataset "observations by year" + "seasonality"):
+// one small Plotly per dataset from coverage_stations.json — years as bars, months as a 12-cell row
+export function StationCard(p: {
+  summary?: { datasets: { dataset_key: string; n_obs: number; n_roots: number; year_min: number; year_max: number }[] };
+  detail?: { datasets: { dataset_key: string; n_obs: number; year_min: number; year_max: number; years: [number, number][]; months: number[] }[] };
+  theme: string; short: (d: string) => string;
+}) {
+  const ds = p.detail?.datasets ?? p.summary?.datasets?.map((d) => ({ ...d, years: [] as [number, number][], months: [] as number[] })) ?? [];
+  return <div className="cards">
+    {!ds.length && <div className="hint">no coverage at this station</div>}
+    {ds.map((d) => <StationDatasetRow key={d.dataset_key} d={d} theme={p.theme} short={p.short} />)}
+  </div>;
+}
+function StationDatasetRow(p: { d: { dataset_key: string; n_obs: number; year_min: number; year_max: number; years: [number, number][]; months: number[] }; theme: string; short: (d: string) => string }) {
+  const ref = usePlot([p.d, p.theme], (div) => {
+    const b = base(p.theme);
+    const ys = p.d.years ?? [];
+    Plotly.react(div, [
+      { x: ys.map((y) => y[0]), y: ys.map((y) => y[1]), type: "bar", marker: { color: b.accent }, xaxis: "x", yaxis: "y", hovertemplate: "%{x}: %{y} obs<extra></extra>" },
+      { x: Array.from({ length: 12 }, (_, i) => i + 1), y: (p.d.months ?? []).length ? p.d.months : Array(12).fill(0), type: "bar", marker: { color: b.accent, opacity: 0.6 }, xaxis: "x2", yaxis: "y2", hovertemplate: "month %{x}: %{y} obs<extra></extra>" },
+    ], {
+      ...b, showlegend: false, height: 84, margin: { l: 4, r: 4, t: 2, b: 14 }, bargap: 0.1,
+      xaxis: { ...b.xaxis, domain: [0, 0.72], range: [1948, 2024], showgrid: false, tickfont: { size: 8 }, fixedrange: true },
+      yaxis: { ...b.yaxis, showticklabels: false, showgrid: false, fixedrange: true },
+      xaxis2: { ...b.xaxis, domain: [0.76, 1], range: [0.5, 12.5], showgrid: false, tickvals: [1, 6, 12], tickfont: { size: 8 }, fixedrange: true, anchor: "y2" },
+      yaxis2: { ...b.yaxis, showticklabels: false, showgrid: false, fixedrange: true, anchor: "x2" },
+    }, CFG);
+  });
+  return <div className="card">
+    <div className="row" style={{ justifyContent: "space-between", fontSize: 11 }}><b>{p.short(p.d.dataset_key)}</b><span className="hint">{p.d.n_obs.toLocaleString()} obs · {p.d.year_min}–{p.d.year_max}</span></div>
+    <div ref={ref} style={{ height: 84 }} />
+  </div>;
+}

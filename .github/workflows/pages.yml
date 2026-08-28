@@ -17,7 +17,11 @@ jobs:
       - run: npx tsc --noEmit
       - run: npx vite build
         env:
-          VITE_DATA_URL: https://storage.googleapis.com/calcofi-db/explore-spike/data/
+          # the bucket root the catalog's object paths hang off, and the releases prefix under it.
+          # explore-dev-root/explore-dev = the Phase-1 objects cut from v2026.08.25 with the real
+          # release functions; switches to ducklake/releases once a release ships them (Phase 1).
+          VITE_DATA_URL: https://storage.googleapis.com/calcofi-db/explore-dev-root/
+          VITE_RELEASE_PREFIX: explore-dev/releases
           VITE_BASE: /explore/
       - uses: actions/upload-pages-artifact@v3
         with: { path: dist }
