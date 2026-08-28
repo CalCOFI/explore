@@ -52,7 +52,7 @@ years       <- run("04_years.sql")`}
 # the same release through calcofi4r (catalog-resolved URLs):
 # cat <- calcofi4r::cc_catalog("${version}"); calcofi4r::cc_read_parquet_sql(calcofi4r::cc_release_sources(cat, "obs_bio"))
 # the quality predicate and the density expression the release used: calcofi4r::cc_qual_ok_sql(), calcofi4r::cc_density_sql()
-`;
+${inline ? "" : "head(summary)\n"}`;
 const pyBody = (version: string, lens: string, sqls: [string, string][], inline: boolean) => `# CalCOFI Explorer · ${lens} · release ${version} — the same SQL the browser ran
 # pip install duckdb calcofi4py
 import re, duckdb
@@ -69,7 +69,7 @@ depth_strip = run("03_depth_strip.sql")
 years = run("04_years.sql")`}
 # the same release through calcofi4py: import calcofi4py as cc; cat = cc.cc_catalog("${version}"); cc.read_parquet_sql(cc.release_sources(cat, "obs_bio"))
 # quality predicate + density expression the release used: cc.qual_ok_sql(), cc.density_sql()
-`;
+${inline ? "" : "print(summary.head())\n"}`;
 /** "Copy as…": the whole reproduction as one pasteable text */
 export function copyAs(kind: "sql" | "r" | "py", ctx: Pick<BundleCtx, "sel" | "catalog" | "params" | "lensParams" | "lensTemplate" | "version">): string {
   const sqls = resolvedSql(ctx);
