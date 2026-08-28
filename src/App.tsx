@@ -10,7 +10,8 @@ import {
   type Sel, type Lens, type Den, type Stat, type PickerRow,
 } from "./state";
 
-const DATA = "data/";
+// objects: the local symlink in dev, GCS (or the release catalog, Phase 1) when built for Pages
+const DATA = (import.meta.env.VITE_DATA_URL as string | undefined) ?? "data/";
 const ENV_FILE = (v: string) => `obs_env_${v}.parquet`;
 const DS_SHORT: Record<string, string> = {
   swfsc_ichthyo: "ichthyo", swfsc_cufes: "CUFES", calcofi_bottle: "bottle", "calcofi_ctd-cast": "CTD", cce_lter_zoodb: "zoodb",
