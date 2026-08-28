@@ -107,13 +107,20 @@ export class Engine {
     const buf = new Uint8Array(await res.arrayBuffer());
     const ms = performance.now() - t;
     const entry = performance.getEntriesByName(res.url)[0] as PerformanceResourceTiming | undefined;
-    const cached = !!entry && entry.transferSize < Math.max(1024, entry.decodedBodySize / 10); // memory cache or a 304
+    // memory cache or a 304; a cross-origin entry without Timing-Allow-Origin reports 0 for both, which is "unknown", not "cached"
+    const cached = !!entry && entry.decodedBodySize > 0 && entry.transferSize < Math.max(1024, entry.decodedBodySize / 10);
     this.files.set(name, { bytes: buf.byteLength, ms, cached });
     timing.add(`fetch:${name}`, ms, `${(buf.byteLength / 1e6).toFixed(1)} MB${cached ? ", from cache" : ""}`);
-    await this.ready;
-    const t2 = performance.now();
-    await this.db.registerFileBuffer(name, buf);
-    timing.add(`register:${name}`, performance.now() - t2);
+    // register through the same serialized chain as the queries, so a query issued right after
+    // `await load()` can never reach the worker before the buffer does
+    const reg = async () => {
+      await this.ready;
+      const t2 = performance.now();
+      await this.db.registerFileBuffer(name, buf);
+      timing.add(`register:${name}`, performance.now() - t2);
+    };
+    this.q = this.q.then(reg, reg);
+    await this.q;
   }
 
   exec(sql: string, label = "exec"): Promise<Row[]> {
