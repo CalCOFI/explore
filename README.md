@@ -54,7 +54,10 @@ Layout (UI plan D11 · D18): the map is the page; the select / depth / years rai
 and maximize into the box; section, cruise, station and timing are floating cards (minimize to a pill,
 drag; position in `localStorage`); under 900 px the select rail is a bottom sheet with three detents and
 the strips are pills on the map's edge. Nothing re-lays out on a selection change.
-The pickers' **Browse** tab lists the whole holding by category or by dataset from `coverage.json` (`taxa[]` and
+The pickers **open on the Browse tree** (U7c): every category folded to one row with its glyph, item count, year
+span and log-scale bar; the selected item's category open to that item + "… N more"; typing searches within the
+tree (matching categories open); a header click opens a category in full, a second click folds it. The Search tab
+is the flat list. The **Browse** tree lists the whole holding by category or by dataset from `coverage.json` (`taxa[]` and
 `variables[].category` since calcofi4db 3.25.0; `src/categories.ts` keeps the keyword stopgap for a release without
 them); the categories are `workflows/metadata/category.csv`, the icons `calcofi.io/brand/v1/icons/`
 (`scripts/build_icons.mjs` regenerates the sprite + masks from `src/icon-paths.ts`).

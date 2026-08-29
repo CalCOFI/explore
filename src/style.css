@@ -347,3 +347,9 @@ button.chip { cursor: pointer; }
 /* ── U7b: an empty result names its filters in the legend (never the pre-engine text) ─────────────────── */
 .legend .legend-empty { margin-top: 3px; }
 .linkish { all: unset; cursor: pointer; color: var(--accent); text-decoration: underline; }
+
+/* ── U7c: the picker opens on the folded category tree; the selected item's category shows it + "… N more" ── */
+.browse-item.more .lab { color: var(--accent); }
+.browse-item.more .cnt { color: var(--muted); }
+.browse-group.partial > .browse-row { background: transparent; position: static; }
+.picker-pop .picker-search + .picker-count { margin-top: -2px; }

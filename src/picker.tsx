@@ -1,8 +1,11 @@
 // the one searchable combobox behind organism, variable and cruise (plan D13): WAI-ARIA combobox +
-// listbox, A→Z by default, every row carrying its count as a log-scaled bar (so most/least is visible
-// in any order) and its dataset colour dots; sort (A–Z · most observations · most recent) and group
-// (none · category · dataset · class) as toggles; a letter strip on the flat A–Z list; untruncated.
-// hand-rolled (no styled dependency); `?native=1` keeps a plain <select> behind it for a release.
+// listbox, every row carrying its count as a log-scaled bar (so most/least is visible in any order) and
+// its dataset colour dots. It OPENS on the Browse tree (U7c): every category folded to one row with its
+// icon and counts, the selected item's category open to just that item + "… N more", so the whole
+// holding is one screen and the rest of a category is a click; typing searches within the tree. The
+// Search tab is the flat list — sort (A–Z · most observations · most recent), group (none · category ·
+// dataset · class), a letter strip on A–Z — for when the name is known. Hand-rolled (no styled
+// dependency); `?native=1` keeps a plain <select> behind it for a release.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon, type IconName } from "./icons";
 import { useAnchor } from "./ui";
@@ -47,27 +50,31 @@ export function Picker(p: {
   const [sort, setSortRaw] = useState<SortKey>(() => { const s = remember<SortKey>(p.id, "sort", undefined); return s && sorts.includes(s) ? s : (p.defaultSort ?? sorts[0]); });
   const [group, setGroupRaw] = useState<string>(() => remember<string>(p.id, "group", undefined) ?? p.defaultGroup ?? "none");
   const [active, setActive] = useState(0);
-  const [tab, setTabRaw] = useState<"search" | "browse">(() => (remember<"search" | "browse">(p.id, "tab", undefined) ?? "search"));
+  const [tab, setTab] = useState<"search" | "browse">(p.browse ? "browse" : "search"); // per open, never remembered: the tree is always the opening view
   const [browseBy, setBrowseByRaw] = useState<"category" | "dataset">(() => (remember<"category" | "dataset">(p.id, "browse", undefined) ?? "category"));
-  const [openGroup, setOpenGroup] = useState<string | null>(null);
-  const setTab = (t: "search" | "browse") => { setTabRaw(t); remember(p.id, "tab", t); };
-  const setBrowseBy = (b: "category" | "dataset") => { setBrowseByRaw(b); remember(p.id, "browse", b); setOpenGroup(null); };
+  // a group is closed (absent), open to the selected item alone ("sel", with a "… N more" row) or open to all its items ("all")
+  const [openGroups, setOpenGroups] = useState<Record<string, "sel" | "all">>({});
+  const groupKeysOf = (it: PickerItem, by: "category" | "dataset") => (by === "category" ? [it.groups?.category ?? "Other"] : (it.datasets?.length ? it.datasets : ["—"]));
+  // the home state of the tree: the selected item's category (its first dataset, by dataset) open to that item
+  const homeGroups = (by: "category" | "dataset"): Record<string, "sel" | "all"> => { const it = p.items.find((x) => x.key === p.value); return it ? { [groupKeysOf(it, by)[0]]: "sel" } : {}; };
+  const setBrowseBy = (b: "category" | "dataset") => { setBrowseByRaw(b); remember(p.id, "browse", b); setOpenGroups(homeGroups(b)); };
   const root = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLUListElement>(null);
   const btn = useRef<HTMLButtonElement>(null);
-  const box = useAnchor(open && !p.sheet, btn, 300, 560);
+  const box = useAnchor(open && !p.sheet, btn, p.browse ? 400 : 300, 560); // the tree needs the width for a category name + span + bar
   const setSort = (s: SortKey) => { setSortRaw(s); remember(p.id, "sort", s); };
   const setGroup = (g: string) => { setGroupRaw(g); remember(p.id, "group", g); };
   const selected = p.items.find((it) => it.key === p.value);
   const maxN = useMemo(() => Math.max(1, ...p.items.map((it) => it.n)), [p.items]);
   const groupOpt = p.groups?.find((g) => g.key === group) ?? null;
 
+  const toks = useMemo(() => norm(q).split(/\s+/).filter(Boolean), [q]);
+  const hay = (it: PickerItem) => norm(`${it.label} ${it.sub ?? ""} ${it.search ?? ""} ${it.key}`);
+  const matches = (it: PickerItem) => { const h = hay(it); return toks.every((t) => h.includes(t)); };
   // filter → sort → group
   const sections = useMemo(() => {
-    const toks = norm(q).split(/\s+/).filter(Boolean);
-    const hay = (it: PickerItem) => norm(`${it.label} ${it.sub ?? ""} ${it.search ?? ""} ${it.key}`);
-    let vis = toks.length ? p.items.filter((it) => { const h = hay(it); return toks.every((t) => h.includes(t)); }) : p.items.slice();
+    let vis = toks.length ? p.items.filter(matches) : p.items.slice();
     const cmp = sort === "az" ? (a: PickerItem, b: PickerItem) => sortKey(a.label).localeCompare(sortKey(b.label)) || a.key.localeCompare(b.key)
       : sort === "n" ? (a: PickerItem, b: PickerItem) => b.n - a.n || sortKey(a.label).localeCompare(sortKey(b.label))
       : (a: PickerItem, b: PickerItem) => (b.year ?? -1) - (a.year ?? -1) || b.key.localeCompare(a.key);
@@ -92,7 +99,7 @@ export function Picker(p: {
     const i = Math.max(0, flat.findIndex((it) => it.key === p.value));
     setActive(i);
     requestAnimationFrame(() => { input.current?.focus(); scrollTo(i, "center"); });
-    setOpenGroup(null);
+    setTab(p.browse ? "browse" : "search"); setOpenGroups(homeGroups(browseBy));
     const off = (e: MouseEvent) => { if (!root.current?.contains(e.target as Node)) setOpen(false); };
     document.addEventListener("mousedown", off);
     return () => document.removeEventListener("mousedown", off);
@@ -119,6 +126,11 @@ export function Picker(p: {
     else if (e.key === "Enter") { e.preventDefault(); if (flat[active]) choose(flat[active]); }
     else if (e.key === "Escape" || e.key === "Tab") { setOpen(false); }
   };
+  // in the tree: Enter takes the first item in view (the search's first match, else the selected one), Esc / Tab close
+  const onKeyTree = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") { e.preventDefault(); const first = treeFirst(); if (first) choose(first); }
+    else if (e.key === "Escape" || e.key === "Tab") setOpen(false);
+  };
   const jump = (l: string) => { const i = flat.findIndex((it) => (sortKey(it.label)[0]?.toUpperCase() ?? "#") === l); if (i >= 0) { setActive(i); scrollTo(i, "start"); } };
   const listId = `${p.id}-list`;
   // Browse (D14): the tree with counts, year spans and dataset dots; by category (an item under its category) or by
@@ -127,14 +139,24 @@ export function Picker(p: {
     if (!p.browse) return [];
     const by = new Map<string, PickerItem[]>();
     for (const it of p.items) {
-      const keys = browseBy === "category" ? [it.groups?.category ?? "Other"] : (it.datasets?.length ? it.datasets : ["—"]);
-      for (const g of keys) (by.get(g) ?? by.set(g, []).get(g)!).push(it);
+      for (const g of groupKeysOf(it, browseBy)) (by.get(g) ?? by.set(g, []).get(g)!).push(it);
     }
     const opt = p.groups?.find((g) => g.key === browseBy);
     return [...by.entries()].sort((a, b) => (opt?.rank ? opt.rank(a[0]) - opt.rank(b[0]) : 0) || sortKey(opt?.short ? opt.short(a[0]) : a[0]).localeCompare(sortKey(opt?.short ? opt.short(b[0]) : b[0])))
       .map(([g, items]) => { const ys = items.map((i) => i.year0).filter((y): y is number => y != null), ye = items.map((i) => i.year).filter((y): y is number => y != null);
         return { key: g, title: opt?.short ? opt.short(g) : g, icon: opt?.icon?.(g), items: items.slice().sort((a, b) => sortKey(a.label).localeCompare(sortKey(b.label))), n: items.reduce((a, it) => a + it.n, 0), y0: ys.length ? Math.min(...ys) : null, y1: ye.length ? Math.max(...ye) : null, ds: [...new Set(items.flatMap((i) => i.datasets ?? []))] }; });
   }, [p.items, p.browse, browseBy, p.groups]);
+  // what each group shows: filtered to the search when typing (every matching group open), else by its open state
+  const treeRows = useMemo(() => browseGroups.map((g) => {
+    const items = toks.length ? g.items.filter(matches) : g.items;
+    const mode: "sel" | "all" | null = toks.length ? (items.length ? "all" : null) : (openGroups[g.key] ?? null);
+    const shown = mode === "all" ? items : mode === "sel" ? items.filter((it) => it.key === p.value) : [];
+    return { g, items, mode, shown, more: mode === "sel" ? items.length - shown.length : 0, hidden: toks.length > 0 && !items.length };
+  }), [browseGroups, toks, openGroups, p.value]);
+  const treeFirst = () => treeRows.find((r) => r.shown.length)?.shown[0] ?? null;
+  const treeMatches = treeRows.reduce((a, r) => a + r.items.length, 0);
+  // a header click: closed → all · open to the selected item → all · all → closed
+  const toggleGroup = (k: string) => setOpenGroups((o) => { const n = { ...o }; if (o[k] === "all") delete n[k]; else n[k] = "all"; return n; });
   const span = (y0: number | null | undefined, y1: number | null | undefined) => (y0 != null && y1 != null ? (y0 === y1 ? String(y0) : `${y0}–${y1}`) : y1 != null ? String(y1) : "");
   const dot = (dk: string) => <i key={dk} className="dot" style={{ background: p.dsColor?.(dk) ?? "var(--muted)" }} title={p.dsShort?.(dk) ?? dk} />;
 
@@ -162,13 +184,13 @@ export function Picker(p: {
             {tab === "browse" && <span className="seg" role="group" aria-label="browse by"><button type="button" className={browseBy === "category" ? "on" : ""} onClick={() => setBrowseBy("category")}>by category</button><button type="button" className={browseBy === "dataset" ? "on" : ""} onClick={() => setBrowseBy("dataset")}>by dataset</button></span>}
             {p.sheet && <button type="button" className="cc-icon-button" aria-label="Close" onClick={() => setOpen(false)} style={{ marginLeft: "auto" }}><Icon name="ui-close" size="1.25rem" /></button>}
           </div>}
-          {tab === "browse" ? <div className="hint picker-count">{fmtN(p.items.length)} in {fmtN(browseGroups.length)} {browseBy === "category" ? "categories" : "datasets"} · {p.countLabel ?? "observations"}, log scale</div> : <>
           <div className="picker-search">
             <Icon name="ui-search" />
-            <input ref={input} type="search" role="combobox" aria-autocomplete="list" aria-controls={listId} aria-expanded={open} aria-activedescendant={flat[active] ? `${p.id}-opt-${active}` : undefined}
-              value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKey} placeholder={p.placeholder ?? "search…"} autoComplete="off" spellCheck={false} />
-            {p.sheet && <button type="button" className="cc-icon-button" aria-label="Close" onClick={() => setOpen(false)}><Icon name="ui-close" size="1.25rem" /></button>}
+            <input ref={input} type="search" role="combobox" aria-autocomplete="list" aria-controls={listId} aria-expanded={open} aria-activedescendant={tab === "search" && flat[active] ? `${p.id}-opt-${active}` : undefined}
+              value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={tab === "browse" ? onKeyTree : onKey} placeholder={p.placeholder ?? "search…"} autoComplete="off" spellCheck={false} />
+            {p.sheet && !p.browse && <button type="button" className="cc-icon-button" aria-label="Close" onClick={() => setOpen(false)}><Icon name="ui-close" size="1.25rem" /></button>}
           </div>
+          {tab === "browse" ? <div className="hint picker-count">{toks.length ? `${fmtN(treeMatches)} of ${fmtN(p.items.length)}` : `${fmtN(p.items.length)} in ${fmtN(browseGroups.length)} ${browseBy === "category" ? "categories" : "datasets"}`} · {p.countLabel ?? "observations"}, log scale</div> : <>
           <div className="row picker-tools">
             <span className="seg" role="group" aria-label="sort">
               {sorts.map((s) => <button key={s} type="button" className={sort === s ? "on" : ""} title={`sort: ${SORT_LABEL[s][0]}`} aria-pressed={sort === s} onClick={() => setSort(s)}><Icon name={SORT_LABEL[s][1]} /></button>)}
@@ -182,20 +204,24 @@ export function Picker(p: {
         </div>
         {tab === "browse" ? <ul className="browse" role="tree" aria-label={`${p.label} by ${browseBy}`}>
           {p.loading && !p.items.length && <li className="hint pad">{p.loading}</li>}
-          {browseGroups.map((g) => { const on = openGroup === g.key; return (
-            <li key={g.key} role="treeitem" aria-expanded={on} className={`browse-group${on ? " open" : ""}`}>
-              <div className="browse-row" onClick={() => setOpenGroup(on ? null : g.key)}>
+          {toks.length > 0 && !treeMatches && <li className="hint pad">no match for “{q}”</li>}
+          {treeRows.map(({ g, items, mode, shown, more, hidden }) => { if (hidden) return null; const on = mode != null; return (
+            <li key={g.key} role="treeitem" aria-expanded={on} className={`browse-group${on ? " open" : ""}${mode === "sel" ? " partial" : ""}`}>
+              <div className="browse-row" onClick={() => toggleGroup(g.key)} title={mode === "all" ? "fold" : mode === "sel" ? `show all ${fmtN(items.length)}` : "expand"}>
                 <Icon name={on ? "ui-down" : "ui-right"} className="chev" />{g.icon && <Icon name={g.icon} className="gicon" />}
-                <span className="lab">{g.title}<small>{fmtN(g.items.length)} {fmtN(g.items.length) === "1" ? "item" : "items"}{span(g.y0, g.y1) ? ` · ${span(g.y0, g.y1)}` : ""}</small></span>
+                <span className="lab">{g.title}<small>{toks.length ? `${fmtN(items.length)} of ${fmtN(g.items.length)}` : `${fmtN(g.items.length)} ${g.items.length === 1 ? "item" : "items"}`}{span(g.y0, g.y1) ? ` · ${span(g.y0, g.y1)}` : ""}</small></span>
                 <span className="dots">{g.ds.slice(0, 6).map(dot)}</span>
                 <span className="cnt" title={`${fmtN(g.n)} ${p.countLabel ?? "observations"}`}><span className="bar" style={{ width: `${Math.max(1, Math.round(44 * Math.log10(g.n + 1) / Math.log10(Math.max(1, ...browseGroups.map((x) => x.n)) + 1)))}px` }} /><span>{fmtN(g.n)}</span></span>
               </div>
-              {on && <ul role="group">{g.items.map((it) => <li key={it.key} role="treeitem" className={`browse-item${it.key === p.value ? " sel" : ""}`} onClick={() => choose(it)}>
+              {on && <ul role="group">{shown.map((it) => <li key={it.key} role="treeitem" className={`browse-item${it.key === p.value ? " sel" : ""}`} onClick={() => choose(it)}>
                 <span className="dots">{(it.datasets ?? []).map(dot)}</span>
                 <span className="lab">{it.label}{it.sub && <small className={it.subItalic ? "i" : ""}>{it.sub}</small>}</span>
                 <span className="hint span">{span(it.year0, it.year)}</span>
                 <span className="cnt"><span className="bar" style={{ width: `${Math.max(1, Math.round(44 * Math.log10(it.n + 1) / Math.log10(maxN + 1)))}px` }} /><span>{fmtN(it.n)}</span></span>
-              </li>)}</ul>}
+              </li>)}
+              {more > 0 && <li role="treeitem" className="browse-item more" onClick={() => setOpenGroups((o) => ({ ...o, [g.key]: "all" }))} title={`the other ${fmtN(more)} in ${g.title}`}>
+                <span className="dots" /><span className="lab">… {fmtN(more)} more in {g.title}</span><span /><span className="cnt"><Icon name="ui-down" /></span>
+              </li>}</ul>}
             </li>); })}
         </ul> : <ul ref={list} id={listId} role="listbox" aria-label={p.label}>
           {p.loading && !p.items.length && <li className="hint pad">{p.loading}</li>}
