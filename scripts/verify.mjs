@@ -1,62 +1,132 @@
-// Phase-0 verification: drive the installed Chrome (headed, fresh profile = cold cache) through every lens,
-// screenshot each, and dump the timing marks. usage: node scripts/verify.mjs [baseUrl] [outDir]
+// verification: drive the installed Chrome (headed, fresh profile = cold cache) through the lenses and
+// through every panel STATE the UI plan names, screenshot each at 1280 × 800 (desktop) and 390 × 844
+// (phone), assert no horizontal overflow and that every control is reachable, and dump the timing marks.
+// the Claude-in-Chrome tab never paints, so this script is the only verification path.
+//   node scripts/verify.mjs [baseUrl] [outDir] [--only=regex] [--timing]
 import puppeteer from "puppeteer-core";
 import fs from "node:fs";
 import path from "node:path";
 
-const base = process.argv[2] ?? "http://localhost:5178/";
-const out = process.argv[3] ?? "shots";
-const profile = process.argv[4] ?? path.join(process.env.TMPDIR ?? "/tmp", "explore-spike-profile");
+const args = process.argv.slice(2);
+const opt = Object.fromEntries(args.filter((a) => a.startsWith("--")).map((a) => a.slice(2).split("=")));
+const pos = args.filter((a) => !a.startsWith("--"));
+const base = pos[0] ?? "http://localhost:5178/";
+const out = pos[1] ?? "shots";
+const only = opt.only ? new RegExp(opt.only) : null;
+const profile = path.join(process.env.TMPDIR ?? "/tmp", "explore-verify-profile");
+fs.rmSync(profile, { recursive: true, force: true });
 fs.mkdirSync(out, { recursive: true });
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const DESKTOP = { width: 1280, height: 800 };
+const PHONE = { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: false, userDataDir: profile,
-  args: ["--window-size=1400,900", "--no-first-run", "--no-default-browser-check"], defaultViewport: { width: 1400, height: 860 } });
+  args: ["--window-size=1300,900", "--no-first-run", "--no-default-browser-check", "--hide-scrollbars"], defaultViewport: DESKTOP });
 const page = (await browser.pages())[0] ?? (await browser.newPage());
-page.on("pageerror", (e) => console.log("PAGEERROR", e.message));
+const errors = [];
+page.on("pageerror", (e) => { errors.push(e.message); console.log("PAGEERROR", e.message); });
 page.on("console", (m) => { if (m.type() === "error") console.log("CONSOLE", m.text().slice(0, 200)); });
 const marks = () => page.evaluate(() => window.__marks ?? []);
-const waitMark = async (re, timeout = 60000) => {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const waitMark = async (re, timeout = 90000) => {
   const t = Date.now();
   while (Date.now() - t < timeout) {
     const ms = await marks(); const m = ms.filter((x) => re.test(x.name)).pop(); if (m) return m;
-    await new Promise((r) => setTimeout(r, 50));
+    await sleep(50);
   }
   throw new Error(`timeout waiting for ${re}`);
 };
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const results = {};
-async function run(label, url, steps) {
-  console.log(`\n== ${label}: ${url}`);
+const results = { states: {}, timing: {}, errors };
+let fails = 0;
+const fail = (msg) => { fails++; console.log("  FAIL", msg); };
+
+// ── layout assertions ────────────────────────────────────────────────────────
+async function assertLayout(name) {
+  const r = await page.evaluate(() => {
+    const de = document.documentElement;
+    const vw = innerWidth, vh = innerHeight;
+    const off = [];
+    for (const el of document.querySelectorAll("[data-tour], .lenses button, .picker-btn, .pill.act, .rail-head button, .card-head button, .pill-row button, .sheet-handle")) {
+      const b = el.getBoundingClientRect();
+      if (b.width === 0 && b.height === 0) continue; // display:none = not offered in this state
+      if (b.right > vw + 1 || b.bottom > vh + 1 || b.left < -1 || b.top < -1) off.push(`${el.tagName.toLowerCase()}${el.className ? "." + String(el.className).split(" ")[0] : ""} ${(el.getAttribute("data-tour") || el.textContent || "").trim().slice(0, 20)} @ ${Math.round(b.left)},${Math.round(b.top)} ${Math.round(b.width)}×${Math.round(b.height)}`);
+    }
+    return { scrollW: de.scrollWidth, scrollH: de.scrollHeight, vw, vh, bodyOverflowX: getComputedStyle(document.body).overflowX, off };
+  });
+  if (r.scrollW > r.vw + 1) fail(`${name}: horizontal overflow ${r.scrollW} > ${r.vw}`);
+  if (r.off.length) fail(`${name}: ${r.off.length} control(s) outside the viewport: ${r.off.slice(0, 4).join(" | ")}`);
+  return r;
+}
+async function shot(name) { const file = path.join(out, `${name}.png`); await page.screenshot({ path: file }); return file; }
+const click = async (sel) => { await page.click(sel); };
+const clickText = async (scope, txt) => page.click(`${scope}::-p-text(${txt})`);
+const clickLens = async (txt) => { await clickText(".lenses button", txt); await waitMark(/^grain_switch:/); };
+async function ready(url, viewport = DESKTOP) {
+  await page.setViewport(viewport);
   await page.goto(url, { waitUntil: "domcontentloaded" });
   await waitMark(/^first_lens_ready$/);
-  await waitMark(/^first_paint$/, 20000).catch(() => console.log("no first_paint mark (map load event)"));
+  await waitMark(/^first_paint$/, 20000).catch(() => console.log("  (no first_paint mark)"));
   await sleep(1200);
-  const r = { url, marks: await marks(), shots: {} };
-  for (const [name, fn] of steps) {
-    const n0 = (await marks()).length;
-    await fn();
-    await sleep(1600); // transition (700 ms) + settle
-    const file = path.join(out, `${label}_${name}.png`);
-    await page.screenshot({ path: file });
-    r.shots[name] = (await marks()).slice(n0);
-    console.log(`  ${name}: ${r.shots[name].map((m) => `${m.name} ${m.ms}ms`).join(" | ")}`);
-  }
-  r.marksAll = await marks();
-  results[label] = r;
 }
-const clickLens = (txt) => async () => { await page.click(`.lenses button::-p-text(${txt})`); await waitMark(new RegExp(`^grain_switch:`)); };
-const lenses = [["station", async () => {}], ["hex", clickLens("Hexagons")], ["cruise", clickLens("Cruises")], ["region", clickLens("Regions")], ["section", clickLens("Sections")]];
 
-// 1. cold: fresh profile, sardine larvae per 10 m2, every lens
-await run("cold", base + "?tour=off", lenses);
-// 2. env: temperature, stations then section (line 90) with anomaly
-await run("env", base + "?var=temperature&tour=off", [["station", async () => {}], ["section", clickLens("Sections")],
-  ["section_anom", async () => { await page.click("input[type=checkbox]"); await sleep(300); }]]);
-// 3. warm: same profile, repeat visit, straight to hexagons with the opening morph (tour on)
-await run("warm", base + "?lens=hex&res=5", [["hex", async () => { await sleep(1500); }], ["station", clickLens("Stations")], ["hex", clickLens("Hexagons")]]);
-// 4. phone-shaped viewport (emulation; not a phone CPU/memory)
-await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
-await run("phone", base + "?tour=off", [["station", async () => {}]]);
+// ── the states (plan U0 · U1 · U3 · U6 · U4a) ───────────────────────────────
+const STATES = [
+  // U0 — words + lists
+  { name: "u0_station", url: "?tour=off", steps: async () => {} },
+  { name: "u0_organism_open", url: "?tour=off", steps: async () => { await click("#organism-btn"); await sleep(400); } },
+  { name: "u0_organism_search", url: "?tour=off", steps: async () => { await click("#organism-btn"); await page.type(".picker-search input", "anchovy"); await sleep(400); } },
+  { name: "u0_organism_by_category", url: "?tour=off", steps: async () => { await click("#organism-btn"); await page.select(".picker-tools select", "category"); await sleep(400); } },
+  { name: "u0_organism_most", url: "?tour=off", steps: async () => { await click("#organism-btn"); await click(".picker-tools .seg button:nth-child(2)"); await sleep(400); } },
+  { name: "u0_variable_open", url: "?var=temperature&tour=off", steps: async () => { await click("#variable-btn"); await sleep(400); } },
+  { name: "u0_hex", url: "?lens=hex&res=5&tour=off", steps: async () => {} },
+  { name: "u0_section_cruise_open", url: "?lens=section&var=temperature&line=90&tour=off", steps: async () => { await click("#section-cruise-btn"); await sleep(400); } },
+  { name: "u0_cruise", url: "?lens=cruise&tour=off", steps: async () => { await click("#cruise-btn"); await sleep(400); } },
+  { name: "u0_copy_menu", url: "?tour=off", steps: async () => { await clickText(".menu-btn", "Copy code"); await sleep(300); } },
+  { name: "u0_light", url: "?tour=off&theme=light", steps: async () => {} },
+  { name: "u0_native", url: "?tour=off&native=1", steps: async () => {} },
+];
+for (const st of STATES) {
+  if (only && !only.test(st.name)) continue;
+  console.log(`\n== ${st.name}: ${st.url}`);
+  const n0 = errors.length;
+  try {
+    await ready(base + st.url, st.viewport ?? DESKTOP);
+    await st.steps();
+    await sleep(700);
+    const lay = await assertLayout(st.name);
+    if (st.assert) await st.assert(lay);
+    const file = await shot(st.name);
+    results.states[st.name] = { url: st.url, layout: lay, ok: errors.length === n0, shot: file };
+    console.log(`  shot ${file} · scroll ${lay.scrollW}×${lay.scrollH} in ${lay.vw}×${lay.vh}${lay.off.length ? "" : " · all controls in view"}`);
+  } catch (e) { fail(`${st.name}: ${e.message}`); results.states[st.name] = { url: st.url, error: e.message }; }
+  if (errors.length > n0) fail(`${st.name}: ${errors.length - n0} page error(s)`);
+}
+
+// ── the timing runs (Phase 0/1: every lens, cold then warm) ──────────────────
+if (opt.timing != null) {
+  async function run(label, url, steps, viewport = DESKTOP) {
+    console.log(`\n== ${label}: ${url}`);
+    await ready(url, viewport);
+    const r = { url, marks: await marks(), shots: {} };
+    for (const [name, fn] of steps) {
+      const n0 = (await marks()).length;
+      await fn();
+      await sleep(1600);
+      const file = path.join(out, `${label}_${name}.png`);
+      await page.screenshot({ path: file });
+      r.shots[name] = (await marks()).slice(n0);
+      console.log(`  ${name}: ${r.shots[name].map((m) => `${m.name} ${m.ms}ms`).join(" | ")}`);
+    }
+    r.marksAll = await marks();
+    results.timing[label] = r;
+  }
+  const lenses = [["station", async () => {}], ["hex", () => clickLens("Hexagons")], ["cruise", () => clickLens("Cruises")], ["region", () => clickLens("Regions")], ["section", () => clickLens("Sections")]];
+  await run("cold", base + "?tour=off", lenses);
+  await run("env", base + "?var=temperature&tour=off", [["station", async () => {}], ["section", () => clickLens("Sections")], ["section_anom", async () => { await page.click("input[type=checkbox]"); await sleep(300); }]]);
+  await run("warm", base + "?lens=hex&res=5", [["hex", async () => { await sleep(1500); }], ["station", () => clickLens("Stations")], ["hex", () => clickLens("Hexagons")]]);
+  await run("phone", base + "?tour=off", [["station", async () => {}]], PHONE);
+}
+
 fs.writeFileSync(path.join(out, "results.json"), JSON.stringify(results, null, 1));
 await browser.close();
-console.log("\nwritten", path.join(out, "results.json"));
+console.log(`\n${fails ? `${fails} FAILURE(S)` : "all checks passed"} · written ${path.join(out, "results.json")}`);
+process.exit(fails ? 1 : 0);

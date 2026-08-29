@@ -11,8 +11,11 @@
   },
   "dependencies": {
     "@duckdb/duckdb-wasm": "^1.29.0",
+    "@mdi/js": "^7.4.47",
     "deck.gl": "^9.3.10",
+    "driver.js": "^1.8.0",
     "h3-js": "^4.5.0",
+    "html-to-image": "^1.11.13",
     "jszip": "^3.10.1",
     "maplibre-gl": "^5.24.0",
     "plotly.js-dist-min": "^4.0.0",

@@ -72,7 +72,7 @@ export function YearStrip(p: { rows: YearRow[]; years: [number, number]; yearMax
     }
     const data: any[] = p.mode === "n" ? [{
       x: r.map((d) => d.year), y: r.map((d) => d.n), type: "bar", marker: { color: b.accent },
-      customdata: r.map((d) => d.n_samples), hovertemplate: "%{x}: %{y} rows, %{customdata} samples<extra></extra>",
+      customdata: r.map((d) => d.n_samples), hovertemplate: "%{x}: %{y} observations, %{customdata} samples<extra></extra>",
     }] : [
       // lo then hi with tonexty: a null in either breaks the band at the gap instead of bridging it
       { x: xs, y: lo, type: "scatter", mode: "lines", line: { width: 0 }, hoverinfo: "skip", connectgaps: false, showlegend: false },
@@ -82,7 +82,7 @@ export function YearStrip(p: { rows: YearRow[]; years: [number, number]; yearMax
     ];
     Plotly.react(div, data, {
       ...b, showlegend: false, dragmode: "select", selectdirection: "h", bargap: 0.15,
-      xaxis: { ...b.xaxis, range: [1948, p.yearMax + 1], fixedrange: true }, yaxis: { ...b.yaxis, title: { text: p.mode === "n" ? "rows" : `mean ${p.unit}`, standoff: 2 }, fixedrange: true },
+      xaxis: { ...b.xaxis, range: [1948, p.yearMax + 1], fixedrange: true }, yaxis: { ...b.yaxis, title: { text: p.mode === "n" ? "observations" : `mean ${p.unit}`, standoff: 2 }, fixedrange: true },
       margin: { l: 44, r: 8, t: 6, b: 22 },
       shapes: (p.years[0] <= 1949 && p.years[1] >= p.yearMax) ? [] : [{ type: "rect", yref: "paper", y0: 0, y1: 1, x0: p.years[0] - 0.5, x1: p.years[1] + 0.5, fillcolor: "rgba(255,214,10,0.10)", line: { color: "rgba(255,214,10,0.6)", width: 1 } }],
     }, CFG);
@@ -137,7 +137,7 @@ export function CruiseSeries(p: { rows: CruiseRow[]; stat: "mean" | "med" | "n";
     Plotly.react(div, [{
       x: p.rows.map((d) => new Date(d.t0 * 1000)), y, type: "scatter", mode: "markers",
       marker: { size: p.rows.map((d) => (d.cruise_key === p.selected ? 12 : 6)), color: p.rows.map((d) => (d.cruise_key === p.selected ? "#ffd60a" : b.accent)), line: { width: 0.5, color: "#000" } },
-      text: p.rows.map((d) => `${d.cruise_key}<br>${d.n_sta} stations, ${d.n} rows`), hovertemplate: "%{text}<br>%{y:.2f}<extra></extra>",
+      text: p.rows.map((d) => `${d.cruise_key}<br>${d.n_sta} stations, ${d.n} observations`), hovertemplate: "%{text}<br>%{y:.2f}<extra></extra>",
     }], {
       ...b, showlegend: false, xaxis: { ...b.xaxis, fixedrange: true }, yaxis: { ...b.yaxis, title: { text: `${p.stat} ${p.unit}`, standoff: 2 }, fixedrange: true },
       margin: { l: 44, r: 8, t: 6, b: 22 }, hovermode: "closest",

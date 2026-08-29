@@ -1,4 +1,5 @@
 // selection model = the URL (plan § Architecture). every lens is a pure function of the slice + this.
+import type { IconName } from "./icons";
 export type Lens = "station" | "hex" | "cruise" | "region" | "section";
 export type Realm = "bio" | "env";
 export type Den = "per_10m2" | "per_1000m3" | "raw";
@@ -46,7 +47,10 @@ export const DEN_LABEL: Record<Den, string> = {
   per_1000m3: "per 1000 m³ (volumetric)",
   raw: "raw count — not comparable across gear or datasets",
 };
-export const STAT_LABEL: Record<Stat, string> = { mean: "mean", med: "median", n: "n rows" };
+export const STAT_LABEL: Record<Stat, string> = { mean: "mean", med: "median", n: "observations" }; // "rows" is database-speak (D12)
+// H3 mean edge length per resolution (km) — what "hexagon size" shows; `res` stays in the URL (D12)
+export const RES_KM: Record<number, string> = { 3: "~60 km", 4: "~23 km", 5: "~8.5 km", 6: "~3.2 km", 7: "~1.2 km" };
+export const LENS_ICON: Record<Lens, IconName> = { station: "lens-stations", hex: "lens-hexagons", cruise: "lens-cruises", region: "lens-regions", section: "lens-sections" };
 export const RELEASE = "v2026.08.25";
 export const DEFAULT_TAXON = "worms:217452"; // Pacific sardine
 export const YEAR_OPEN = 9999; // "through the latest year in the release" until coverage.json says which
