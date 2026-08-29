@@ -68,7 +68,7 @@ export function FeedbackDialog(p: { url: string; release: string; onClose: () =>
       <label className="f">What happened / what did you expect?
         <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="that spike at 1,144 m looks wrong — the station shows 2.2 ml/L in 1955 …" autoFocus data-tour="feedback-text" /></label>
       <div className="row feedback-row">
-        <label className="f" style={{ flex: 1 }}>email <span className="hint">(optional — for a reply; never public)</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.org" /></label>
+        <label className="f" style={{ flex: 1 }}>email <span className="hint">(optional — you get a copy of this report and any reply; never public)</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.org" /></label>
         <input type="text" name="website" tabIndex={-1} autoComplete="off" style={{ position: "absolute", left: -9999, width: 1, height: 1 }} aria-hidden="true" />
       </div>
       <div className="feedback-shot" data-tour="feedback-shot">
@@ -80,7 +80,7 @@ export function FeedbackDialog(p: { url: string; release: string; onClose: () =>
         </div>
       </div>
       <p className="hint">What is sent: your text, this view's URL, the release ({p.release}), the viewport ({viewport}) and theme ({theme}), and the screenshot — nothing else.
-        It lands in a Sheet the team reads and, <b>without your email</b>, as a public issue in <code>CalCOFI/explore</code>.</p>
+        It goes to the team by mail and lands in a Sheet they read and, <b>without your email</b>, as a public issue in <code>CalCOFI/explore</code>; with an email you get the same report back.</p>
       {!endpoint && <p className="hint warn">This build has no feedback endpoint yet — use <i>Open as GitHub issue myself</i> (it copies the screenshot for you to paste).</p>}
       {result && !result.ok && <p className="hint warn">Not sent: {result.error}. Try again, or open the issue yourself.</p>}
     </Modal>);
