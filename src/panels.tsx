@@ -137,7 +137,8 @@ export function Sheet(p: { detent: Detent; onDetent: (d: Detent) => void; peek: 
   const [drag, setDrag] = useState<number | null>(null); // live height while dragging
   const heights = () => ({ peek: SHEET_PEEK, half: Math.round(innerHeight * 0.5), full: Math.round(innerHeight * 0.9) });
   const onHandle = (e: React.PointerEvent) => {
-    e.preventDefault(); (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); // no preventDefault: it would suppress the dblclick that toggles the detent
+
     const h = heights(), y0 = e.clientY, h0 = h[p.detent]; let cur = h0, last = y0, vy = 0, t = performance.now();
     const move = (ev: PointerEvent) => { const now = performance.now(); vy = (ev.clientY - last) / Math.max(1, now - t); last = ev.clientY; t = now; cur = Math.min(h.full, Math.max(h.peek, h0 + y0 - ev.clientY)); setDrag(cur); };
     const up = () => {

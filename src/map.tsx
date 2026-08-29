@@ -211,6 +211,7 @@ export function MapView(props: {
     const m = new maplibregl.Map({
       container: el.current!, style: STYLE[props.theme],
       center: [-121.5, 33.2], zoom: 5.1, attributionControl: false,
+      canvasContextAttributes: { preserveDrawingBuffer: true }, // the whole-view figure (capture.ts) reads the canvas; deck.gl 9 preserves its own by default
     });
     m.addControl(new maplibregl.AttributionControl({ compact: true }));
     // compact attribution starts collapsed to its (i); MapLibre opens it on load, so close it after the style lands

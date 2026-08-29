@@ -1,6 +1,8 @@
 // Plotly panels: the water-column strip (brush = depth band), the year strip (brush = year range),
 // the section heatmap (zsmooth best, anomaly toggle) and the per-cruise series (click = cruise).
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Icon } from "./icons";
+import { colorScale, quantileDomain } from "./map";
 // Plotly is ~3.5 MB of the bundle and no panel needs it before the slice answers: load it lazily
 let PlotlyMod: any = null;
 const plotly = () => PlotlyMod ? Promise.resolve(PlotlyMod) : import("plotly.js-dist-min").then((m) => (PlotlyMod = m.default ?? m));
@@ -77,44 +79,156 @@ export function DepthStrip(p: { rows: DepthRow[]; band: [number, number]; theme:
 }
 
 export interface YearRow { year: number; n: number; n_samples: number; mean: number | null; se?: number | null }
-// mode "n": rows per year (coverage); mode "mean": the time series — mean ± standard error per year,
-// the line broken across unsampled years (db-viz-hex's series, cc_ts_gaps in spirit)
-export function YearStrip(p: { rows: YearRow[]; years: [number, number]; yearMax: number; theme: string; mode: "n" | "mean"; unit: string; onYears: (y: [number, number] | null) => void }) {
-  const ref = usePlot([p.rows, p.years, p.yearMax, p.theme, p.mode, p.unit], (div, Plotly) => {
+export interface GanttRow extends CruiseRow { ship: string; lane: number }
+export type StripMode = "n" | "mean" | "cruises";
+export const MONTH_LOD_YEARS = 15; // bins are months when the zoom window is at most this many years (D20)
+// fractional years <-> dates (the Gantt's x axis is a date axis; the zoom window is kept in fractional years for every mode)
+export const fyToDate = (fy: number) => { const y = Math.floor(fy), a = Date.UTC(y, 0, 1), z = Date.UTC(y + 1, 0, 1); return new Date(a + (fy - y) * (z - a)); };
+export const dateToFy = (d: Date) => { const y = d.getUTCFullYear(), a = Date.UTC(y, 0, 1), z = Date.UTC(y + 1, 0, 1); return y + (d.getTime() - a) / (z - a); };
+const plotlyDate = (v: any) => (v instanceof Date ? v : new Date(String(v).replace(" ", "T") + (String(v).length <= 10 ? "T00:00:00Z" : "Z")));
+const yearsToFy = (y: [number, number], m: [number, number] | null): [number, number] => [y[0] + (m ? (m[0] - 1) / 12 : 0), y[1] + (m ? m[1] / 12 : 1)];
+
+// the year strip (D20): brush = filter (years=, month-resolved when zoomed in), wheel / pinch = zoom (yview=),
+// double-click = reset, ⤢ on the brush = zoom to the selection, a context bar to pan when zoomed; bins are years
+// over > 15 years and months at <= 15; modes: observations · mean ± se · cruises (a Gantt in lanes by ship — no
+// two cruises of one ship overlap — coloured by the summary stat, labelled once a bar is >= 40 px, click = pick)
+export function YearStrip(p: {
+  rows: YearRow[]; monthRows: YearRow[] | null; onNeedMonths?: (need: boolean) => void;
+  years: [number, number]; months: [number, number] | null; yearMax: number; theme: string; mode: StripMode; unit: string; stat: "mean" | "med" | "n";
+  view: [number, number] | null; onView: (v: [number, number] | null) => void;
+  onYears: (y: [number, number] | null, months?: [number, number] | null) => void;
+  gantt?: { rows: GanttRow[]; lanes: string[]; selected: string | null; onPick: (k: string) => void } | null;
+}) {
+  const [handle, setHandle] = useState<number | null>(null);
+  const full: [number, number] = [1948, p.yearMax + 1];
+  const view = p.view ?? full;
+  const span = view[1] - view[0];
+  const wantMonths = p.mode !== "cruises" && span <= MONTH_LOD_YEARS;
+  useEffect(() => { p.onNeedMonths?.(wantMonths); }, [wantMonths]);
+  const monthly = wantMonths && !!p.monthRows?.length;
+  const isDate = p.mode === "cruises";
+  const yearsSet = p.years[0] > 1949 || p.years[1] < p.yearMax || !!p.months;
+  const fy = yearsToFy(p.years, p.months);
+  const toX = (v: number) => (isDate ? fyToDate(v) : v);
+  const ref = usePlot([p.rows, p.monthRows, p.years, p.months, p.yearMax, p.theme, p.mode, p.unit, p.stat, p.view, p.gantt, monthly], (div, Plotly) => {
     const b = base(p.theme);
-    const r = p.rows;
-    // insert nulls where a year is missing so the line breaks instead of bridging the gap
-    const xs: (number | null)[] = [], ys: (number | null)[] = [], lo: (number | null)[] = [], hi: (number | null)[] = [];
-    for (let i = 0; i < r.length; i++) {
-      if (i > 0 && r[i].year - r[i - 1].year > 1) { xs.push(r[i].year - 1); ys.push(null); lo.push(null); hi.push(null); }
-      xs.push(r[i].year); ys.push(r[i].mean); lo.push(r[i].mean != null && r[i].se != null ? r[i].mean! - r[i].se! : null); hi.push(r[i].mean != null && r[i].se != null ? r[i].mean! + r[i].se! : null);
+    const r = monthly ? p.monthRows! : p.rows;
+    const bw = monthly ? 1 / 12 : 0.85;
+    const gap = monthly ? 1 / 12 + 1e-6 : 1;
+    let data: any[] = [];
+    let layout: any = {};
+    if (p.mode === "n") {
+      data = [{ x: r.map((d) => d.year), y: r.map((d) => d.n), type: "bar", width: bw, marker: { color: b.accent },
+        customdata: r.map((d) => d.n_samples), hovertemplate: (monthly ? "%{x:.2f}" : "%{x}") + ": %{y} observations, %{customdata} samples<extra></extra>" }];
+    } else if (p.mode === "mean") {
+      const xs: (number | null)[] = [], ys: (number | null)[] = [], lo: (number | null)[] = [], hi: (number | null)[] = [];
+      for (let i = 0; i < r.length; i++) {
+        if (i > 0 && r[i].year - r[i - 1].year > gap) { xs.push(r[i].year - gap); ys.push(null); lo.push(null); hi.push(null); }
+        xs.push(r[i].year); ys.push(r[i].mean); lo.push(r[i].mean != null && r[i].se != null ? r[i].mean! - r[i].se! : null); hi.push(r[i].mean != null && r[i].se != null ? r[i].mean! + r[i].se! : null);
+      }
+      data = [
+        { x: xs, y: lo, type: "scatter", mode: "lines", line: { width: 0 }, hoverinfo: "skip", connectgaps: false, showlegend: false },
+        { x: xs, y: hi, type: "scatter", mode: "lines", fill: "tonexty", fillcolor: "rgba(77,171,247,0.22)", line: { width: 0 }, hoverinfo: "skip", connectgaps: false, showlegend: false },
+        { x: xs, y: ys, type: "scatter", mode: "lines+markers", line: { color: b.accent, width: 2 }, marker: { size: monthly ? 3 : 4 }, connectgaps: false,
+          customdata: r.map((d) => d.n), hovertemplate: (monthly ? "%{x:.2f}" : "%{x}") + ": mean %{y:.3g} ± se<br>n %{customdata}<extra></extra>" },
+      ];
+    } else if (p.gantt) {
+      const g = p.gantt.rows;
+      const vals = g.map((d) => (p.stat === "n" ? d.n : d[p.stat]) as number);
+      const dom = quantileDomain(vals, p.stat), col = colorScale(dom, 255);
+      const nmax = Math.max(1, ...g.map((d) => d.n));
+      data = [{
+        type: "bar", orientation: "h", y: g.map((d) => d.lane), base: g.map((d) => new Date(d.t0 * 1000).toISOString()), x: g.map((d) => Math.max(86400e3, (d.t1 - d.t0) * 1000)),
+        marker: { color: g.map((d) => { const c = col(p.stat === "n" ? d.n : d[p.stat]); return `rgba(${c[0]},${c[1]},${c[2]},${(0.45 + 0.55 * Math.sqrt(d.n / nmax)).toFixed(2)})`; }), line: { width: g.map((d) => (d.cruise_key === p.gantt!.selected ? 2 : 0.5)), color: g.map((d) => (d.cruise_key === p.gantt!.selected ? "#ffd60a" : "rgba(0,0,0,0.5)")) } },
+        width: 0.8, customdata: g.map((d) => [d.cruise_key, new Date(d.t0 * 1000).toISOString().slice(0, 10), new Date(d.t1 * 1000).toISOString().slice(0, 10), d.n_sta, d.n, fmtStat(p.stat === "n" ? d.n : d[p.stat]), d.ship]),
+        hovertemplate: "<b>%{customdata[0]}</b> · %{customdata[6]}<br>%{customdata[1]} → %{customdata[2]} · %{customdata[3]} stations · %{customdata[4]} observations · " + p.stat + " %{customdata[5]}<extra></extra>",
+      }];
+      // lane labels only when a lane is >= 9 px tall (the maximized strip); folded into the hover otherwise
+      const laneH = (div.clientHeight - 28) / Math.max(1, p.gantt.lanes.length);
+      layout = { yaxis: { ...b.yaxis, tickvals: p.gantt.lanes.map((_, i) => i), ticktext: p.gantt.lanes, autorange: "reversed", fixedrange: true, tickfont: { size: 9 }, showgrid: false, showticklabels: laneH >= 9, title: { text: laneH >= 9 ? "" : `${p.gantt.lanes.length} ships`, standoff: 2 } }, bargap: 0.1 };
     }
-    const data: any[] = p.mode === "n" ? [{
-      x: r.map((d) => d.year), y: r.map((d) => d.n), type: "bar", marker: { color: b.accent },
-      customdata: r.map((d) => d.n_samples), hovertemplate: "%{x}: %{y} observations, %{customdata} samples<extra></extra>",
-    }] : [
-      // lo then hi with tonexty: a null in either breaks the band at the gap instead of bridging it
-      { x: xs, y: lo, type: "scatter", mode: "lines", line: { width: 0 }, hoverinfo: "skip", connectgaps: false, showlegend: false },
-      { x: xs, y: hi, type: "scatter", mode: "lines", fill: "tonexty", fillcolor: "rgba(77,171,247,0.22)", line: { width: 0 }, hoverinfo: "skip", connectgaps: false, showlegend: false },
-      { x: xs, y: ys, type: "scatter", mode: "lines+markers", line: { color: b.accent, width: 2 }, marker: { size: 4 }, connectgaps: false,
-        customdata: r.map((d) => d.n), hovertemplate: "%{x}: mean %{y:.3g} ± se<br>n %{customdata}<extra></extra>" },
-    ];
+    const brush = yearsSet ? [{ type: "rect", yref: "paper", y0: 0, y1: 1, x0: toX(fy[0]), x1: toX(fy[1]), fillcolor: "rgba(255,214,10,0.10)", line: { color: "rgba(255,214,10,0.6)", width: 1 } }] : [];
     Plotly.react(div, data, {
       ...b, showlegend: false, dragmode: "select", selectdirection: "h", bargap: 0.15,
-      xaxis: { ...b.xaxis, range: [1948, p.yearMax + 1], fixedrange: true }, yaxis: { ...b.yaxis, title: { text: p.mode === "n" ? "observations" : `mean ${p.unit}`, standoff: 2 }, fixedrange: true },
-      margin: { l: 44, r: 8, t: 6, b: 22 },
-      shapes: (p.years[0] <= 1949 && p.years[1] >= p.yearMax) ? [] : [{ type: "rect", yref: "paper", y0: 0, y1: 1, x0: p.years[0] - 0.5, x1: p.years[1] + 0.5, fillcolor: "rgba(255,214,10,0.10)", line: { color: "rgba(255,214,10,0.6)", width: 1 } }],
-    }, CFG);
+      xaxis: { ...b.xaxis, type: isDate ? "date" : "linear", range: [toX(view[0]), toX(view[1])], fixedrange: false, tickformat: isDate ? undefined : monthly ? ".0f" : undefined },
+      yaxis: { ...b.yaxis, title: { text: p.mode === "n" ? "observations" : p.mode === "mean" ? `mean ${p.unit}` : "", standoff: 2 }, fixedrange: true },
+      margin: { l: p.mode === "cruises" ? (layout.yaxis?.showticklabels ? 96 : 44) : 44, r: 8, t: 6, b: 22 }, shapes: brush, annotations: [], ...layout,
+    }, { ...CFG, scrollZoom: true, doubleClick: false as any });
     const d = div as any;
-    d.removeAllListeners?.("plotly_selected"); d.removeAllListeners?.("plotly_deselect");
+    const xaxis = () => d._fullLayout?.xaxis;
+    const px = (v: number) => { const ax = xaxis(); if (!ax) return null; const x = isDate ? fyToDate(v).getTime() : v; return ax._offset + ax.d2p(x); };
+    const place = () => { const x = yearsSet ? px(fy[1]) : null; setHandle(x != null && Number.isFinite(x) ? x : null); };
+    // cruise codes appear only where a bar is >= 40 px wide (zoom in for more); recomputed on every relayout
+    let labelSig = "";
+    const label = () => {
+      if (p.mode !== "cruises" || !p.gantt) return;
+      const ax = xaxis(); if (!ax) return;
+      const [r0, r1] = (ax.range ?? []).map((v: any) => plotlyDate(v).getTime());
+      const vis = p.gantt.rows.filter((c) => Math.abs(ax.d2p(c.t1 * 1000) - ax.d2p(c.t0 * 1000)) >= 40 && (r1 == null || c.t0 * 1000 <= r1) && (r0 == null || c.t1 * 1000 >= r0));
+      const sig = vis.map((c) => c.cruise_key).join(",");
+      if (sig === labelSig) return; labelSig = sig; // a relayout of annotations fires plotly_relayout again: write only a changed set
+      Plotly.relayout(div, { annotations: vis.map((c) => ({ x: new Date((c.t0 + c.t1) / 2 * 1000).toISOString(), y: c.lane, text: c.cruise_key, showarrow: false, font: { size: 9, color: "#fff" }, xanchor: "center", yanchor: "middle" })) });
+    };
+    place(); label();
+    d.removeAllListeners?.("plotly_selected"); d.removeAllListeners?.("plotly_deselect"); d.removeAllListeners?.("plotly_relayout"); d.removeAllListeners?.("plotly_click"); d.removeAllListeners?.("plotly_doubleclick");
+    if (!d.__ccDbl) { d.__ccDbl = true; div.addEventListener("dblclick", () => d.__ccOnDbl?.()); }
+    d.__ccOnDbl = () => p.onView(null);
     d.on("plotly_selected", (ev: any) => {
       if (!ev?.range?.x) return;
-      const [a, c] = ev.range.x.map((v: number) => Math.round(v)).sort((x: number, y: number) => x - y);
-      p.onYears([a, Math.max(a, c)]);
+      const [a, c] = (ev.range.x as any[]).map((v) => (isDate ? dateToFy(plotlyDate(v)) : +v)).sort((x, y) => x - y);
+      if (monthly || isDate) { // month resolution: the brush edges snap to month bounds
+        const y0 = Math.floor(a), m0 = Math.min(12, Math.floor((a - y0) * 12) + 1), y1 = Math.floor(c), m1 = Math.min(12, Math.floor((c - y1) * 12) + 1);
+        const whole = m0 === 1 && m1 === 12;
+        p.onYears([y0, Math.max(y0, y1)], whole ? null : [m0, m1]);
+      } else { const a2 = Math.round(a), c2 = Math.round(c); p.onYears([a2, Math.max(a2, c2)], null); }
     });
-    d.on("plotly_deselect", () => p.onYears(null));
+    d.on("plotly_deselect", () => p.onYears(null, null));
+    d.on("plotly_relayout", (ev: any) => {
+      const zoomed = ev["xaxis.autorange"] || ev["xaxis.range[0]"] != null || ev["xaxis.range"];
+      if (!zoomed) return; // an annotations-only relayout (ours) is not a view change
+      if (ev["xaxis.autorange"]) p.onView(null);
+      else if (ev["xaxis.range[0]"] != null || ev["xaxis.range"]) {
+        const r0 = ev["xaxis.range"]?.[0] ?? ev["xaxis.range[0]"], r1 = ev["xaxis.range"]?.[1] ?? ev["xaxis.range[1]"];
+        const v: [number, number] = [isDate ? dateToFy(plotlyDate(r0)) : +r0, isDate ? dateToFy(plotlyDate(r1)) : +r1];
+        const clamped: [number, number] = [Math.max(full[0], v[0]), Math.min(full[1], v[1])];
+        if (clamped[1] - clamped[0] >= full[1] - full[0] - 0.01) p.onView(null); else p.onView([+clamped[0].toFixed(3), +clamped[1].toFixed(3)]);
+      }
+      place(); label();
+    });
+    if (p.gantt) d.on("plotly_click", (ev: any) => { const i = ev?.points?.[0]?.pointIndex; if (i != null) p.gantt!.onPick(p.gantt!.rows[i].cruise_key); });
   });
-  return <div ref={ref} className="plot fill" />;
+  const zoomToSel = () => p.onView([Math.max(full[0], fy[0] - span * 0.02), Math.min(full[1], fy[1] + span * 0.02)]);
+  return (
+    <div className="yearstrip">
+      <div ref={ref} className="plot fill" />
+      {handle != null && yearsSet && <div className="brush-handle" style={{ left: handle }}>
+        <button type="button" title="zoom to the selected years" aria-label="zoom to selection" onClick={zoomToSel}><Icon name="ui-zoom-sel" /></button>
+        <button type="button" title="clear the year filter" aria-label="clear years" onClick={() => p.onYears(null, null)}><Icon name="ui-close" /></button>
+      </div>}
+      {p.view && <ContextBar full={full} view={p.view} onView={p.onView} left={44} />}
+    </div>
+  );
+}
+const fmtStat = (v: number | null | undefined) => (v == null || !Number.isFinite(v) ? "–" : v.toLocaleString(undefined, { maximumFractionDigits: 2 }));
+/** the thin bar under the axis when zoomed: the full record with the window highlighted; drag to pan, double-click to reset */
+function ContextBar(p: { full: [number, number]; view: [number, number]; onView: (v: [number, number] | null) => void; left: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const span = p.full[1] - p.full[0];
+  const l = ((p.view[0] - p.full[0]) / span) * 100, w = ((p.view[1] - p.view[0]) / span) * 100;
+  const onDown = (e: React.PointerEvent) => {
+    const el = ref.current; if (!el) return;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    const W = el.getBoundingClientRect().width, x0 = e.clientX, v0 = p.view[0], vw = p.view[1] - p.view[0];
+    const move = (ev: PointerEvent) => { const dv = ((ev.clientX - x0) / W) * span; const a = Math.min(p.full[1] - vw, Math.max(p.full[0], v0 + dv)); p.onView([+a.toFixed(3), +(a + vw).toFixed(3)]); };
+    const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); };
+    addEventListener("pointermove", move); addEventListener("pointerup", up);
+  };
+  return (
+    <div ref={ref} className="context-bar" title="the whole record · drag to pan · double-click to zoom out" onPointerDown={onDown} onDoubleClick={() => p.onView(null)}>
+      <div className="context-win" style={{ left: `${l}%`, width: `${Math.max(0.5, w)}%` }} />
+      <span className="context-lab">{p.full[0] + 1}</span><span className="context-lab right">{p.full[1] - 1}</span>
+    </div>
+  );
 }
 
 export interface SectionCell { station: number; y: number; v: number; n: number }

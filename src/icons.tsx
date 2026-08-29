@@ -16,7 +16,7 @@ import {
   mdiPencil, mdiArrowTopRight, mdiCircleOutline, mdiRectangleOutline, mdiFormatText, mdiEraser, mdiSend, mdiGithub,
   mdiKeyboard, mdiFilterOutline, mdiDatabaseOutline, mdiLayersOutline, mdiCalendarRange, mdiOpenInNew, mdiCheck,
   mdiChartBar, mdiChartLine, mdiChartTimeline, mdiMagnifyMinusOutline, mdiSelectionDrag, mdiFolderOutline, mdiCodeTags,
-  mdiTune, mdiCropFree,
+  mdiTune, mdiCropFree, mdiCalendarMonthOutline,
 } from "@mdi/js";
 
 // bespoke, on the same 24-px grid and ~2 px weight
@@ -46,7 +46,7 @@ export const ICON = {
   "ui-github": mdiGithub, "ui-keyboard": mdiKeyboard, "ui-filter": mdiFilterOutline, "ui-data": mdiDatabaseOutline, "ui-layers": mdiLayersOutline,
   "ui-years": mdiCalendarRange, "ui-open": mdiOpenInNew, "ui-check": mdiCheck, "ui-bars": mdiChartBar, "ui-line": mdiChartLine, "ui-gantt": mdiChartTimeline,
   "ui-zoom-out": mdiMagnifyMinusOutline, "ui-zoom-sel": mdiSelectionDrag, "ui-folder": mdiFolderOutline, "ui-code": mdiCodeTags, "ui-tune": mdiTune, "ui-capture": mdiCropFree,
-  "ui-ferry": mdiFerry,
+  "ui-ferry": mdiFerry, "ui-calendar": mdiCalendarMonthOutline,
 } as const;
 export type IconName = keyof typeof ICON;
 

@@ -14,6 +14,9 @@ export interface Sel {
   stage: string | null;        // bio life stage; null = "let the picker default it" (D8 rule 4)
   den: Den | null;             // bio denominator; null = default per rule 4
   years: [number, number];
+  months: [number, number] | null;  // month-level filter (D20): years=2015-04:2016-10; null = whole years
+  q: number[] | null;          // season: quarters kept (q=1,2); null = all
+  yview: [number, number] | null; // the year strip's zoom window in fractional years (yview=2005-2012); never the filter
   depth: [number, number];     // depth band, m (10 m bins)
   layer: string;               // region lens: one spatial layer (single-select, layers overlap)
   region: string | null;       // selected polygon
@@ -64,7 +67,7 @@ export const YEAR_OPEN = 9999; // "through the latest year in the release" until
 
 export const DEFAULTS: Sel = {
   lens: "station", res: 5, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature",
-  stage: null, den: null, years: [1949, YEAR_OPEN], depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
+  stage: null, den: null, years: [1949, YEAR_OPEN], months: null, q: null, yview: null, depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
   line: 90, cruise: null, stat: "mean", anom: false, tour: true, tourOn: false, theme: null, release: null, station: null, datasets: null,
   hide: DEFAULT_HIDE, max: null,
 };
@@ -73,8 +76,22 @@ const num = (v: string | null, d: number) => (v != null && v !== "" && !isNaN(+v
 const pair = (v: string | null, d: [number, number]): [number, number] => {
   if (!v) return d;
   const m = v.split(/[-–:]/).map(Number);
-  return m.length === 2 && m.every((x) => !isNaN(x)) ? [Math.min(m[0], m[1]), Math.max(m[0], m[1])] : d;
+  return m.length === 2 && m.every((x) => !isNaN(x)) && m[0] !== m[1] ? [Math.min(m[0], m[1]), Math.max(m[0], m[1])] : d;
 };
+
+// years=1990-2000 (whole years) or years=2015-04:2016-10 (month-resolved, D20)
+function parseYears(v: string | null): { years: [number, number]; months: [number, number] | null } {
+  const d = { years: DEFAULTS.years, months: null as [number, number] | null };
+  if (!v) return d;
+  const m = /^(\d{4})(?:-(\d{1,2}))?[:–](\d{4})(?:-(\d{1,2}))?$/.exec(v);
+  if (m) {
+    const y0 = +m[1], y1 = +m[3], m0 = m[2] ? Math.min(12, Math.max(1, +m[2])) : 1, m1 = m[4] ? Math.min(12, Math.max(1, +m[4])) : 12;
+    const yrs: [number, number] = [Math.min(y0, y1), Math.max(y0, y1)];
+    return { years: yrs, months: m0 === 1 && m1 === 12 ? null : [m0, m1] };
+  }
+  return { years: pair(v, DEFAULTS.years), months: null };
+}
+const fmtYears = (y: [number, number], m: [number, number] | null) => m ? `${y[0]}-${String(m[0]).padStart(2, "0")}:${y[1]}-${String(m[1]).padStart(2, "0")}` : `${y[0]}-${y[1]}`;
 
 export function fromUrl(): Sel {
   const p = new URLSearchParams(location.search);
@@ -91,7 +108,9 @@ export function fromUrl(): Sel {
     var: v ?? DEFAULTS.var,
     stage: p.get("stage"),
     den: den && (den in VAL_COL) ? (den as Den) : null,
-    years: pair(p.get("years"), DEFAULTS.years),
+    ...parseYears(p.get("years")),
+    q: p.get("q") ? [...new Set(p.get("q")!.split(",").map(Number).filter((x) => x >= 1 && x <= 4))].sort() : null,
+    yview: p.get("yview") ? pair(p.get("yview"), [0, 0]) : null,
     depth: pair(p.get("depth"), DEFAULTS.depth),
     layer: LAYERS.includes(p.get("layer") ?? "") ? (p.get("layer") as string) : DEFAULTS.layer,
     region: p.get("region"),
@@ -120,7 +139,9 @@ export function toUrl(s: Sel) {
     if (s.stage) p.set("stage", s.stage);
     if (s.den) p.set("den", s.den);
   }
-  if (s.years[0] !== 1949 || s.years[1] !== YEAR_OPEN) p.set("years", `${s.years[0]}-${s.years[1]}`);
+  if (s.years[0] !== 1949 || s.years[1] !== YEAR_OPEN || s.months) p.set("years", fmtYears(s.years, s.months));
+  if (s.q?.length && s.q.length < 4) p.set("q", s.q.join(","));
+  if (s.yview && s.yview[1] > s.yview[0]) p.set("yview", `${+s.yview[0].toFixed(2)}-${+s.yview[1].toFixed(2)}`);
   if (s.depth[0] !== DEFAULTS.depth[0] || s.depth[1] !== DEFAULTS.depth[1]) p.set("depth", `${s.depth[0]}-${s.depth[1]}`);
   if (s.lens === "region") { p.set("layer", s.layer); if (s.region) p.set("region", s.region); }
   if (s.lens === "section") { p.set("line", String(s.line)); if (s.anom) p.set("anom", "1"); }

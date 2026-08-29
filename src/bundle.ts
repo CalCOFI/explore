@@ -125,7 +125,7 @@ export async function buildBundle(ctx: BundleCtx): Promise<{ blob: Blob; name: s
     `release: ${version} (release_date ${catalog.release_date ?? "—"}; every object read, with bytes / sha256 / content_hash, is in query/objects.json)`,
     sel.realm === "bio" ? `taxon: ${sel.taxon} · life stage: ${sel.stage ?? "all"} · denominator: ${sel.den} (${ctx.unit})` : `variable: ${sel.var} = ${members(sel.var).join(" + ")} (${ctx.unit})`,
     ...(sel.datasets ? [`datasets: ${sel.datasets.join(", ")} (pill filter)`] : []),
-    `quality: qual_ok (calcofi4r::cc_qual_ok_sql) · years ${sel.years[0]}–${sel.years[1]} · depth band ${sel.depth[0]}–${sel.depth[1]} m`,
+    `quality: qual_ok (calcofi4r::cc_qual_ok_sql) · years ${sel.months ? `${sel.years[0]}-${String(sel.months[0]).padStart(2, "0")} to ${sel.years[1]}-${String(sel.months[1]).padStart(2, "0")} (month-resolved)` : `${sel.years[0]}–${sel.years[1]}`}${sel.q?.length && sel.q.length < 4 ? ` · quarters ${sel.q.join(", ")}` : ""} · depth band ${sel.depth[0]}–${sel.depth[1]} m`,
     `lens: ${sel.lens}${sel.lens === "hex" ? ` (H3 res ${ctx.hexRes})` : ""}${sel.lens === "region" ? ` (layer ${sel.layer}; membership = sample_spatial, exact per root sample)` : ""}${sel.cruise ? ` · cruise ${sel.cruise}` : ""}${sel.lens === "section" ? ` · line ${sel.line}` : ""}`,
     `observation rows: ${nObs.toLocaleString()}${nObs > 300000 ? " (CSV omitted above 300,000 rows; parquet included)" : ""}`,
   ];

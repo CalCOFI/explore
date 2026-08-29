@@ -32,7 +32,7 @@ export function template(name: string): string {
 }
 export type Param = string | number | boolean | null;
 export interface Params { [k: string]: Param }
-const RAW = new Set(["val", "hex", "where", "where_nodepth", "where_noyear", "src", "taxon_src", "root_src", "spatial_src", "dataset_filter"]);
+const RAW = new Set(["val", "hex", "where", "where_nodepth", "where_noyear", "src", "taxon_src", "root_src", "spatial_src", "dataset_filter", "quarter_filter", "bin"]);
 export const datasetFilterSql = (ds: string[] | null | undefined) => ds?.length ? `dataset_key IN (${ds.map((d) => lit(d)).join(", ")})` : "TRUE";
 
 // an H3 parent as plain bit arithmetic (calcofi4db::h3_parent_sql): resolution in bits 52–55, one
@@ -63,7 +63,7 @@ export function render(name: string, params: Params): string {
   const body = template(name);
   if (body.includes("{{where}}")) p.where = sub(filterFragment(null));
   if (body.includes("{{where_nodepth}}")) p.where_nodepth = sub(filterFragment(/depth_bin/));
-  if (body.includes("{{where_noyear}}")) p.where_noyear = sub(filterFragment(/year BETWEEN/));
+  if (body.includes("{{where_noyear}}")) p.where_noyear = sub(filterFragment(/\{\{ym0\}\}/));
   return sub(body).trim();
 }
 

@@ -6,7 +6,7 @@ import type { PickingInfo } from "@deck.gl/core";
 import { engine, timing, hexExpr, datasetFilterSql, type Mark, type Row } from "./engine";
 import { UNIFIED, members } from "./variables";
 import { buildLayers, MapView, quantileDomain, viridisCss, type GridCell, type StatRow } from "./map";
-import { DepthStrip, YearStrip, SectionPlot, CruiseSeries, StationCard, type DepthRow, type YearRow, type SectionCell, type CruiseRow } from "./charts";
+import { DepthStrip, YearStrip, SectionPlot, CruiseSeries, StationCard, MONTH_LOD_YEARS, type DepthRow, type YearRow, type SectionCell, type CruiseRow, type GanttRow, type StripMode } from "./charts";
 import { resolveVersion, fetchCatalog, fetchVersions, sources, sidecarUrl, earlySidecar, type Catalog } from "./release";
 import { buildBundle, saveBlob, copyAs } from "./bundle";
 import { Icon } from "./icons";
@@ -41,7 +41,7 @@ const native = new URLSearchParams(location.search).get("native") === "1"; // D1
 const phoneQuery = matchMedia("(max-width: 899px)");
 
 // registered buffer names: the SQL templates read these (`{{src}}` etc.), never a URL
-const REG = { obs_bio: "obs_bio.parquet", sample_root: "sample_root.parquet", sample_spatial: "sample_spatial.parquet", taxon: "taxon.parquet", measurement_type: "measurement_type.parquet", dataset: "dataset.parquet" } as const;
+const REG = { obs_bio: "obs_bio.parquet", sample_root: "sample_root.parquet", sample_spatial: "sample_spatial.parquet", taxon: "taxon.parquet", measurement_type: "measurement_type.parquet", dataset: "dataset.parquet", cruise: "cruise.parquet" } as const;
 const envReg = (v: string) => `obs_env_${v}.parquet`;
 // an env variable's source: the union of its member objects, each stamped with its measurement_type (the hive key)
 const envSrc = (key: string) => `(${members(key).map((m) => `SELECT *, '${m}' AS measurement_type FROM '${envReg(m)}'`).join(" UNION ALL ")})`;
@@ -101,7 +101,12 @@ export function App() {
   const [time, setTime] = useState(0);
   const [lastSql, setLastSql] = useState("");
   const [bundling, setBundling] = useState<string | null>(null);
-  const [seriesMode, setSeriesMode] = useState<"n" | "mean">("n");
+  const [seriesMode, setSeriesMode] = useState<StripMode>("n");
+  const [monthRows, setMonthRows] = useState<YearRow[] | null>(null);
+  const [needMonths, setNeedMonths] = useState(false);
+  const [ganttRows, setGanttRows] = useState<CruiseRow[]>([]);
+  const [cruiseRef, setCruiseRef] = useState<Map<string, { ship: string; nodc: string }> | null>(null);
+  const [seasonEdit, setSeasonEdit] = useState(false);
   // advanced: the timing marks + the last SQL, behind a gear (off by default; ?timing=1 opens it)
   const [advanced, setAdvanced] = useState<boolean>(() => new URLSearchParams(location.search).get("timing") === "1");
   const lensClickAt = useRef<number | null>(null);
@@ -217,9 +222,11 @@ export function App() {
   const yearMax = useMemo(() => Math.max(2023, ...(cov?.variables ?? []).map((v) => v.year_max ?? 0)), [cov]);
   const years: [number, number] = [sel.years[0], sel.years[1] === YEAR_OPEN ? yearMax : sel.years[1]];
   const params = useMemo(() => ({
-    val, y0: years[0], y1: years[1], d0: sel.depth[0], d1: sel.depth[1], stage: sel.realm === "bio" ? sel.stage : null,
+    val, y0: years[0], y1: years[1], ym0: years[0] * 100 + (sel.months?.[0] ?? 1), ym1: years[1] * 100 + (sel.months?.[1] ?? 12),
+    quarter_filter: sel.q?.length && sel.q.length < 4 ? `quarter IN (${sel.q.join(", ")})` : "TRUE", bin: "year",
+    d0: sel.depth[0], d1: sel.depth[1], stage: sel.realm === "bio" ? sel.stage : null,
     dataset_filter: datasetFilterSql(sel.datasets),
-  }), [val, years[0], years[1], sel.depth, sel.stage, sel.realm, sel.datasets]);
+  }), [val, years[0], years[1], sel.months, sel.q, sel.depth, sel.stage, sel.realm, sel.datasets]);
   const dsOn = (dk: string) => !sel.datasets || sel.datasets.includes(dk);
   const toggleDataset = (dk: string) => {
     const all = [...new Set(picker.map((r) => r.dataset_key))];
@@ -397,7 +404,7 @@ export function App() {
   const cruiseItems = useMemo<PickerItem[]>(() => cruiseRows.map((c) => ({ key: c.cruise_key, label: c.cruise_key, sub: `${dateOf(c.t0)} → ${dateOf(c.t1)} · ${c.n_sta} stations`, n: c.n, year: +c.cruise_key.slice(0, 4) })), [cruiseRows]);
   const sectionCruiseItems = useMemo<PickerItem[]>(() => sectionCruises.map((c) => ({ key: c.cruise_key, label: c.cruise_key, sub: `${c.n_sta} stations · ${fmtN(c.n)} observations`, n: c.n_sta, year: c.year })), [sectionCruises]);
   const envVar = variableItems.find((v) => v.key === sel.var);
-  const yearsSet = sel.years[0] !== 1949 || sel.years[1] !== YEAR_OPEN;
+  const yearsSet = sel.years[0] !== 1949 || sel.years[1] !== YEAR_OPEN || !!sel.months;
   const depthSet = sel.depth[0] !== 0 || sel.depth[1] !== 500;
   const copyLink = async () => { try { await navigator.clipboard.writeText(location.href); setStatus("link copied"); } catch { setStatus("clipboard blocked"); } };
 
@@ -453,6 +460,31 @@ export function App() {
     };
     document.addEventListener("keydown", key); return () => document.removeEventListener("keydown", key);
   }, [modal, phone]);
+  // D20: month bins once the strip is zoomed to <= 15 years; the cruise Gantt's rows (every lens) + the ship reference
+  useEffect(() => {
+    if (!needMonths || !sliceKey) { setMonthRows(null); return; }
+    let live = true;
+    engine.query("years", { ...params, bin: "year::INTEGER + (month(datetime) - 0.5) / 12.0" }).then((r) => { if (live) setMonthRows(r as YearRow[]); }).catch(console.error);
+    return () => { live = false; };
+  }, [needMonths, sliceKey, params]);
+  useEffect(() => {
+    if (seriesMode !== "cruises" || !sliceKey) return;
+    let live = true;
+    engine.query("cruise", params).then((r) => { if (live) setGanttRows(r as CruiseRow[]); }).catch(console.error);
+    if (!cruiseRef) ensure(REG.cruise).then(() => engine.query("cruise_ref", { src: q(REG.cruise) })).then((r) => { if (live) setCruiseRef(new Map(r.map((c) => [c.cruise_key, { ship: c.ship_name ?? c.ship_nodc ?? "", nodc: c.ship_nodc ?? "" }]))); }).catch(console.error);
+    return () => { live = false; };
+  }, [seriesMode, sliceKey, params]);
+  const gantt = useMemo(() => {
+    if (seriesMode !== "cruises") return null;
+    const rows = (sel.lens === "cruise" && cruiseRows.length ? cruiseRows : ganttRows).filter((c) => c.t0 && c.t1);
+    // lanes are ships, in the fleet's order of first appearance; a key with no reference row lanes by its NODC code
+    const shipOf = (k: string) => { const ref = cruiseRef?.get(k); const nodc = k.split("-")[2] ?? k; return ref?.ship ? ref.ship.replace(/\b\w+/g, (w) => w[0] + w.slice(1).toLowerCase()) : nodc; };
+    const first = new Map<string, number>();
+    for (const c of rows.slice().sort((a, b) => a.t0 - b.t0)) { const s = shipOf(c.cruise_key); if (!first.has(s)) first.set(s, c.t0); }
+    const lanes = [...first.keys()];
+    const gr: GanttRow[] = rows.map((c) => { const ship = shipOf(c.cruise_key); return { ...c, ship, lane: lanes.indexOf(ship) }; });
+    return { rows: gr, lanes, selected: sel.cruise, onPick: (k: string) => setSel({ cruise: k }) };
+  }, [seriesMode, cruiseRows, ganttRows, cruiseRef, sel.lens, sel.cruise]);
   const yearsSpark = useMemo(() => { const m = new Map(yearRows.map((r) => [r.year, r.n])); const out: number[] = []; for (let y = 1949; y <= yearMax; y++) out.push(m.get(y) ?? 0); return out; }, [yearRows, yearMax]);
   const unitLabel = sel.realm === "bio" ? (sel.den === "raw" ? "count" : sel.den === "per_10m2" ? "per 10 m²" : "per 1000 m³") : (picker[0]?.units ?? sel.var);
   const taxonRow = taxa.find((t) => t.taxon_key === sel.taxon);
@@ -528,7 +560,10 @@ export function App() {
   const selectSummary = sel.realm === "bio" ? `${organism?.label ?? sel.taxon} · ${sel.stage ?? "all stages"} · ${unitLabel}` : `${envVar?.label ?? sel.var} · ${sel.depth[0]}–${sel.depth[1]} m`;
   const depthSummary = sliceKey && !depthRows.length ? "Depth · integrated tows" : `Depth ${sel.depth[0]}–${sel.depth[1]} m`;
   const depthEmpty = "depth-integrated net tows —<br>no water-column profile for this selection;<br>the tow span will draw here<br>once the release carries it";
-  const seriesToggle = <span className="seg" role="group" aria-label="year strip mode"><button className={seriesMode === "n" ? "on" : ""} onClick={() => setSeriesMode("n")}>observations</button><button className={seriesMode === "mean" ? "on" : ""} onClick={() => setSeriesMode("mean")}>mean ± se</button></span>;
+  const seriesToggle = <span className="seg" role="group" aria-label="year strip mode" data-tour="strip-mode"><button className={seriesMode === "n" ? "on" : ""} onClick={() => setSeriesMode("n")}>observations</button><button className={seriesMode === "mean" ? "on" : ""} onClick={() => setSeriesMode("mean")}>mean ± se</button><button className={seriesMode === "cruises" ? "on" : ""} onClick={() => setSeriesMode("cruises")} title="one bar per cruise in lanes by ship; zoom in for the codes; click a bar to pick the cruise"><Icon name="ui-gantt" />cruises</button></span>;
+  const Q_LABEL = ["Jan–Mar", "Apr–Jun", "Jul–Sep", "Oct–Dec"];
+  const seasonLabel = sel.q?.length && sel.q.length < 4 ? sel.q.map((x) => `Q${x}`).join(" ") : "all";
+  const toggleQ = (x: number) => { const cur = sel.q ?? [1, 2, 3, 4]; const next = cur.includes(x) ? cur.filter((y) => y !== x) : [...cur, x].sort(); setSel({ q: next.length === 0 || next.length === 4 ? null : next }); };
   const selectBody = <>
     <Group title="Lens" icon="ui-layers" data-tour="lenses">
       <div className="lenses">
@@ -596,11 +631,13 @@ export function App() {
     </Group>
     <Group title="Filters" icon="ui-filter" data-tour="filters">
       <div className="chips">
-        <button type="button" className={`chip${yearsSet ? " on" : ""}`} onClick={() => setYearsEdit((v) => !v)} title="the year range · brush the years strip, or click to type"><Icon name="ui-years" />years {years[0]}–{years[1]}{yearsSet && <span className="x" role="button" aria-label="reset years" onClick={(e) => { e.stopPropagation(); setSel({ years: [1949, YEAR_OPEN] }); }}><Icon name="ui-close" /></span>}</button>
+        <button type="button" className={`chip${yearsSet ? " on" : ""}`} onClick={() => setYearsEdit((v) => !v)} title="the year range · brush the years strip, or click to type"><Icon name="ui-years" />years {sel.months ? `${years[0]}-${String(sel.months[0]).padStart(2, "0")} → ${years[1]}-${String(sel.months[1]).padStart(2, "0")}` : `${years[0]}–${years[1]}`}{yearsSet && <span className="x" role="button" aria-label="reset years" onClick={(e) => { e.stopPropagation(); setSel({ years: [1949, YEAR_OPEN], months: null }); }}><Icon name="ui-close" /></span>}</button>
+        <button type="button" className={`chip${sel.q ? " on" : ""}`} onClick={() => setSeasonEdit((v) => !v)} title="season: keep only these quarters (the cheap sibling of a month brush)"><Icon name="ui-calendar" />season {seasonLabel}{sel.q && <span className="x" role="button" aria-label="all seasons" onClick={(e) => { e.stopPropagation(); setSel({ q: null }); }}><Icon name="ui-close" /></span>}</button>
         <button type="button" className={`chip${depthSet ? " on" : ""}`} onClick={() => { if (phone) setSheet({ panel: "depth", detent: "half" }); else if (folded("depth")) toggleFold("depth"); }} title="the depth band · brush the water column to change it"><Icon name="ui-tune" />depth {sel.depth[0]}–{sel.depth[1]} m{depthSet && <span className="x" role="button" aria-label="reset depth" onClick={(e) => { e.stopPropagation(); setSel({ depth: [0, 500] }); }}><Icon name="ui-close" /></span>}</button>
         <span className={`chip${sel.datasets ? " on" : ""}`} title="the dataset filter · click the dataset pills under the organism or variable"><Icon name="ui-data" />datasets {sel.datasets ? sel.datasets.map(short).join(", ") : "all"}{sel.datasets && <button type="button" aria-label="all datasets" onClick={() => setSel({ datasets: null })}><Icon name="ui-close" /></button>}</span>
       </div>
-      {yearsEdit && <div className="row"><input type="number" style={{ width: 62 }} value={years[0]} min={1949} max={yearMax} onChange={(e) => setSel({ years: [+e.target.value, years[1]] })} />–<input type="number" style={{ width: 62 }} value={years[1]} min={1949} max={yearMax} onChange={(e) => setSel({ years: [years[0], +e.target.value] })} /><span className="hint">or brush the years strip</span></div>}
+      {yearsEdit && <div className="row"><input type="number" style={{ width: 62 }} value={years[0]} min={1949} max={yearMax} onChange={(e) => setSel({ years: [+e.target.value, years[1]] })} />–<input type="number" style={{ width: 62 }} value={years[1]} min={1949} max={yearMax} onChange={(e) => setSel({ years: [years[0], +e.target.value] })} /><span className="hint">or brush the years strip{sel.months ? " · month edges from the brush" : ""}</span></div>}
+      {seasonEdit && <div className="season-row"><span className="seg">{[1, 2, 3, 4].map((x) => <button key={x} className={!sel.q || sel.q.includes(x) ? "on" : ""} onClick={() => toggleQ(x)} title={Q_LABEL[x - 1]}>Q{x}</button>)}</span><span className="hint">{sel.q ? sel.q.map((x) => Q_LABEL[x - 1]).join(", ") : "every quarter"}</span></div>}
     </Group>
     <Group title="Export" icon="ui-download" data-tour="export">
       <div className="row">
@@ -618,7 +655,8 @@ export function App() {
     <div className="hint" style={{ marginTop: "auto" }}>{LENS_TITLE[sel.lens]}. Release {rel}{catalog ? ` · ${catalog.tables.length} tables` : ""} · DuckDB-WASM in a worker, no extensions, objects fetched whole from the release catalog.</div>
   </>;
   const depthBody = (wide: boolean) => <DepthStrip rows={depthRows} band={sel.depth} theme={theme} unit={unitLabel} empty={depthEmpty} onBand={(b) => setSel({ depth: b ?? [0, 500] })} byDataset={wide && depthDs.length ? { rows: depthDs, color: dsColor, short } : null} />;
-  const yearsBody = <YearStrip rows={yearRows} years={years} yearMax={yearMax} theme={theme} mode={seriesMode} unit={unitLabel} onYears={(y) => setSel({ years: y ?? [1949, YEAR_OPEN] })} />;
+  const yearsBody = <YearStrip rows={yearRows} monthRows={monthRows} onNeedMonths={setNeedMonths} years={years} months={sel.months} yearMax={yearMax} theme={theme} mode={seriesMode} unit={unitLabel} stat={stat}
+    view={sel.yview} onView={(v) => setSel({ yview: v })} onYears={(y, m) => setSel({ years: y ?? [1949, YEAR_OPEN], months: y ? m ?? null : null })} gantt={gantt} />;
   const sectionBody = <SectionPlot cells={sectionCells} clim={climCells} anom={sel.anom && sel.realm === "env"} yLabel={sel.realm === "env" ? "depth (m)" : "year"} theme={theme} unit={unitLabel}
     title={`line ${sel.line} · ${sel.realm === "env" ? `cruise ${sel.cruise ?? "—"}${sel.anom ? " · anomaly vs climatology" : ""}` : "all cruises · tows are depth-integrated, so y is year"}`} />;
   const cruiseBody = <CruiseSeries rows={cruiseRows} stat={stat} selected={sel.cruise} theme={theme} unit={unitLabel} onPick={(k) => setSel({ cruise: k })} />;
@@ -642,7 +680,7 @@ export function App() {
   };
   const icons: Record<PanelId, IconName> = { select: "ui-tune", depth: "ui-tune", years: "ui-years", section: "lens-sections", cruise: "lens-cruises", station: "lens-stations", timing: "ui-sql" };
   const body = (id: PanelId, wide = false) => id === "select" ? selectBody : id === "depth" ? depthBody(wide) : id === "years" ? yearsBody : id === "section" ? sectionBody : id === "cruise" ? cruiseBody : id === "station" ? stationBody : timingBody;
-  const actions = (id: PanelId) => (id === "years" ? seriesToggle : null);
+  const actions = (id: PanelId) => (id === "years" ? <>{sel.yview && <IconButton icon="ui-zoom-out" label="Reset zoom (double-click the strip)" className="sm" onClick={() => setSel({ yview: null })} data-tour="zoom-reset" />}{seriesToggle}</> : null);
   const cardOpen: Record<CardId, boolean> = { section: displayLens === "section", cruise: displayLens === "cruise", station: !!stationCard, timing: advanced };
   const maxId: PanelId | null = sel.max && !phone && (sel.max === "select" || sel.max === "depth" || sel.max === "years" || cardOpen[sel.max as CardId]) ? sel.max : null;
   const bottomBand = cardOpen.section && !minCards.section ? "46%" : cardOpen.cruise && !minCards.cruise ? "34%" : "0%";
@@ -710,12 +748,12 @@ export function App() {
             <Sheet detent={sheet.detent} onDetent={(d) => setSheet((s) => ({ ...s, detent: d }))} title={sheet.panel === "select" ? undefined : titles[sheet.panel]} onClose={sheet.panel === "select" ? undefined : closeSheet} data-tour="sheet"
               peek={sheet.panel === "select" ? <>
                 <div className="sheet-summary" onClick={() => setSheet((s) => ({ ...s, detent: s.detent === "peek" ? "half" : "peek" }))}><Icon name={LENS_ICON[sel.lens]} /><Icon name={sel.realm === "bio" ? "realm-bio" : "realm-env"} /><span>{selectSummary}</span></div>
-                {lensStrip}</> : sheet.panel === "years" ? seriesToggle : null}>
+                {lensStrip}</> : sheet.panel === "years" ? actions("years") : null}>
               {sheet.panel === "select" ? selectBody : body(sheet.panel, true)}
             </Sheet>
           </>}
         </div>
-        {!phone && <Rail id="years" side="bottom" title="Years" icon="ui-years" folded={folded("years")} onFold={() => toggleFold("years")} maximized={maxId === "years"} onMax={() => toggleMax("years")} actions={seriesToggle} data-tour="years"
+        {!phone && <Rail id="years" side="bottom" title="Years" icon="ui-years" folded={folded("years")} onFold={() => toggleFold("years")} maximized={maxId === "years"} onMax={() => toggleMax("years")} actions={actions("years")} data-tour="years"
           summary={<>Years {years[0]}–{years[1]}<Sparkline values={yearsSpark} /></>}>{yearsBody}</Rail>}
         {!phone && <Rail id="depth" side="right" title="Depth" icon="ui-tune" folded={folded("depth")} onFold={() => toggleFold("depth")} maximized={maxId === "depth"} onMax={() => toggleMax("depth")} muted={!!sliceKey && !depthRows.length} pulse={depthPulse} data-tour="depth"
           summary={depthSummary}>{depthBody(false)}</Rail>}
