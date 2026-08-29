@@ -3,13 +3,14 @@
 // release slice + the URL. data comes from the release catalog (release.ts), never a hand-built path.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PickingInfo } from "@deck.gl/core";
-import { engine, timing, hexExpr, type Mark, type Row } from "./engine";
+import { engine, timing, hexExpr, datasetFilterSql, type Mark, type Row } from "./engine";
+import { UNIFIED, members } from "./variables";
 import { buildLayers, MapView, quantileDomain, viridisCss, type GridCell, type StatRow } from "./map";
 import { DepthStrip, YearStrip, SectionPlot, CruiseSeries, StationCard, type DepthRow, type YearRow, type SectionCell, type CruiseRow } from "./charts";
 import { resolveVersion, fetchCatalog, fetchVersions, sources, sidecarUrl, earlySidecar, type Catalog } from "./release";
 import { buildBundle, saveBlob, copyAs } from "./bundle";
 import {
-  fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LAYERS, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, STAT_LABEL,
+  fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LAYERS, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, STAT_LABEL, YEAR_OPEN,
   type Sel, type Lens, type Den, type Stat, type PickerRow,
 } from "./state";
 
@@ -27,6 +28,8 @@ const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 // registered buffer names: the SQL templates read these (`{{src}}` etc.), never a URL
 const REG = { obs_bio: "obs_bio.parquet", sample_root: "sample_root.parquet", sample_spatial: "sample_spatial.parquet", taxon: "taxon.parquet", measurement_type: "measurement_type.parquet", dataset: "dataset.parquet" } as const;
 const envReg = (v: string) => `obs_env_${v}.parquet`;
+// an env variable's source: the union of its member objects, each stamped with its measurement_type (the hive key)
+const envSrc = (key: string) => `(${members(key).map((m) => `SELECT *, '${m}' AS measurement_type FROM '${envReg(m)}'`).join(" UNION ALL ")})`;
 const q = (name: string) => `'${name}'`;
 
 export interface Coverage {
@@ -134,7 +137,7 @@ export function App() {
       // the engine + the objects every lens needs, in parallel with the paint
       setStatus("engine warming…");
       ensure(REG.obs_bio); ensure(REG.taxon); ensure(REG.measurement_type); ensure(REG.sample_spatial); ensure(REG.dataset);
-      if (sel.realm === "env") ensure(envReg(sel.var));
+      if (sel.realm === "env") for (const m of members(sel.var)) ensure(envReg(m));
       Promise.all([ensure(REG.obs_bio), ensure(REG.taxon)])
         .then(() => engine.query("taxa", { src: q(REG.obs_bio), taxon_src: q(REG.taxon) })).then((r) => setTaxa(r.slice(0, 400)));
       Promise.all([ensure(REG.measurement_type), ensure(REG.dataset)]).then(async () => {
@@ -143,9 +146,13 @@ export function App() {
         const env = cv.variables.filter((x) => x.realm === "env");
         const byType = new Map<string, number>();
         for (const x of env) byType.set(x.measurement_type, (byType.get(x.measurement_type) ?? 0) + x.n_obs);
-        setEnvVars([...byType.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => {
+        // unified variables (bottle + CTD headline types, comparable) first, then every other type on its own
+        const inUnified = new Set(UNIFIED.flatMap((v) => v.members));
+        const uni = UNIFIED.map((v) => ({ key: v.key, label: `${v.label} · ${v.members.join(" + ")}`, n: v.members.reduce((a, m) => a + (byType.get(m) ?? 0), 0) })).filter((v) => v.n > 0);
+        const rest = [...byType.entries()].filter(([k]) => !inUnified.has(k)).sort((a, b) => b[1] - a[1]).map(([k, n]) => {
           const m = lab.get(k); return { key: k, label: `${m?.description ?? ENV_VARS_FALLBACK[k] ?? k}${m?.units ? ` (${m.units})` : ""}`, n };
-        }));
+        });
+        setEnvVars([...uni, ...rest]);
         setDatasets(await engine.exec(`SELECT * FROM ${q(REG.dataset)}`, "dataset"));
       });
     })().catch((e) => { console.error(e); setStatus(`error: ${e.message}`); });
@@ -172,13 +179,14 @@ export function App() {
     if (key === sliceKey) return;
     const g = ++gen.current;
     (async () => {
-      const file = sel.realm === "bio" ? REG.obs_bio : envReg(sel.var);
-      setStatus(`fetching ${file}…`);
-      await ensure(file);
+      const files = sel.realm === "bio" ? [REG.obs_bio] : members(sel.var).map(envReg);
+      setPicker([]); // the old realm's rows must never render under the new one (stale keyed DOM)
+      setStatus(`fetching ${files.join(", ")}…`);
+      await Promise.all(files.map((f) => ensure(f)));
       if (g !== gen.current) return;
       setStatus("building slice…");
       const t = performance.now();
-      await (sel.realm === "bio" ? engine.query("slice_bio", { src: q(file), taxon: sel.taxon }) : engine.query("slice_env", { src: q(file), var: sel.var }));
+      await (sel.realm === "bio" ? engine.query("slice_bio", { src: q(REG.obs_bio), taxon: sel.taxon }) : engine.query("slice_env", { src: envSrc(sel.var) }));
       const rows = (await engine.query("picker", {})) as PickerRow[];
       if (g !== gen.current) return;
       timing.add(`slice:${key}`, performance.now() - t, `${fmtN(rows.reduce((a, r) => a + r.n, 0))} rows`);
@@ -195,9 +203,20 @@ export function App() {
 
   // ── lens queries ───────────────────────────────────────────────────────────
   const val = sel.realm === "bio" ? VAL_COL[sel.den ?? "raw"] : "value";
+  // the release's last year (coverage.json) closes an open-ended year range; never a constant
+  const yearMax = useMemo(() => Math.max(2023, ...(cov?.variables ?? []).map((v) => v.year_max ?? 0)), [cov]);
+  const years: [number, number] = [sel.years[0], sel.years[1] === YEAR_OPEN ? yearMax : sel.years[1]];
   const params = useMemo(() => ({
-    val, y0: sel.years[0], y1: sel.years[1], d0: sel.depth[0], d1: sel.depth[1], stage: sel.realm === "bio" ? sel.stage : null,
-  }), [val, sel.years, sel.depth, sel.stage, sel.realm]);
+    val, y0: years[0], y1: years[1], d0: sel.depth[0], d1: sel.depth[1], stage: sel.realm === "bio" ? sel.stage : null,
+    dataset_filter: datasetFilterSql(sel.datasets),
+  }), [val, years[0], years[1], sel.depth, sel.stage, sel.realm, sel.datasets]);
+  const dsOn = (dk: string) => !sel.datasets || sel.datasets.includes(dk);
+  const toggleDataset = (dk: string) => {
+    const all = [...new Set(picker.map((r) => r.dataset_key))];
+    const cur = sel.datasets ?? all;
+    const next = cur.includes(dk) ? cur.filter((d) => d !== dk) : [...cur, dk];
+    setSel({ datasets: next.length === 0 || next.length === all.length ? null : next });
+  };
 
   useEffect(() => {
     if (!sliceKey || (sel.realm === "bio" && !sel.den)) return;
@@ -317,7 +336,9 @@ export function App() {
     for (const r of picker) m.set(r.life_stage, (m.get(r.life_stage) ?? 0) + r.n);
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
   }, [picker]);
-  const stageRows = picker.filter((r) => sel.realm === "env" || r.life_stage === sel.stage);
+  const stageRows = picker.filter((r) => (sel.realm === "env" || r.life_stage === sel.stage) && dsOn(r.dataset_key));
+  // env pills: one per dataset (the picker rows are per dataset x stage x class x gear)
+  const envPills = useMemo(() => { const m = new Map<string, { n: number; n_flagged: number }>(); for (const r of picker) { const c = m.get(r.dataset_key) ?? { n: 0, n_flagged: 0 }; c.n += r.n; c.n_flagged += r.n_flagged; m.set(r.dataset_key, c); } return [...m.entries()]; }, [picker]);
   const denInfo = (den: Den) => {
     const ok = new Set<string>(), all = new Set<string>();
     let excluded = 0, rows = 0;
@@ -329,7 +350,7 @@ export function App() {
     }
     return { ok: [...ok], off: [...all].filter((d) => !ok.has(d)), excluded, rows };
   };
-  const inView = stageRows.reduce((a, r) => a + (sel.den === "per_10m2" ? r.n_10m2 : sel.den === "per_1000m3" ? r.n_1000m3 : r.n), 0);
+  const inView = stageRows.reduce((a, r) => a + (sel.realm === "env" ? r.n : sel.den === "per_10m2" ? r.n_10m2 : sel.den === "per_1000m3" ? r.n_1000m3 : r.n), 0);
   const envVar = envVars.find((v) => v.key === sel.var);
   const unitLabel = sel.realm === "bio" ? (sel.den === "raw" ? "count" : sel.den === "per_10m2" ? "per 10 m²" : "per 1000 m³") : (picker[0]?.units ?? sel.var);
   const taxonRow = taxa.find((t) => t.taxon_key === sel.taxon);
@@ -363,6 +384,7 @@ export function App() {
     setBundling(null);
   };
   (window as any).__download = download; // spike/verify hook
+  (window as any).__picker = picker; (window as any).__sliceKey = sliceKey;
   const lensTpl = () => sel.lens === "hex" ? "hex" : sel.lens === "region" ? "region" : sel.lens === "cruise" ? "cruise" : sel.lens === "section" ? (sel.realm === "env" ? "section" : "section_bio") : "station";
   const lensPar = (): Record<string, any> => sel.lens === "hex" ? { hex: hexExpr(sel.res) } : sel.lens === "region" ? { layer: sel.layer } : sel.lens === "section" ? { line: sel.line, cruise: sel.cruise } : {};
   const copy = async (kind: "sql" | "r" | "py") => {
@@ -445,19 +467,25 @@ export function App() {
               {[...new Map(picker.map((r) => [`${r.dataset_key}|${r.life_stage}`, r])).keys()].map((k) => {
                 const rs = picker.filter((r) => `${r.dataset_key}|${r.life_stage}` === k); const r0 = rs[0];
                 const n = rs.reduce((a, r) => a + r.n, 0); const raw = rs.every((r) => r.effort_class === "raw_count_no_effort");
-                return <span key={k} className={`pill ${r0.life_stage === sel.stage ? "" : "off"} ${raw ? "warn" : ""}`} title={raw ? "raw count, no effort in release" : rs.map((r) => `${r.tow_type ?? "—"}: ${r.n}`).join(", ")}>{short(r0.dataset_key)} {r0.life_stage ?? "—"} {fmtN(n)}{raw ? " ⚠" : ""}</span>;
+                const on = r0.life_stage === sel.stage && dsOn(r0.dataset_key);
+                return <span key={k} className={`pill ${on ? "" : "off"} ${raw ? "warn" : ""} ${sel.datasets && dsOn(r0.dataset_key) ? "sel" : ""}`} style={{ cursor: "pointer" }} onClick={() => toggleDataset(r0.dataset_key)}
+                  title={`${raw ? "raw count, no effort in release" : rs.map((r) => `${r.tow_type ?? "—"}: ${r.n}`).join(", ")} · click to toggle this dataset`}>{short(r0.dataset_key)} {r0.life_stage ?? "—"} {fmtN(n)}{raw ? " ⚠" : ""}</span>;
               })}
             </div>
-            <div className="hint">{fmtN(inView)} rows in view · {sel.den === "raw" ? "raw counts are not comparable across gear or datasets" : "nothing averaged across denominators, datasets or stages"}</div>
+            <div className="hint">{fmtN(inView)} rows in view · {sel.den === "raw" ? "raw counts are not comparable across gear or datasets" : "nothing averaged across denominators, datasets or stages"}{sel.datasets ? <> · filtered to {sel.datasets.map(short).join(", ")} · <a href="#" onClick={(e) => { e.preventDefault(); setSel({ datasets: null }); }}>all</a></> : null}</div>
           </> : <>
             <label className="f">variable ({envVars.length || "…"} in this release)
               <select value={sel.var} onChange={(e) => setSel({ var: e.target.value, cruise: null })}>
                 {!envVars.length && <option value={sel.var}>{sel.var}</option>}
                 {envVars.map((v) => <option key={v.key} value={v.key}>{v.label} · {fmtN(v.n)}</option>)}</select></label>
-            <div className="pills">{picker.map((r) => <span key={r.dataset_key} className="pill" title="bottle and CTD values of one variable are comparable">{short(r.dataset_key)} {fmtN(r.n)}{r.n_flagged ? ` · ${fmtN(r.n_flagged)} flagged` : ""}</span>)}</div>
+            <div className="pills">
+              {picker.length === 0 && <span className="pill off">{status}</span>}
+              {envPills.map(([dk, c]) => <span key={dk} className={`pill ${dsOn(dk) ? "" : "off"} ${sel.datasets && dsOn(dk) ? "sel" : ""}`} style={{ cursor: "pointer" }} onClick={() => toggleDataset(dk)} title="bottle and CTD values of one variable are comparable · click to toggle this dataset">{short(dk)} {fmtN(c.n)}{c.n_flagged ? ` · ${fmtN(c.n_flagged)} flagged` : ""}</span>)}
+            </div>
+            {sel.datasets && <div className="hint">filtered to {sel.datasets.map(short).join(", ")} · <a href="#" onClick={(e) => { e.preventDefault(); setSel({ datasets: null }); }}>all datasets</a></div>}
           </>}
           <div className="row">
-            <label className="f">years <span className="row"><input type="number" style={{ width: 62 }} value={sel.years[0]} min={1949} max={2023} onChange={(e) => setSel({ years: [+e.target.value, sel.years[1]] })} />–<input type="number" style={{ width: 62 }} value={sel.years[1]} min={1949} max={2023} onChange={(e) => setSel({ years: [sel.years[0], +e.target.value] })} /></span></label>
+            <label className="f">years <span className="row"><input type="number" style={{ width: 62 }} value={years[0]} min={1949} max={yearMax} onChange={(e) => setSel({ years: [+e.target.value, years[1]] })} />–<input type="number" style={{ width: 62 }} value={years[1]} min={1949} max={yearMax} onChange={(e) => setSel({ years: [years[0], +e.target.value] })} /></span></label>
             <label className="f">stat<select value={stat} onChange={(e) => setSel({ stat: e.target.value as Stat })}>{Object.entries(STAT_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
           </div>
           <div className="row"><span className="hint">depth band {sel.depth[0]}–{sel.depth[1]} m (brush the strip)</span>{(sel.depth[0] !== 0 || sel.depth[1] !== 500) && <button className="pill" onClick={() => setSel({ depth: [0, 500] })}>reset</button>}</div>
@@ -469,7 +497,7 @@ export function App() {
           {sel.lens === "section" && <>
             <label className="f">line<select value={sel.line} onChange={(e) => setSel({ line: +e.target.value, cruise: null })}>{lines.map((l) => <option key={l} value={l}>{l}</option>)}</select></label>
             <label className="f">cruise<select value={sel.cruise ?? ""} onChange={(e) => setSel({ cruise: e.target.value })}>{sectionCruises.map((c) => <option key={c.cruise_key} value={c.cruise_key}>{c.cruise_key} ({c.n_sta} sta)</option>)}</select></label>
-            {sel.realm === "env" && <label className="row" style={{ fontSize: 12 }}><input type="checkbox" checked={sel.anom} onChange={(e) => setSel({ anom: e.target.checked })} /> anomaly vs climatology ({sel.years[0]}–{sel.years[1]})</label>}
+            {sel.realm === "env" && <label className="row" style={{ fontSize: 12 }}><input type="checkbox" checked={sel.anom} onChange={(e) => setSel({ anom: e.target.checked })} /> anomaly vs climatology ({years[0]}–{years[1]})</label>}
           </>}
           {sel.lens === "cruise" && <>
             <label className="f">cruise<select value={sel.cruise ?? ""} onChange={(e) => setSel({ cruise: e.target.value })}>{cruiseRows.slice().reverse().map((c) => <option key={c.cruise_key} value={c.cruise_key}>{c.cruise_key} ({c.n_sta} sta, {c.n} rows)</option>)}</select></label>
@@ -477,7 +505,7 @@ export function App() {
           </>}
           {stationCard && <div className="station-card">
             <div className="row" style={{ justifyContent: "space-between" }}><b>{stationCard.grid_key}</b><span className="hint">line {stationCard.cell?.line} · station {stationCard.cell?.station}</span><button className="pill" onClick={() => setSel({ station: null })}>×</button></div>
-            <StationCard summary={stationCard.summary} detail={stationCard.detail} theme={theme} short={short} />
+            <StationCard summary={stationCard.summary} detail={stationCard.detail} theme={theme} short={short} yearMax={yearMax} />
           </div>}
           <div className="row" style={{ marginTop: 4 }}>
             <button className="pill" disabled={!sliceKey || !!bundling} onClick={download} title="README · CITATION · summary (+GeoJSON) · observations (parquet/CSV) · the exact SQL against the release's object URLs · reproduce.R / .py">
@@ -521,7 +549,7 @@ export function App() {
           <DepthStrip rows={depthRows} band={sel.depth} theme={theme} unit={unitLabel} onBand={(b) => setSel({ depth: b ?? [0, 500] })} />
         </div>
         <div className="panel strip">
-          <YearStrip rows={yearRows} years={sel.years} theme={theme} mode={seriesMode} unit={unitLabel} onYears={(y) => setSel({ years: y ?? [1949, 2023] })} />
+          <YearStrip rows={yearRows} years={years} yearMax={yearMax} theme={theme} mode={seriesMode} unit={unitLabel} onYears={(y) => setSel({ years: y ?? [1949, YEAR_OPEN] })} />
           <span className="seg strip-mode"><button className={seriesMode === "n" ? "on" : ""} onClick={() => setSeriesMode("n")}>rows</button><button className={seriesMode === "mean" ? "on" : ""} onClick={() => setSeriesMode("mean")}>mean ± se</button></span>
         </div>
       </div>

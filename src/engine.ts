@@ -32,7 +32,8 @@ export function template(name: string): string {
 }
 export type Param = string | number | boolean | null;
 export interface Params { [k: string]: Param }
-const RAW = new Set(["val", "hex", "where", "where_nodepth", "where_noyear", "src", "taxon_src", "root_src", "spatial_src"]);
+const RAW = new Set(["val", "hex", "where", "where_nodepth", "where_noyear", "src", "taxon_src", "root_src", "spatial_src", "dataset_filter"]);
+export const datasetFilterSql = (ds: string[] | null | undefined) => ds?.length ? `dataset_key IN (${ds.map((d) => lit(d)).join(", ")})` : "TRUE";
 
 // an H3 parent as plain bit arithmetic (calcofi4db::h3_parent_sql): resolution in bits 52–55, one
 // 3-bit digit per resolution, unused digits = 7. printf('%x') is the standard H3 string.

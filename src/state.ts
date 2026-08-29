@@ -23,6 +23,7 @@ export interface Sel {
   tour: boolean;               // ?tour=off suppresses the opening morph
   release: string | null;      // ?release=vYYYY.MM.DD; null = latest.txt
   station: string | null;      // a selected grid cell (its coverage card)
+  datasets: string[] | null;   // dataset filter (pills); null = every dataset in the slice
   theme: "dark" | "light" | null;
 }
 
@@ -48,11 +49,12 @@ export const DEN_LABEL: Record<Den, string> = {
 export const STAT_LABEL: Record<Stat, string> = { mean: "mean", med: "median", n: "n rows" };
 export const RELEASE = "v2026.08.25";
 export const DEFAULT_TAXON = "worms:217452"; // Pacific sardine
+export const YEAR_OPEN = 9999; // "through the latest year in the release" until coverage.json says which
 
 export const DEFAULTS: Sel = {
   lens: "station", res: 5, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature",
-  stage: null, den: null, years: [1949, 2023], depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
-  line: 90, cruise: null, stat: "mean", anom: false, tour: true, theme: null, release: null, station: null,
+  stage: null, den: null, years: [1949, YEAR_OPEN], depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
+  line: 90, cruise: null, stat: "mean", anom: false, tour: true, theme: null, release: null, station: null, datasets: null,
 };
 
 const num = (v: string | null, d: number) => (v != null && v !== "" && !isNaN(+v) ? +v : d);
@@ -88,6 +90,7 @@ export function fromUrl(): Sel {
     tour: p.get("tour") !== "off",
     release: p.get("release"),
     station: p.get("station"),
+    datasets: p.get("datasets") ? p.get("datasets")!.split(",").filter(Boolean) : null,
     theme: (p.get("theme") as Sel["theme"]) ?? null,
   };
 }
@@ -102,7 +105,7 @@ export function toUrl(s: Sel) {
     if (s.stage) p.set("stage", s.stage);
     if (s.den) p.set("den", s.den);
   }
-  p.set("years", `${s.years[0]}-${s.years[1]}`);
+  if (s.years[0] !== 1949 || s.years[1] !== YEAR_OPEN) p.set("years", `${s.years[0]}-${s.years[1]}`);
   if (s.depth[0] !== DEFAULTS.depth[0] || s.depth[1] !== DEFAULTS.depth[1]) p.set("depth", `${s.depth[0]}-${s.depth[1]}`);
   if (s.lens === "region") { p.set("layer", s.layer); if (s.region) p.set("region", s.region); }
   if (s.lens === "section") { p.set("line", String(s.line)); if (s.anom) p.set("anom", "1"); }
@@ -111,6 +114,7 @@ export function toUrl(s: Sel) {
   if (!s.tour) p.set("tour", "off");
   if (s.release) p.set("release", s.release);
   if (s.station) p.set("station", s.station);
+  if (s.datasets?.length) p.set("datasets", s.datasets.join(","));
   if (s.theme) p.set("theme", s.theme);
   const url = `${location.pathname}?${p.toString()}`;
   if (url !== location.pathname + location.search) history.replaceState(null, "", url);

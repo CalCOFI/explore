@@ -62,3 +62,4 @@ h4 { margin: 4px 0 0; font-size: 12px; color: var(--muted); text-transform: uppe
 .cc-header .cc-versions { font: inherit; font-size: 0.76rem; color: var(--muted); background: var(--panel-2); border: 1px solid var(--border); border-radius: 999px; padding: 0.1rem 0.4rem; margin-left: 0.3rem; }
 .strip-mode { position: absolute; right: 10px; top: 6px; z-index: 2; }
 .strip-mode button { padding: 1px 6px; font-size: 11px; }
+.pill.sel { border-color: var(--accent); }

@@ -60,8 +60,8 @@ export function DepthStrip(p: { rows: DepthRow[]; band: [number, number]; theme:
 export interface YearRow { year: number; n: number; n_samples: number; mean: number | null; se?: number | null }
 // mode "n": rows per year (coverage); mode "mean": the time series — mean ± standard error per year,
 // the line broken across unsampled years (db-viz-hex's series, cc_ts_gaps in spirit)
-export function YearStrip(p: { rows: YearRow[]; years: [number, number]; theme: string; mode: "n" | "mean"; unit: string; onYears: (y: [number, number] | null) => void }) {
-  const ref = usePlot([p.rows, p.years, p.theme, p.mode, p.unit], (div, Plotly) => {
+export function YearStrip(p: { rows: YearRow[]; years: [number, number]; yearMax: number; theme: string; mode: "n" | "mean"; unit: string; onYears: (y: [number, number] | null) => void }) {
+  const ref = usePlot([p.rows, p.years, p.yearMax, p.theme, p.mode, p.unit], (div, Plotly) => {
     const b = base(p.theme);
     const r = p.rows;
     // insert nulls where a year is missing so the line breaks instead of bridging the gap
@@ -82,9 +82,9 @@ export function YearStrip(p: { rows: YearRow[]; years: [number, number]; theme: 
     ];
     Plotly.react(div, data, {
       ...b, showlegend: false, dragmode: "select", selectdirection: "h", bargap: 0.15,
-      xaxis: { ...b.xaxis, range: [1948, 2024], fixedrange: true }, yaxis: { ...b.yaxis, title: { text: p.mode === "n" ? "rows" : `mean ${p.unit}`, standoff: 2 }, fixedrange: true },
+      xaxis: { ...b.xaxis, range: [1948, p.yearMax + 1], fixedrange: true }, yaxis: { ...b.yaxis, title: { text: p.mode === "n" ? "rows" : `mean ${p.unit}`, standoff: 2 }, fixedrange: true },
       margin: { l: 44, r: 8, t: 6, b: 22 },
-      shapes: (p.years[0] <= 1949 && p.years[1] >= 2023) ? [] : [{ type: "rect", yref: "paper", y0: 0, y1: 1, x0: p.years[0] - 0.5, x1: p.years[1] + 0.5, fillcolor: "rgba(255,214,10,0.10)", line: { color: "rgba(255,214,10,0.6)", width: 1 } }],
+      shapes: (p.years[0] <= 1949 && p.years[1] >= p.yearMax) ? [] : [{ type: "rect", yref: "paper", y0: 0, y1: 1, x0: p.years[0] - 0.5, x1: p.years[1] + 0.5, fillcolor: "rgba(255,214,10,0.10)", line: { color: "rgba(255,214,10,0.6)", width: 1 } }],
     }, CFG);
     const d = div as any;
     d.removeAllListeners?.("plotly_selected"); d.removeAllListeners?.("plotly_deselect");
@@ -154,16 +154,16 @@ export function CruiseSeries(p: { rows: CruiseRow[]; stat: "mean" | "med" | "n";
 export function StationCard(p: {
   summary?: { datasets: { dataset_key: string; n_obs: number; n_roots: number; year_min: number; year_max: number }[] };
   detail?: { datasets: { dataset_key: string; n_obs: number; year_min: number; year_max: number; years: [number, number][]; months: number[] }[] };
-  theme: string; short: (d: string) => string;
+  theme: string; short: (d: string) => string; yearMax: number;
 }) {
   const ds = p.detail?.datasets ?? p.summary?.datasets?.map((d) => ({ ...d, years: [] as [number, number][], months: [] as number[] })) ?? [];
   return <div className="cards">
     {!ds.length && <div className="hint">no coverage at this station</div>}
-    {ds.map((d) => <StationDatasetRow key={d.dataset_key} d={d} theme={p.theme} short={p.short} />)}
+    {ds.map((d) => <StationDatasetRow key={d.dataset_key} d={d} theme={p.theme} short={p.short} yearMax={p.yearMax} />)}
   </div>;
 }
-function StationDatasetRow(p: { d: { dataset_key: string; n_obs: number; year_min: number; year_max: number; years: [number, number][]; months: number[] }; theme: string; short: (d: string) => string }) {
-  const ref = usePlot([p.d, p.theme], (div, Plotly) => {
+function StationDatasetRow(p: { d: { dataset_key: string; n_obs: number; year_min: number; year_max: number; years: [number, number][]; months: number[] }; theme: string; short: (d: string) => string; yearMax: number }) {
+  const ref = usePlot([p.d, p.theme, p.yearMax], (div, Plotly) => {
     const b = base(p.theme);
     const ys = p.d.years ?? [];
     Plotly.react(div, [
@@ -171,7 +171,7 @@ function StationDatasetRow(p: { d: { dataset_key: string; n_obs: number; year_mi
       { x: Array.from({ length: 12 }, (_, i) => i + 1), y: (p.d.months ?? []).length ? p.d.months : Array(12).fill(0), type: "bar", marker: { color: b.accent, opacity: 0.6 }, xaxis: "x2", yaxis: "y2", hovertemplate: "month %{x}: %{y} obs<extra></extra>" },
     ], {
       ...b, showlegend: false, height: 84, margin: { l: 4, r: 4, t: 2, b: 14 }, bargap: 0.1,
-      xaxis: { ...b.xaxis, domain: [0, 0.72], range: [1948, 2024], showgrid: false, tickfont: { size: 8 }, fixedrange: true },
+      xaxis: { ...b.xaxis, domain: [0, 0.72], range: [1948, p.yearMax + 1], showgrid: false, tickfont: { size: 8 }, fixedrange: true },
       yaxis: { ...b.yaxis, showticklabels: false, showgrid: false, fixedrange: true },
       xaxis2: { ...b.xaxis, domain: [0.76, 1], range: [0.5, 12.5], showgrid: false, tickvals: [1, 6, 12], tickfont: { size: 8 }, fixedrange: true, anchor: "y2" },
       yaxis2: { ...b.yaxis, showticklabels: false, showgrid: false, fixedrange: true, anchor: "x2" },

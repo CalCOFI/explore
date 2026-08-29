@@ -5,6 +5,7 @@ import { engine, render, type Params, type Row } from "./engine";
 import { sources, readParquetSql, type Catalog } from "./release";
 import { cellToBoundary } from "h3-js";
 import type { Sel } from "./state";
+import { members } from "./variables";
 
 export interface BundleCtx {
   sel: Sel; version: string; catalog: Catalog; params: Params; lensParams: Params; lensTemplate: string;
@@ -25,13 +26,14 @@ const today = () => new Date().toISOString().slice(0, 10);
 export function resolvedSql(ctx: Pick<BundleCtx, "sel" | "catalog" | "params" | "lensParams" | "lensTemplate">): [string, string][] {
   const { sel, catalog } = ctx;
   const bioSrc = sources(catalog, "obs_bio"), envSrc = sources(catalog, "obs_env"), rootSrc = sources(catalog, "sample_root"), spSrc = sources(catalog, "sample_spatial"), txSrc = sources(catalog, "taxon");
-  const envUrl = sel.realm === "env" ? envSrc.partitions.get(sel.var) : null;
+  // an env variable = the union of its member objects, each stamped with its measurement_type (the hive key)
+  const envUnion = sel.realm === "env" ? `(${members(sel.var).map((m) => `SELECT *, '${m}' AS measurement_type FROM read_parquet('${envSrc.partitions.get(m)}')`).join(" UNION ALL ")})` : null;
   const tokens: Params = {
-    src: sel.realm === "bio" ? readParquetSql(bioSrc) : `read_parquet('${envUrl}')`,
+    src: sel.realm === "bio" ? readParquetSql(bioSrc) : envUnion!,
     taxon_src: readParquetSql(txSrc), root_src: readParquetSql(rootSrc), spatial_src: readParquetSql(spSrc),
   };
   return [
-    ["01_slice.sql", sel.realm === "bio" ? render("slice_bio", { ...tokens, taxon: sel.taxon }) : render("slice_env", { ...tokens, var: sel.var })],
+    ["01_slice.sql", sel.realm === "bio" ? render("slice_bio", { ...tokens, taxon: sel.taxon }) : render("slice_env", tokens)],
     [`02_${ctx.lensTemplate}.sql`, render(ctx.lensTemplate, { ...ctx.params, ...ctx.lensParams, ...tokens })],
     ["03_depth_strip.sql", render("depth_strip", { ...ctx.params, ...tokens })],
     ["04_years.sql", render("years", { ...ctx.params, ...tokens })],
@@ -87,7 +89,7 @@ export async function buildBundle(ctx: BundleCtx): Promise<{ blob: Blob; name: s
   zip.file("query/selection.json", JSON.stringify({ url, release: version, params: Object.fromEntries(new URLSearchParams(location.search)), generated_at: new Date().toISOString() }, null, 2));
   // every object the SQL reads, with its catalog bytes / sha256 / content_hash — the query is pinned to these
   const used = ["obs_bio", "sample_root", "sample_spatial", "taxon", ...(sel.realm === "env" ? ["obs_env"] : [])];
-  zip.file("query/objects.json", JSON.stringify({ release: version, layout: catalog.layout, objects: used.flatMap((t) => (catalog.tables.find((x) => x.name === t)?.objects ?? []).filter((o) => t !== "obs_env" || o.partition_value === sel.var).map((o) => ({ table: t, ...o }))) }, null, 2));
+  zip.file("query/objects.json", JSON.stringify({ release: version, layout: catalog.layout, objects: used.flatMap((t) => (catalog.tables.find((x) => x.name === t)?.objects ?? []).filter((o) => t !== "obs_env" || members(sel.var).includes(String(o.partition_value))).map((o) => ({ table: t, ...o }))) }, null, 2));
   // 2. the observation rows behind the view (CSV under 300k rows; parquet always)
   say("observations…");
   const where = sqls[2][1].split("WHERE")[1].split("GROUP BY")[0].replace(/depth_bin IS NOT NULL AND/, "");
@@ -121,7 +123,8 @@ export async function buildBundle(ctx: BundleCtx): Promise<{ blob: Blob; name: s
   zip.file("CITATION.md", `# Citations\n\nEvery row in \`data/observations\` carries \`dataset_key\`; cite each dataset it came from, and the CalCOFI integrated database release **${version}** (https://calcofi.io/db-schema/#erd?v=${version}).\n\n${cite}`);
   const filt = [
     `release: ${version} (release_date ${catalog.release_date ?? "—"}; every object read, with bytes / sha256 / content_hash, is in query/objects.json)`,
-    sel.realm === "bio" ? `taxon: ${sel.taxon} · life stage: ${sel.stage ?? "all"} · denominator: ${sel.den} (${ctx.unit})` : `variable: ${sel.var} (${ctx.unit})`,
+    sel.realm === "bio" ? `taxon: ${sel.taxon} · life stage: ${sel.stage ?? "all"} · denominator: ${sel.den} (${ctx.unit})` : `variable: ${sel.var} = ${members(sel.var).join(" + ")} (${ctx.unit})`,
+    ...(sel.datasets ? [`datasets: ${sel.datasets.join(", ")} (pill filter)`] : []),
     `quality: qual_ok (calcofi4r::cc_qual_ok_sql) · years ${sel.years[0]}–${sel.years[1]} · depth band ${sel.depth[0]}–${sel.depth[1]} m`,
     `lens: ${sel.lens}${sel.lens === "hex" ? ` (H3 res ${ctx.hexRes})` : ""}${sel.lens === "region" ? ` (layer ${sel.layer}; membership = sample_spatial, exact per root sample)` : ""}${sel.cruise ? ` · cruise ${sel.cruise}` : ""}${sel.lens === "section" ? ` · line ${sel.line}` : ""}`,
     `observation rows: ${nObs.toLocaleString()}${nObs > 300000 ? " (CSV omitted above 300,000 rows; parquet included)" : ""}`,
