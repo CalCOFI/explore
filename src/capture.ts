@@ -10,21 +10,25 @@ import { toCanvas } from "html-to-image";
 import { drawFooter, FOOTER_PX, type Stamp } from "./export";
 
 // what a clean figure leaves out: the map's own chrome and the transient controls
-const HIDE = [".status", ".pill-row", ".maplibregl-ctrl-top-right", ".brush-handle", ".rail-gutter", ".cc-versions", ".driver-popover", ".driver-overlay", ".modal-backdrop", ".menu-list", ".picker-pop", ".phone-pills", ".sheet-handle", ".deck-tooltip"];
+const HIDE = [".status", ".map-tr", ".pill-row", ".maplibregl-ctrl-top-right", ".brush-handle", ".rail-gutter", ".cc-versions", ".driver-popover", ".driver-overlay", ".modal-backdrop", ".menu-list", ".picker-pop", ".phone-pills", ".sheet-handle", ".deck-tooltip"];
 const hidden = (n: HTMLElement) => HIDE.some((s) => n.matches?.(s));
 
-export interface CaptureOpts { stamp: Stamp; scale?: number; root?: HTMLElement; footer?: boolean }
-/** the composite as a canvas (devicePixelRatio, capped at 2) */
+export interface CaptureOpts { stamp: Stamp; scale?: number; root?: HTMLElement; footer?: boolean; hide?: string[] }
+/** the composite as a canvas (devicePixelRatio, capped at 2); `hide` adds selectors the figure leaves out (the map figure drops the cards) */
 export async function captureView(o: CaptureOpts): Promise<HTMLCanvasElement> {
   const root = o.root ?? (document.querySelector(".app") as HTMLElement);
   const scale = o.scale ?? Math.min(2, devicePixelRatio || 1);
+  const extra = o.hide ?? [];
+  const skip = (n: HTMLElement) => hidden(n) || extra.some((s) => n.matches?.(s));
   // redraw the WebGL canvases right before the read, so a preserved buffer is the current frame
   (window as any).__overlay?._deck?.redraw?.("capture"); (window as any).__map?.triggerRepaint?.();
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim() || "#1b1d20";
-  // a positioned root (a floating card) keeps its left/top in the clone and draws outside its own canvas: pin the clone at 0,0
-  const rootStyle = root.classList.contains("app") ? undefined : { position: "static", left: "auto", top: "auto", right: "auto", bottom: "auto", margin: "0", transform: "none", maxHeight: "none", boxShadow: "none" } as Partial<CSSStyleDeclaration>;
-  const shot = await toCanvas(root, { pixelRatio: scale, backgroundColor: bg, filter: (n) => !hidden(n as HTMLElement), cacheBust: false, skipFonts: true, style: rootStyle }); // skipFonts: the brand's theme.css is cross-origin (cssRules throws) and the fonts are the system stack anyway
+  // an absolutely positioned root (a floating card) keeps its left/top in the clone and draws outside its own canvas: pin the clone
+  // at 0,0. A relative root (the map box, a rail) stays as it is — it is the containing block of its absolute children
+  const pos = getComputedStyle(root).position;
+  const rootStyle = pos === "absolute" || pos === "fixed" ? { position: "static", left: "auto", top: "auto", right: "auto", bottom: "auto", margin: "0", transform: "none", maxHeight: "none", boxShadow: "none" } as Partial<CSSStyleDeclaration> : undefined;
+  const shot = await toCanvas(root, { pixelRatio: scale, backgroundColor: bg, filter: (n) => !skip(n as HTMLElement), cacheBust: false, skipFonts: true, style: rootStyle }); // skipFonts: the brand's theme.css is cross-origin (cssRules throws) and the fonts are the system stack anyway
   if (!o.footer && o.footer !== undefined) return shot;
   const c = document.createElement("canvas"); c.width = shot.width; c.height = shot.height + FOOTER_PX * scale;
   const ctx = c.getContext("2d")!;

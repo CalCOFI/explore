@@ -4,7 +4,6 @@ body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-s
 a { color: var(--accent); }
 .app { display: grid; grid-template-rows: auto 1fr; height: 100%; }
 .cc-header .cc-title small { margin-left: 0.5rem; }
-.cc-header .cc-links a { color: var(--muted); text-decoration: none; margin-left: 0.8rem; }
 /* the theme toggle is drawn by brand v1 (theme.css: one icon per theme); the rules are repeated
    here so a dev server or a build that runs ahead of the brand deploy never shows both icons */
 .cc-header .cc-theme-icon { display: none; width: 1.25rem; height: 1.25rem; fill: currentColor; }
@@ -32,13 +31,25 @@ label.f select, label.f input { font: inherit; color: var(--fg); background: var
 .pill { border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; font-size: 11px; color: var(--fg); background: var(--panel-2); font-variant-numeric: tabular-nums; }
 .pill.off { color: var(--muted); border-style: dashed; }
 .pill.warn { border-color: var(--warn); color: var(--warn); }
+/* the denominator: one line in force (a disclosure), the radios with their formulas behind it */
+.den-toggle { all: unset; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; cursor: pointer; font-size: 12px; width: 100%; box-sizing: border-box; padding: 2px 0; border-radius: 4px; }
+.den-toggle:hover { color: var(--accent); }
+.den-toggle .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+.den-toggle > .cc-icon { color: var(--muted); }
+.den-list { display: flex; flex-direction: column; gap: 5px; padding: 4px 0 2px 4px; border-left: 2px solid var(--border); margin-left: 4px; }
 .den label { display: block; font-size: 12px; cursor: pointer; }
 .den label.off { color: var(--muted); }
+.den label .ds { padding-left: 20px; }
+.den .shf { padding-left: 2px; font-style: italic; }
 .den input { margin-right: 4px; }
 .legend .bar { height: 8px; border-radius: 3px; margin: 3px 0; }
 .legend .ticks { display: flex; justify-content: space-between; color: var(--muted); font-variant-numeric: tabular-nums; }
 .legend .ttl { font-weight: 600; }
-.status { position: absolute; right: 48px; top: 10px; z-index: var(--z-pills); background: color-mix(in srgb, var(--panel) 85%, transparent); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 11px; color: var(--muted); }
+.status { background: color-mix(in srgb, var(--panel) 85%, transparent); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 11px; color: var(--muted); }
+/* the map's top-right row: its ⬇ (PNG · CSV) beside the status chip, left of MapLibre's +/− */
+.map-tr { position: absolute; right: 48px; top: 10px; z-index: var(--z-pills); display: flex; align-items: center; gap: 6px; }
+.map-tr .map-export .menu-btn { background: color-mix(in srgb, var(--panel) 85%, transparent); border: 1px solid var(--border); border-radius: 6px; padding: 3px 5px; color: var(--fg); }
+.map-tr .map-export .menu-btn:hover { color: var(--accent); border-color: var(--accent); }
 .status b { color: var(--fg); }
 .timing summary { padding: 4px 8px; cursor: pointer; font-weight: 600; font-variant-numeric: tabular-nums; }
 .timing table { border-collapse: collapse; margin: 0 6px 6px; font-variant-numeric: tabular-nums; }
@@ -70,7 +81,12 @@ h4 { margin: 4px 0 0; font-size: 12px; color: var(--muted); text-transform: uppe
 .group { display: flex; flex-direction: column; gap: 6px; }
 .group + .group { border-top: 1px solid var(--border); padding-top: 8px; }
 .group-title { display: flex; align-items: center; gap: 5px; margin: 0; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
-.group-title .group-right { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 400; }
+.group-title .group-right { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 400; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* a foldable group's heading is a button: the chevron says which way it goes; folded, `right` is what it still says */
+.group-toggle { all: unset; display: flex; align-items: center; gap: 5px; width: 100%; box-sizing: border-box; cursor: pointer; border-radius: 4px; min-width: 0; }
+.group-toggle:hover { color: var(--accent); }
+.group-toggle > .cc-icon:first-child { margin-left: -3px; }
+.group.folded { gap: 0; }
 .lenses button, .seg.realm button, .pill.act, .menu-btn { display: inline-flex; align-items: center; gap: 5px; }
 .lenses button .cc-icon, .seg.realm button .cc-icon { font-size: 15px; }
 .opt { display: flex; flex-direction: column; gap: 6px; padding-left: 2px; }

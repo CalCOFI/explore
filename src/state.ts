@@ -32,7 +32,13 @@ export interface Sel {
   theme: "dark" | "light" | null;
   hide: PanelId[];             // folded rails (D11 rule 4: `hide=depth,years`, absent when it is the viewport default)
   max: PanelId | null;         // the maximized panel (`max=section`)
+  map: [number, number, number] | null; // the map extent as lon,lat,zoom (`map=-121.5,33.2,5.1`); null = the grid's home view
 }
+/** the map's home view: the CalCOFI grid, lon · lat · zoom */
+export const MAP_HOME: [number, number, number] = [-121.5, 33.2, 5.1];
+/** the extent rounded the way the URL carries it (4 decimals of a degree ≈ 10 m; zoom to 2) */
+export const roundMap = (v: [number, number, number]): [number, number, number] => [+v[0].toFixed(4), +v[1].toFixed(4), +v[2].toFixed(2)];
+const sameMap = (a: [number, number, number] | null, b: [number, number, number] | null) => (!a && !b) || (!!a && !!b && roundMap(a).join() === roundMap(b).join());
 export type PanelId = "select" | "depth" | "years" | "section" | "cruise" | "station" | "timing";
 export const PANEL_IDS: PanelId[] = ["select", "depth", "years", "section", "cruise", "station", "timing"];
 /** the folds a visit starts with (D11 rule 3, once per visit): ≥ 1200 px all open; 900–1200 the depth rail folded */
@@ -53,10 +59,18 @@ export const LAYERS = ["Marine Protected Areas", "National Marine Sanctuaries", 
 export const ENV_VARS_FALLBACK: Record<string, string> = { temperature: "Temperature (°C)", oxygen_ml_l: "Oxygen (ml/L)" };
 export const VAL_COL: Record<Den, string> = { per_10m2: "density_per_10m2", per_1000m3: "density_per_1000m3", raw: "value" };
 export const DEN_LABEL: Record<Den, string> = {
-  per_10m2: "per 10 m² (areal, depth-integrated)",
-  per_1000m3: "per 1000 m³ (volumetric)",
-  raw: "raw count — not comparable across gear or datasets",
+  per_10m2: "per 10 m² of sea surface",
+  per_1000m3: "per 1000 m³ strained",
+  raw: "raw count",
 };
+// how each denominator is reached from a tow's own effort (sql/density.sql, the fixture calcofi4r / calcofi4py share).
+// The standard haul factor is not a fourth denominator: it is the per-tow multiplier per 10 m² applies.
+export const DEN_HOW: Record<Den, string> = {
+  per_10m2: "count × standard haul factor ÷ proportion sorted — areal, depth-integrated: oblique and vertical tows (CalCOFI's larvae per 10 m²)",
+  per_1000m3: "count ÷ proportion sorted ÷ volume strained × 1000 — volumetric: manta tows and any tow with a flowmeter",
+  raw: "as counted — not standardized, so not comparable across gear or datasets",
+};
+export const SHF_NOTE = "standard haul factor = 10 × tow depth (m) ÷ volume strained (m³): SWFSC's per-tow multiplier, carried per tow in the release (obs_bio.std_haul_factor) and kept in the download bundle's observations";
 export const STAT_LABEL: Record<Stat, string> = { mean: "mean", med: "median", n: "observations" }; // "rows" is database-speak (D12)
 // H3 mean edge length per resolution (km) — what "hexagon size" shows; `res` stays in the URL (D12)
 export const RES_KM: Record<number, string> = { 3: "~60 km", 4: "~23 km", 5: "~8.5 km", 6: "~3.2 km", 7: "~1.2 km" };
@@ -69,7 +83,7 @@ export const DEFAULTS: Sel = {
   lens: "station", res: 5, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature",
   stage: null, den: null, years: [1949, YEAR_OPEN], months: null, q: null, yview: null, depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
   line: 90, cruise: null, stat: "mean", anom: false, tour: true, tourOn: false, theme: null, release: null, station: null, datasets: null,
-  hide: DEFAULT_HIDE, max: null,
+  hide: DEFAULT_HIDE, max: null, map: null,
 };
 
 const num = (v: string | null, d: number) => (v != null && v !== "" && !isNaN(+v) ? +v : d);
@@ -90,6 +104,13 @@ function parseYears(v: string | null): { years: [number, number]; months: [numbe
     return { years: yrs, months: m0 === 1 && m1 === 12 ? null : [m0, m1] };
   }
   return { years: pair(v, DEFAULTS.years), months: null };
+}
+// map=lon,lat,zoom — the extent a shared link reopens at; anything malformed or off the globe is the home view
+function parseMap(v: string | null): [number, number, number] | null {
+  if (!v) return null;
+  const m = v.split(",").map(Number);
+  if (m.length !== 3 || m.some((x) => !Number.isFinite(x)) || Math.abs(m[0]) > 180 || Math.abs(m[1]) > 90 || m[2] < 0 || m[2] > 24) return null;
+  return sameMap(m as [number, number, number], MAP_HOME) ? null : (m as [number, number, number]);
 }
 const fmtYears = (y: [number, number], m: [number, number] | null) => m ? `${y[0]}-${String(m[0]).padStart(2, "0")}:${y[1]}-${String(m[1]).padStart(2, "0")}` : `${y[0]}-${y[1]}`;
 
@@ -126,6 +147,7 @@ export function fromUrl(): Sel {
     theme: (p.get("theme") as Sel["theme"]) ?? null,
     hide: p.has("hide") ? (p.get("hide")!.split(",").filter((x): x is PanelId => (PANEL_IDS as string[]).includes(x))) : DEFAULT_HIDE,
     max: (PANEL_IDS as string[]).includes(p.get("max") ?? "") ? (p.get("max") as PanelId) : null,
+    map: parseMap(p.get("map")),
   };
 }
 
@@ -154,6 +176,7 @@ export function toUrl(s: Sel) {
   if (s.theme) p.set("theme", s.theme);
   if (s.hide.slice().sort().join(",") !== DEFAULT_HIDE.slice().sort().join(",")) p.set("hide", s.hide.join(","));
   if (s.max) p.set("max", s.max);
+  if (s.map && !sameMap(s.map, MAP_HOME)) p.set("map", roundMap(s.map).join(","));
   const url = `${location.pathname}?${p.toString()}`;
   if (url !== location.pathname + location.search) history.replaceState(null, "", url);
 }

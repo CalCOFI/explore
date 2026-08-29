@@ -72,3 +72,15 @@ the text, URL, release, viewport and theme to the endpoint `calcofi4r::cc_feedba
 app ("execute as me", "anyone"), `GITHUB_TOKEN` (contents + issues on this repo) as a script property for
 the public issue, the `/exec` URL in the variable. Usage events go through the fleet's GA4 snippet in
 `index.html` (`calcofi4r::cc_ga_html("public/ga.html", "explore")`); a webdriver browser is never counted.
+
+The URL is the whole view, the map's extent included: `map=lon,lat,zoom` is written on every settled pan or
+zoom (absent at the grid's home view), so Share → Copy link, a feedback report and a bookmark all reopen at
+the same place. The map has its own ⬇ beside the status chip — PNG (the map and its legend at 2×, stamped,
+without the floating cards) and CSV (the table the lens draws: the station / hexagon / region summary, the
+samples along a cruise track); WebGL has no SVG. The select rail opens as LENS and DATA: FILTERS and EXPORT
+are disclosures that start folded (a folded FILTERS still shows what is in force), and the denominator is one
+line — which is in force, for whom, how many excluded — that opens to the three radios with their formulas
+(`state.ts` `DEN_HOW`: per 10 m² is count × standard haul factor ÷ proportion sorted; per 1000 m³ is
+count ÷ proportion sorted ÷ volume strained × 1000) and a note on the standard haul factor, the per-tow
+multiplier SWFSC carries as `obs_bio.std_haul_factor`. The annotator's colours are yellow, blue and hot pink;
+the text tool places on click and commits on Enter, blur or the next placement.

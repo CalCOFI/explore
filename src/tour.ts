@@ -13,6 +13,7 @@ export interface TourActions {
   sheet: (panel: PanelId, detent: "peek" | "half" | "full") => void;
   snapshot: () => void; restore: () => void;
   openFeedback: () => void;
+  expand: (what: "filters" | "export" | "denominator") => void; // a folded group or the folded denominator, opened for its step
 }
 export interface TourStep {
   id: string; element: string | (() => Element | null); title: string; description: string;
@@ -24,7 +25,7 @@ const q = (sel: string) => () => [...document.querySelectorAll<HTMLElement>(sel)
 const rail = (a: TourActions, id: PanelId) => { if (a.phone) a.sheet("select", "half"); else if (a.isFolded(id)) a.unfold(id); };
 
 export const TOUR_STEPS: TourStep[] = [
-  { id: "welcome", element: '[data-tour="release"]', side: "bottom", align: "start", title: "One database, one frozen release",
+  { id: "welcome", element: '[data-tour="release"]', side: "bottom", align: "end", title: "One database, one frozen release",
     description: "Every value here comes from this release of the integrated CalCOFI database — sixteen datasets projected into one core and frozen, so a link you share draws the same picture next year. The map is the CalCOFI station grid, 1949 to now." },
   { id: "lenses", element: q('[data-tour="lenses"]'), side: "right", align: "start", title: "Five lenses",
     description: "Stations, Hexagons, Cruises, Regions and Sections are five shapes of the same data. Switch, and the station dots travel to their new place — hexagon centres, region centroids, the ship's track — so you can see which stations feed which summary.",
@@ -34,7 +35,7 @@ export const TOUR_STEPS: TourStep[] = [
   { id: "picker", element: q('[data-tour="picker"]'), side: "right", title: "Search, or browse",
     description: "Type a common or scientific name. The list is A–Z; the bars show how much data each has (log scale) and the dots which datasets; sort by most observations or most recent, or group by category, dataset or class.", before: (a) => rail(a, "select") },
   { id: "denominator", element: q('[data-tour="denominator"]'), side: "right", title: "Nothing averaged across pills",
-    description: "Life stage, denominator (per 10 m² · per 1000 m³ · raw count) and one pill per dataset × stage. Eggs are never merged with larvae, counts never with densities, datasets never with each other — the ⚠ pill is a raw count with no effort in the release.", before: (a) => rail(a, "select") },
+    description: "Life stage, denominator (per 10 m² · per 1000 m³ · raw count) and one pill per dataset × stage. Eggs are never merged with larvae, counts never with densities, datasets never with each other — the ⚠ pill is a raw count with no effort in the release.", before: (a) => { rail(a, "select"); a.expand("denominator"); } },
   { id: "depth", element: q('[data-tour="depth"]'), side: "left", title: "The water column",
     description: "Median and interquartile range per 10 m over the current selection. Drag a band to slice the map to those depths. A depth-integrated net tow has no profile — the panel says so instead of moving.",
     before: (a) => { if (a.phone) a.sheet("select", "peek"); else if (a.isFolded("depth")) a.unfold("depth"); }, wait: 400 },
@@ -45,7 +46,7 @@ export const TOUR_STEPS: TourStep[] = [
     description: "Hover a dot for its summary; click a station for its coverage card (every dataset measured there, by year and by month). Cards minimize to pills, drag, and maximize; the legend's 5–95 % window colours the dots.",
     before: (a) => { if (a.phone) a.sheet("select", "peek"); } },
   { id: "export", element: q('[data-tour="export"]'), side: "right", align: "end", title: "Take it with you",
-    description: "Download data hands over the bytes, the exact SQL against the release's object URLs, citations and reproduce.R / .py. Copy code gives that SQL, or R or Python that runs it. Share copies the link — the URL is the whole view.", before: (a) => rail(a, "select"), wait: 300 },
+    description: "Download data hands over the bytes, the exact SQL against the release's object URLs, citations and reproduce.R / .py. Copy code gives that SQL, or R or Python that runs it. Share copies the link — the URL is the whole view, map extent included. The map's own ⬇ exports it as PNG or the table it draws as CSV.", before: (a) => { rail(a, "select"); a.expand("export"); }, wait: 300 },
   { id: "feedback", element: q('[data-tour="feedback"], [data-tour="more"]'), side: "bottom", align: "end", title: "Tell us what you see",
     description: "Feedback sends this view's URL to the team as a public issue — so \"that spike is weird\" is reproducible by whoever opens the link. ⓘ has the datasets, credits and keyboard shortcuts; ? replays this tour.", before: () => {} },
 ];

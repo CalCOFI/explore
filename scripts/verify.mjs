@@ -69,6 +69,8 @@ async function shot(name) { const file = path.join(out, `${name}.png`); await pa
 const click = async (sel) => { await page.click(sel); };
 const clickText = async (scope, txt) => page.click(`${scope}::-p-text(${txt})`);
 const clickLens = async (txt) => { await clickText(".lenses button", txt); await waitMark(/^grain_switch:/); };
+// FILTERS and EXPORT start folded (U7): a step that reaches into one expands it first
+const expandGroup = async (name) => { const open = await page.$(`.group[data-group="${name}"].open`); if (!open) { await click(`.group[data-group="${name}"] .group-toggle`); await sleep(250); } };
 async function ready(url, viewport = DESKTOP, until = "lens") {
   await page.setViewport(viewport);
   await page.goto(url, { waitUntil: "domcontentloaded" });
@@ -90,7 +92,7 @@ const STATES = [
   { name: "u0_hex", url: "?lens=hex&res=5&tour=off", steps: async () => {} },
   { name: "u0_section_cruise_open", url: "?lens=section&var=temperature&line=90&tour=off", steps: async () => { await click("#section-cruise-btn"); await sleep(400); } },
   { name: "u0_cruise", url: "?lens=cruise&tour=off", steps: async () => { await click("#cruise-btn"); await sleep(400); } },
-  { name: "u0_copy_menu", url: "?tour=off", steps: async () => { await clickText(".menu-btn", "Copy code"); await sleep(300); } },
+  { name: "u0_copy_menu", url: "?tour=off", steps: async () => { await expandGroup("export"); await clickText(".menu-btn", "Copy code"); await sleep(300); } },
   { name: "u0_light", url: "?tour=off&theme=light", steps: async () => {} },
   { name: "u0_native", url: "?tour=off&native=1", steps: async () => {} },
   // U1 — rails, cards, z-order (the two layering-bug URLs), viewport defaults
@@ -158,7 +160,7 @@ const STATES = [
     assert: async () => { const u = await page.evaluate(() => location.search); if (!/yview=19(8|9)\d/.test(u)) fail(`u6_zoom_to_selection: yview= not on the selection (${u})`); if (!/years=1990-2005/.test(u)) fail(`u6_zoom_to_selection: the filter moved (${u})`); } },
   { name: "u6_month_brush", url: "?tour=off&yview=2008-2013", steps: async () => { await sleep(1500); const b = await (await page.$(".rail-years .plot")).boundingBox(); const y = b.y + b.height * 0.45; await page.mouse.move(b.x + b.width * 0.4, y); await page.mouse.down(); await page.mouse.move(b.x + b.width * 0.6, y, { steps: 6 }); await page.mouse.up(); await sleep(900); },
     assert: async () => { const u = await page.evaluate(() => location.search); if (!/years=\d{4}-\d{2}%3A\d{4}-\d{2}|years=\d{4}-\d{2}:\d{4}-\d{2}/.test(u)) fail(`u6_month_brush: no month-resolved years= (${u})`); } },
-  { name: "u6_season", url: "?tour=off&q=2,3", steps: async () => { await click(".chip::-p-text(season)"); await sleep(300); },
+  { name: "u6_season", url: "?tour=off&q=2,3", steps: async () => { await expandGroup("filters"); await click(".chip::-p-text(season)"); await sleep(300); },
     assert: async () => { const t = await page.$eval(".chip::-p-text(season)", (el) => el.textContent); if (!/Q2 Q3/.test(t)) fail(`u6_season: chip reads ${t}`); } },
   { name: "u6_cruises", url: "?tour=off", steps: async () => { await clickText(".rail-years .seg button", "cruises"); await sleep(1800); },
     assert: async () => { const n = await page.$$eval(".rail-years .plot .bars .point", (r) => r.length); if (n < 100) fail(`u6_cruises: ${n} cruise bars`); const t = await page.$$eval(".rail-years .plot .ytick text", (r) => r.map((x) => x.textContent)); const ttl = await page.$eval(".rail-years .plot .ytitle", (el) => el.textContent).catch(() => ""); if (t.length < 3 && !/ships/.test(ttl)) fail(`u6_cruises: ${t.length} lane labels and no "n ships" title`); else console.log(`  lanes: ${t.length ? t.length + " labelled" : ttl}`); } },
@@ -172,7 +174,7 @@ const STATES = [
   { name: "p6_years_cruises", url: "?tour=off", viewport: PHONE, steps: async () => { await click(".phone-pills button[data-tour=years]"); await sleep(900); await clickText(".sheet .seg button", "cruises"); await sleep(1800); } },
   // U4a — share + figures: the whole-view capture is not blank (spread + non-background fraction, since a dark map and a blank
   // dark canvas share a mean), every panel exports PNG / SVG / CSV, the maximized panel at its larger size
-  { name: "u4_share_menu", url: "?tour=off", steps: async () => { await clickText(".menu-btn", "Share"); await sleep(300); } },
+  { name: "u4_share_menu", url: "?tour=off", steps: async () => { await expandGroup("export"); await clickText(".menu-btn", "Share"); await sleep(300); } },
   { name: "u4_export_menu", url: "?tour=off", steps: async () => { await click(".rail-years .export-menu .menu-btn"); await sleep(300); } },
   { name: "u4_capture", url: "?tour=off", steps: async () => {}, assert: async () => {
       const r = await page.evaluate(() => window.__captureView());
@@ -194,7 +196,38 @@ const STATES = [
       } } },
   { name: "u4_figure_max", url: "?tour=off&max=years", steps: async () => { await sleep(800); }, assert: async () => {
       const r = await page.evaluate(() => window.__figure("years", "png")); console.log(`  maximized years.png ${r.w}×${r.h}`); if (r.w < 2000) fail(`u4_figure_max: ${r.w}px wide — not the maximized size`); } },
-  { name: "p4_share", url: "?tour=off", viewport: PHONE, steps: async () => { await click(".sheet-summary"); await sleep(400); await page.evaluate(() => document.querySelector(".sheet-body").scrollTo(0, 9999)); await sleep(200); await clickText(".menu-btn", "Share"); await sleep(400); } },
+  { name: "p4_share", url: "?tour=off", viewport: PHONE, steps: async () => { await click(".sheet-summary"); await sleep(400); await expandGroup("export"); await page.evaluate(() => document.querySelector(".sheet-body").scrollTo(0, 9999)); await sleep(200); await clickText(".menu-btn", "Share"); await sleep(400); } },
+  // U7 — cleanup: the header (no links, the release at the right), folded FILTERS / EXPORT, the folded denominator, the map's
+  // extent in the URL (so Share → Copy link and the feedback URL reopen at the same zoom), the map's own ⬇, the annotator's text tool
+  { name: "u7_header", url: "?tour=off", steps: async () => {},
+    assert: async () => {
+      if (await page.$(".cc-header .cc-links")) fail("u7_header: the query / schema / docs links are still in the header");
+      const r = await page.evaluate(() => { const rel = document.querySelector('[data-tour="release"]').getBoundingClientRect(), t = document.querySelector(".cc-title").getBoundingClientRect(); return { rel: rel.left, title: t.right, vw: innerWidth }; });
+      if (r.rel < r.vw * 0.55) fail(`u7_header: the release chip sits at x=${Math.round(r.rel)} of ${r.vw} (expected on the right)`);
+      const groups = await page.$$eval(".group.folded", (g) => g.map((x) => x.dataset.group)); if (!groups.includes("filters") || !groups.includes("export")) fail(`u7_header: folded groups = ${groups.join(",")} (expected filters + export)`);
+      if (await page.$(".den-list")) fail("u7_header: the denominator radios are open by default");
+      const den = await page.$eval(".den-toggle b", (el) => el.textContent); if (!/per 10 m²|per 1000 m³|raw count/.test(den)) fail(`u7_header: the denominator line reads "${den}"`);
+      if (await page.$(".rail-select .rail-body > .hint")) fail("u7_header: the rail's footer sentence (the lens title + DuckDB) is still there — the header carries the lens title"); } },
+  { name: "u7_den_open", url: "?tour=off", steps: async () => { await click(".den-toggle"); await sleep(300); },
+    assert: async () => { const n = await page.$$eval(".den-list input[name=den]", (r) => r.length); if (n !== 3) fail(`u7_den_open: ${n} radios`); const t = await page.$eval(".den-list", (el) => el.textContent); if (!/standard haul factor/.test(t)) fail("u7_den_open: no standard-haul-factor note"); } },
+  { name: "u7_filters_open", url: "?tour=off&years=1990-2005&q=1,2", steps: async () => {},
+    assert: async () => { const t = await page.$eval('.group[data-group="filters"] .group-right', (el) => el.textContent).catch(() => ""); if (!/1990–2005/.test(t) || !/Q1 Q2/.test(t)) fail(`u7_filters_open: the folded FILTERS summary reads "${t}"`); await expandGroup("filters"); const n = await page.$$eval(".chips .chip", (r) => r.length); if (n < 4) fail(`u7_filters_open: ${n} chips after expanding`); } },
+  { name: "u7_map_extent", url: "?tour=off", steps: async () => { await page.evaluate(() => window.__map.easeTo({ center: [-118.5, 32.5], zoom: 7.2, duration: 0 })); await sleep(600); },
+    assert: async () => { const u = await page.evaluate(() => location.search); if (!/map=-118\.5(,|%2C)32\.5(,|%2C)7\.2/.test(u)) fail(`u7_map_extent: the URL has no map= after a move (${u})`); } },
+  { name: "u7_map_extent_reopen", url: "?tour=off&map=-118.5,32.5,7.2", steps: async () => {},
+    assert: async () => { const v = await page.evaluate(() => { const c = window.__map.getCenter(); return [c.lng, c.lat, window.__map.getZoom()]; }); if (Math.abs(v[0] + 118.5) > 0.01 || Math.abs(v[1] - 32.5) > 0.01 || Math.abs(v[2] - 7.2) > 0.05) fail(`u7_map_extent_reopen: the map opened at ${v.map((x) => x.toFixed(2)).join(",")}`); } },
+  { name: "u7_map_export", url: "?tour=off&lens=hex&res=5", steps: async () => { await click('[data-tour="map-export"] .menu-btn'); await sleep(300); },
+    assert: async () => {
+      const items = await page.$$eval('[data-tour="map-export"] .menu-item', (r) => r.map((x) => x.textContent.slice(0, 3))); if (items.join() !== "PNG,CSV") fail(`u7_map_export: items ${items.join(",")} (expected PNG,CSV — no SVG for WebGL)`);
+      await page.keyboard.press("Escape");
+      const png = await page.evaluate(() => window.__figure("map", "png")); console.log(`  map.png ${png.w}×${png.h} nonBg ${png.nonBg.toFixed(2)}`); if (png.nonBg < 0.05) fail(`u7_map_export: map.png looks blank (nonBg ${png.nonBg.toFixed(2)})`); if (png.w < 600) fail(`u7_map_export: map.png ${png.w}px wide`);
+      const csv = await page.evaluate(() => window.__figure("map", "csv")); if (csv.lines < 10 || !/hex/.test(csv.text)) fail(`u7_map_export: map.csv ${csv.lines} lines, head ${csv.text.slice(0, 60)}`); else console.log(`  map.csv ${csv.lines} lines`); } },
+  { name: "u7_annotate_text", url: "?tour=off", steps: async () => { await click('[data-tour="feedback"]'); await page.waitForSelector(".feedback-shot img", { timeout: 20000 }); await sleep(200); await click('[data-tour="feedback-edit"]'); await page.waitForSelector(".annot-stage canvas"); await sleep(300);
+      await click(".annot-tools .seg button[aria-label='hot pink']"); await click(".annot-tools .seg button[aria-label=text]");
+      const b = await (await page.$(".annot-stage canvas")).boundingBox(); await page.mouse.click(b.x + b.width * 0.3, b.y + b.height * 0.3); await sleep(200);
+      if (!(await page.$(".annot-text"))) { fail("u7_annotate_text: no text input after a click"); return; }
+      await page.keyboard.type("spike here"); await page.keyboard.press("Enter"); await sleep(200); },
+    assert: async () => { const t = await page.$eval(".annotator .hint", (el) => el.textContent); if (!/1 mark/.test(t)) fail(`u7_annotate_text: ${t}`); const n = await page.$$eval(".annot-tools .seg[aria-label=colour] button", (r) => r.length); if (n !== 3) fail(`u7_annotate_text: ${n} colours (expected 3)`); } },
   // U4b — feedback: the dialog captures the view, the annotator draws, Send posts to the endpoint (mocked here) and thanks with the issue link
   { name: "u4b_feedback_open", url: "?tour=off", steps: async () => { await click('[data-tour="feedback"]'); await page.waitForSelector(".feedback-shot img", { timeout: 20000 }); await sleep(300); },
     assert: async () => { const src = await page.$eval(".feedback-shot img", (i) => i.src); if (!src.startsWith("data:image/jpeg")) fail("u4b_feedback_open: no thumbnail"); const dis = await page.$eval('[data-tour="feedback-send"]', (b) => b.disabled); if (!dis) fail("u4b_feedback_open: Send enabled with no text / no endpoint"); if (!(await page.$(".hint.warn"))) fail("u4b_feedback_open: no 'no endpoint' note"); } },

@@ -61,12 +61,17 @@ export function Menu(p: { label: ReactNode; items: MenuItem[]; className?: strin
   );
 }
 
-/** a group heading in the select rail: LENS · DATA · FILTERS · EXPORT */
-export function Group(p: { title: string; icon?: IconName; children?: ReactNode; right?: ReactNode; "data-tour"?: string; className?: string }) {
+/** a group heading in the select rail: LENS · DATA · FILTERS · EXPORT. With `onToggle` the heading is a disclosure
+ *  (FILTERS and EXPORT start folded, so the rail is the lens and the data): `right` is what a folded group still says */
+export function Group(p: { title: string; icon?: IconName; children?: ReactNode; right?: ReactNode; "data-tour"?: string; className?: string; open?: boolean; onToggle?: () => void }) {
+  const open = p.onToggle ? p.open !== false : true;
+  const head = <>{p.icon && <Icon name={p.icon} />}{p.title}{p.right && <span className="group-right">{p.right}</span>}</>;
   return (
-    <section className={`group${p.className ? ` ${p.className}` : ""}`} data-tour={p["data-tour"]}>
-      <h4 className="group-title">{p.icon && <Icon name={p.icon} />}{p.title}{p.right && <span className="group-right">{p.right}</span>}</h4>
-      {p.children}
+    <section className={`group${p.className ? ` ${p.className}` : ""}${p.onToggle ? (open ? " open" : " folded") : ""}`} data-tour={p["data-tour"]} data-group={p.title.toLowerCase()}>
+      {p.onToggle
+        ? <h4 className="group-title"><button type="button" className="group-toggle" aria-expanded={open} onClick={p.onToggle} title={`${open ? "Fold" : "Expand"} ${p.title}`}><Icon name={open ? "ui-down" : "ui-right"} size="0.95rem" />{head}</button></h4>
+        : <h4 className="group-title">{head}</h4>}
+      {open && p.children}
     </section>
   );
 }

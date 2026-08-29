@@ -200,6 +200,8 @@ export function buildLayers(inp: LayerInputs): Layer[] {
 // ── the map component ─────────────────────────────────────────────────────────
 export function MapView(props: {
   layers: Layer[]; theme: "dark" | "light";
+  view: [number, number, number];                    // the opening extent: lon · lat · zoom (the URL's `map=`, else the home view)
+  onView?: (v: [number, number, number]) => void;    // every settled pan / zoom, so the URL — and a shared link — carries the extent
   getTooltip: (info: PickingInfo) => any; onClick?: (info: PickingInfo) => void; onFirstFrame?: () => void;
 }) {
   const el = useRef<HTMLDivElement>(null);
@@ -210,9 +212,10 @@ export function MapView(props: {
   useEffect(() => {
     const m = new maplibregl.Map({
       container: el.current!, style: STYLE[props.theme],
-      center: [-121.5, 33.2], zoom: 5.1, attributionControl: false,
+      center: [props.view[0], props.view[1]], zoom: props.view[2], attributionControl: false,
       canvasContextAttributes: { preserveDrawingBuffer: true }, // the whole-view figure (capture.ts) reads the canvas; deck.gl 9 preserves its own by default
     });
+    m.on("moveend", () => { const c = m.getCenter(); cb.current.onView?.([c.lng, c.lat, m.getZoom()]); });
     m.addControl(new maplibregl.AttributionControl({ compact: true }));
     // compact attribution starts collapsed to its (i); MapLibre opens it on load, so close it after the style lands
     m.once("load", () => el.current?.querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show"));
@@ -231,5 +234,11 @@ export function MapView(props: {
   }, []);
   useEffect(() => { overlay.current?.setProps({ layers: props.layers }); }, [props.layers]);
   useEffect(() => { map.current?.setStyle(STYLE[props.theme]); }, [props.theme]);
+  // a view set from outside (the home button) flies the map there; the map's own moves come back through onView and match already
+  useEffect(() => {
+    const m = map.current; if (!m) return;
+    const c = m.getCenter(), [lng, lat, z] = props.view;
+    if (Math.abs(c.lng - lng) > 1e-4 || Math.abs(c.lat - lat) > 1e-4 || Math.abs(m.getZoom() - z) > 0.01) m.easeTo({ center: [lng, lat], zoom: z, duration: 500 });
+  }, [props.view]);
   return <div ref={el} className="map" />;
 }

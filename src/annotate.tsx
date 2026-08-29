@@ -1,7 +1,7 @@
 // the screenshot annotator (plan D17): the captured view in a canvas with arrow · circle · rectangle · pen ·
-// text, two colours that read on dark and light maps (the accent and the warn yellow), undo and clear. A
-// shapes array redrawn over the image on every change; pointer events, so touch works. Hand-rolled — marker.js
-// is commercial, fabric is 300 KB, tldraw is an app.
+// text, three colours that read on dark and light maps (the warn yellow, the accent blue and a hot pink that
+// no viridis dot wears), undo and clear. A shapes array redrawn over the image on every change; pointer
+// events, so touch works. Hand-rolled — marker.js is commercial, fabric is 300 KB, tldraw is an app.
 import { useEffect, useRef, useState } from "react";
 import { Icon, type IconName } from "./icons";
 
@@ -11,7 +11,9 @@ const TOOLS: { id: Tool; icon: IconName; label: string }[] = [
   { id: "arrow", icon: "ui-arrow", label: "arrow" }, { id: "circle", icon: "ui-circle", label: "circle" }, { id: "rect", icon: "ui-rect", label: "rectangle" },
   { id: "pen", icon: "ui-pen", label: "pen" }, { id: "text", icon: "ui-text", label: "text" },
 ];
-const COLORS = { accent: "#4dabf7", warn: "#ffd60a" };
+const COLORS: { id: string; hex: string; label: string }[] = [
+  { id: "warn", hex: "#ffd60a", label: "yellow" }, { id: "accent", hex: "#4dabf7", label: "blue" }, { id: "pink", hex: "#ff2d95", label: "hot pink" },
+];
 
 function drawShape(ctx: CanvasRenderingContext2D, s: Shape, k: number) {
   ctx.strokeStyle = s.color; ctx.fillStyle = s.color; ctx.lineWidth = 3 * k; ctx.lineCap = "round"; ctx.lineJoin = "round";
@@ -36,38 +38,54 @@ function drawShape(ctx: CanvasRenderingContext2D, s: Shape, k: number) {
 export function Annotator(p: { image: HTMLCanvasElement; onDone: (canvas: HTMLCanvasElement) => void; onCancel: () => void }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const [tool, setTool] = useState<Tool>("arrow");
-  const [color, setColor] = useState<string>(COLORS.warn);
+  const [color, setColor] = useState<string>(COLORS[0].hex);
   const [shapes, setShapes] = useState<Shape[]>([]);
   const [live, setLive] = useState<Shape | null>(null);
   const [textAt, setTextAt] = useState<{ x: number; y: number } | null>(null);
   const [text, setText] = useState("");
+  const textRef = useRef({ textAt, text, color }); textRef.current = { textAt, text, color }; // what a blur or a new placement commits (never a stale closure)
   const W = p.image.width, H = p.image.height;
-  // the canvas is the image's size; CSS scales it to fit, so shapes are in image pixels
-  useEffect(() => {
-    const c = ref.current; if (!c) return;
-    const ctx = c.getContext("2d")!; ctx.clearRect(0, 0, W, H); ctx.drawImage(p.image, 0, 0);
-    const k = Math.max(1, W / 1400);
+  const k = Math.max(1, W / 1400);
+  const paint = (ctx: CanvasRenderingContext2D, extra: Shape | null) => {
+    ctx.clearRect(0, 0, W, H); ctx.drawImage(p.image, 0, 0);
     for (const s of shapes) drawShape(ctx, s, k);
-    if (live) drawShape(ctx, live, k);
-  }, [shapes, live, p.image]);
+    if (extra) drawShape(ctx, extra, k);
+  };
+  // the canvas is the image's size; CSS scales it to fit, so shapes are in image pixels
+  useEffect(() => { const c = ref.current; if (c) paint(c.getContext("2d")!, live); }, [shapes, live, p.image]);
   const pos = (e: React.PointerEvent) => { const r = ref.current!.getBoundingClientRect(); return { x: ((e.clientX - r.left) / r.width) * W, y: ((e.clientY - r.top) / r.height) * H }; };
+  // the text being typed becomes a shape: on Enter, on blur, or when the next placement starts
+  const commitText = () => {
+    const { textAt: at, text: t, color: c } = textRef.current;
+    if (at && t.trim()) setShapes((s) => [...s, { tool: "text", color: c, x0: at.x, y0: at.y, x1: at.x, y1: at.y, text: t.trim() }]);
+    setTextAt(null); setText("");
+  };
   const down = (e: React.PointerEvent) => {
     const { x, y } = pos(e);
-    if (tool === "text") { setTextAt({ x, y }); setText(""); return; }
+    if (tool === "text") {
+      // the input mounts and focuses inside this handler; without preventDefault the browser's own mousedown then moves
+      // focus to the canvas, the input blurs empty and the placement is gone before a letter is typed
+      e.preventDefault();
+      commitText(); setTextAt({ x, y }); return;
+    }
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     setLive({ tool, color, x0: x, y0: y, x1: x, y1: y, path: tool === "pen" ? [[x, y]] : undefined });
   };
   const move = (e: React.PointerEvent) => { if (!live) return; const { x, y } = pos(e); setLive({ ...live, x1: x, y1: y, path: live.path ? [...live.path, [x, y]] : undefined }); };
   const up = () => { if (!live) return; if (Math.abs(live.x1 - live.x0) + Math.abs(live.y1 - live.y0) > 3 || live.path) setShapes((s) => [...s, live]); setLive(null); };
-  const commitText = () => { if (textAt && text.trim()) setShapes((s) => [...s, { tool: "text", color, x0: textAt.x, y0: textAt.y, x1: textAt.x, y1: textAt.y, text: text.trim() }]); setTextAt(null); setText(""); };
-  const done = () => { const c = ref.current!; const out = document.createElement("canvas"); out.width = W; out.height = H; out.getContext("2d")!.drawImage(c, 0, 0); p.onDone(out); };
+  // Done paints from the shapes, not from the on-screen canvas: a text still being typed (its blur commits in the same
+  // click) is drawn straight in rather than waiting for the redraw effect
+  const done = () => {
+    const { textAt: at, text: t, color: c } = textRef.current;
+    const pending: Shape | null = at && t.trim() ? { tool: "text", color: c, x0: at.x, y0: at.y, x1: at.x, y1: at.y, text: t.trim() } : null;
+    const out = document.createElement("canvas"); out.width = W; out.height = H; paint(out.getContext("2d")!, pending); p.onDone(out);
+  };
   return (
     <div className="annotator" data-tour="annotator">
       <div className="row annot-tools">
         <span className="seg" role="group" aria-label="tool">{TOOLS.map((t) => <button key={t.id} type="button" className={tool === t.id ? "on" : ""} title={t.label} aria-label={t.label} aria-pressed={tool === t.id} onClick={() => setTool(t.id)}><Icon name={t.icon} /></button>)}</span>
         <span className="seg" role="group" aria-label="colour">
-          <button type="button" className={color === COLORS.warn ? "on" : ""} aria-label="yellow" onClick={() => setColor(COLORS.warn)}><i className="dot" style={{ background: COLORS.warn, width: 12, height: 12 }} /></button>
-          <button type="button" className={color === COLORS.accent ? "on" : ""} aria-label="blue" onClick={() => setColor(COLORS.accent)}><i className="dot" style={{ background: COLORS.accent, width: 12, height: 12 }} /></button>
+          {COLORS.map((c) => <button key={c.id} type="button" className={color === c.hex ? "on" : ""} aria-label={c.label} title={c.label} aria-pressed={color === c.hex} onClick={() => setColor(c.hex)}><i className="dot" style={{ background: c.hex, width: 12, height: 12 }} /></button>)}
         </span>
         <span className="seg"><button type="button" onClick={() => setShapes((s) => s.slice(0, -1))} disabled={!shapes.length} title="undo"><Icon name="ui-undo" /> undo</button><button type="button" onClick={() => setShapes([])} disabled={!shapes.length} title="clear"><Icon name="ui-clear" /> clear</button></span>
         <span className="spacer" />
@@ -76,10 +94,11 @@ export function Annotator(p: { image: HTMLCanvasElement; onDone: (canvas: HTMLCa
       </div>
       <div className="annot-stage">
         <canvas ref={ref} width={W} height={H} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} style={{ cursor: tool === "text" ? "text" : "crosshair", touchAction: "none" }} />
-        {textAt && <input className="annot-text" autoFocus value={text} placeholder="type, then Enter" onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") commitText(); if (e.key === "Escape") setTextAt(null); }} onBlur={commitText}
-          style={{ left: `${(textAt.x / W) * 100}%`, top: `${(textAt.y / H) * 100}%`, color }} />}
+        {textAt && <input key={`${textAt.x},${textAt.y}`} className="annot-text" autoFocus value={text} placeholder="type, then Enter" onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") commitText(); if (e.key === "Escape") { setTextAt(null); setText(""); } }} onBlur={commitText}
+          style={{ left: `${(textAt.x / W) * 100}%`, top: `${(textAt.y / H) * 100}%`, color, borderColor: color }} />}
       </div>
-      <div className="hint">draw on the picture: an arrow to the spike, a circle around the odd dot, a word or two · {shapes.length} mark{shapes.length === 1 ? "" : "s"}</div>
+      <div className="hint">draw on the picture: an arrow to the spike, a circle around the odd dot{tool === "text" ? " — click where the words go, type, Enter" : ", a word or two"} · {shapes.length} mark{shapes.length === 1 ? "" : "s"}</div>
     </div>
   );
 }

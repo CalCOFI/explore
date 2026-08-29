@@ -23,9 +23,11 @@ import { captureView, canvasBlob, luminanceStats, blobStats } from "./capture";
 import { track as trackEvent } from "./track";
 import { categoryRank, categoryIcon, envCategory, DATASET_CATEGORY_FALLBACK } from "./categories";
 import {
-  fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LENS_ICON, RES_KM, LAYERS, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, STAT_LABEL, YEAR_OPEN,
+  fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LENS_ICON, RES_KM, LAYERS, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, DEN_HOW, SHF_NOTE, STAT_LABEL, YEAR_OPEN, MAP_HOME,
   type Sel, type Lens, type Den, type Stat, type PickerRow, type PanelId,
 } from "./state";
+type FigureId = PanelId | "map"; // what exports PNG · SVG · CSV from a header: every panel, and the map from its own ⬇
+type Foldable = "filters" | "export" | "denominator";
 
 const DS_SHORT: Record<string, string> = {
   swfsc_ichthyo: "ichthyo", swfsc_cufes: "CUFES", calcofi_bottle: "bottle", "calcofi_ctd-cast": "CTD", calcofi_dic: "DIC", calcofi_mets: "METS",
@@ -115,6 +117,11 @@ export function App() {
   const [seasonEdit, setSeasonEdit] = useState(false);
   // advanced: the timing marks + the last SQL, behind a gear (off by default; ?timing=1 opens it)
   const [advanced, setAdvanced] = useState<boolean>(() => new URLSearchParams(location.search).get("timing") === "1");
+  // the rail's disclosures: FILTERS and EXPORT start folded, and so does the denominator's radio list (its one line says
+  // which is in force) — the rail opens as the lens and the data, the rest a click away. In memory, never in the URL.
+  const [open, setOpen] = useState<Record<Foldable, boolean>>({ filters: false, export: false, denominator: false });
+  const toggleOpen = (k: Foldable) => setOpen((o) => ({ ...o, [k]: !o[k] }));
+  const expand = (k: Foldable) => setOpen((o) => (o[k] ? o : { ...o, [k]: true }));
   const lensClickAt = useRef<number | null>(null);
   const opened = useRef(false);
   const gen = useRef(0);
@@ -464,6 +471,7 @@ export function App() {
     snapshot: () => { tourSnap.current = { lens: selRef.current.lens, hide: selRef.current.hide, sheet: sheetRef.current }; },
     restore: () => { const t = tourSnap.current; if (!t) return; setSelRaw((s) => ({ ...s, lens: t.lens, hide: t.hide })); if (phone) setSheet(t.sheet); tourSnap.current = null; },
     openFeedback: () => setModal("feedback"),
+    expand,
   };
   const tour = () => { if (modal === "welcome") markWelcome(); setModal(null); setTimeout(() => startTour(tourActions), modal ? 250 : 0); };
   (window as any).__tour = tour; // verify.mjs steps it through window.__tourDriver
@@ -616,12 +624,22 @@ export function App() {
             </select></label>
           <label className="f">summary<select value={stat} onChange={(e) => setSel({ stat: e.target.value as Stat })}>{Object.entries(STAT_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
         </div>
-        <div className="den" data-tour="denominator"><h4>denominator <span className="hint" style={{ textTransform: "none", letterSpacing: 0 }}>· how counts are standardized</span></h4>
-          {(["per_10m2", "per_1000m3", "raw"] as Den[]).map((d) => { const i = denInfo(d); return (
-            <label key={d} className={i.rows === 0 ? "off" : ""}>
-              <input type="radio" name="den" checked={sel.den === d} disabled={i.rows === 0} onChange={() => setSel({ den: d })} />
-              {DEN_LABEL[d]}<br /><span className="hint">{i.ok.map(short).join(", ") || "no dataset"}{i.excluded > 0 ? ` · ${fmtN(i.excluded)} observations excluded` : ""}{i.off.length ? ` (${i.off.map(short).join(", ")} cannot)` : ""}</span>
-            </label>); })}
+        <div className={`den${open.denominator ? " open" : ""}`} data-tour="denominator">
+          {/* one line says which denominator is in force and for whom; the radios, the formulas and the haul-factor note open on a click */}
+          <button type="button" className="den-toggle" aria-expanded={open.denominator} onClick={() => toggleOpen("denominator")} title={`${open.denominator ? "fold" : "expand"} the denominator — how counts are standardized`}>
+            <Icon name={open.denominator ? "ui-down" : "ui-right"} size="0.95rem" /><span className="k">denominator</span>
+            <b>{sel.den ? DEN_LABEL[sel.den] : "…"}</b>
+            {sel.den && <span className="hint">· {denInfo(sel.den).ok.map(short).join(", ") || "no dataset"}{denInfo(sel.den).excluded > 0 ? ` · ${fmtN(denInfo(sel.den).excluded)} excluded` : ""}</span>}
+          </button>
+          {open.denominator && <div className="den-list">
+            {(["per_10m2", "per_1000m3", "raw"] as Den[]).map((d) => { const i = denInfo(d); return (
+              <label key={d} className={i.rows === 0 ? "off" : ""}>
+                <input type="radio" name="den" checked={sel.den === d} disabled={i.rows === 0} onChange={() => setSel({ den: d })} />
+                <b>{DEN_LABEL[d]}</b> <span className="hint">— {DEN_HOW[d]}</span><br />
+                <span className="hint ds">{i.ok.map(short).join(", ") || "no dataset"}{i.excluded > 0 ? ` · ${fmtN(i.excluded)} observations excluded` : ""}{i.off.length ? ` (${i.off.map(short).join(", ")} cannot)` : ""}</span>
+              </label>); })}
+            <div className="hint shf">{SHF_NOTE}</div>
+          </div>}
         </div>
         <div className="pills">
           {picker.length === 0 && <span className="pill off">{status}</span>}
@@ -645,7 +663,8 @@ export function App() {
         <div className="hint">{fmtN(inView)} observations in view</div>
       </>}
     </Group>
-    <Group title="Filters" icon="ui-filter" data-tour="filters">
+    <Group title="Filters" icon="ui-filter" data-tour="filters" open={open.filters} onToggle={() => toggleOpen("filters")}
+      right={!open.filters && (yearsSet || sel.q || depthSet || sel.datasets) ? <span className="hint">{[yearsSet && (sel.months ? `${years[0]}-${String(sel.months[0]).padStart(2, "0")} → ${years[1]}-${String(sel.months[1]).padStart(2, "0")}` : `${years[0]}–${years[1]}`), sel.q && seasonLabel, depthSet && `${sel.depth[0]}–${sel.depth[1]} m`, sel.datasets && sel.datasets.map(short).join(", ")].filter(Boolean).join(" · ")}</span> : undefined}>
       <div className="chips">
         <button type="button" className={`chip${yearsSet ? " on" : ""}`} onClick={() => setYearsEdit((v) => !v)} title="the year range · brush the years strip, or click to type"><Icon name="ui-years" />years {sel.months ? `${years[0]}-${String(sel.months[0]).padStart(2, "0")} → ${years[1]}-${String(sel.months[1]).padStart(2, "0")}` : `${years[0]}–${years[1]}`}{yearsSet && <span className="x" role="button" aria-label="reset years" onClick={(e) => { e.stopPropagation(); setSel({ years: [1949, YEAR_OPEN], months: null }); }}><Icon name="ui-close" /></span>}</button>
         <button type="button" className={`chip${sel.q ? " on" : ""}`} onClick={() => setSeasonEdit((v) => !v)} title="season: keep only these quarters (the cheap sibling of a month brush)"><Icon name="ui-calendar" />season {seasonLabel}{sel.q && <span className="x" role="button" aria-label="all seasons" onClick={(e) => { e.stopPropagation(); setSel({ q: null }); }}><Icon name="ui-close" /></span>}</button>
@@ -655,7 +674,7 @@ export function App() {
       {yearsEdit && <div className="row"><input type="number" style={{ width: 62 }} value={years[0]} min={1949} max={yearMax} onChange={(e) => setSel({ years: [+e.target.value, years[1]] })} />–<input type="number" style={{ width: 62 }} value={years[1]} min={1949} max={yearMax} onChange={(e) => setSel({ years: [years[0], +e.target.value] })} /><span className="hint">or brush the years strip{sel.months ? " · month edges from the brush" : ""}</span></div>}
       {seasonEdit && <div className="season-row"><span className="seg">{[1, 2, 3, 4].map((x) => <button key={x} className={!sel.q || sel.q.includes(x) ? "on" : ""} onClick={() => toggleQ(x)} title={Q_LABEL[x - 1]}>Q{x}</button>)}</span><span className="hint">{sel.q ? sel.q.map((x) => Q_LABEL[x - 1]).join(", ") : "every quarter"}</span></div>}
     </Group>
-    <Group title="Export" icon="ui-download" data-tour="export">
+    <Group title="Export" icon="ui-download" data-tour="export" open={open.export} onToggle={() => toggleOpen("export")} right={!open.export ? <span className="hint">data · code · share</span> : undefined}>
       <div className="row">
         <button className="pill act" disabled={!sliceKey || !!bundling} onClick={download} title="README · CITATION · summary (+GeoJSON) · observations (parquet/CSV) · the exact SQL against the release's object URLs · reproduce.R / .py">
           <Icon name="ui-download" />{bundling ? `bundle: ${bundling}` : "Download data (zip)"}</button>
@@ -664,14 +683,13 @@ export function App() {
           { label: "R", hint: "DBI + duckdb; calcofi4r noted", onSelect: () => copy("r") },
           { label: "Python", hint: "duckdb; calcofi4py noted", onSelect: () => copy("py") }]} />
         <Menu label="Share" icon="ui-share" title="the URL is the whole view; the image is the map + open panels with the release stamped" data-tour="share" items={[
-          { label: "Copy link", icon: "ui-link", hint: "this view, folds and zoom included", onSelect: () => { copyLink(); trackEvent("share", { kind: "link" }); } },
+          { label: "Copy link", icon: "ui-link", hint: "this view: selection, filters, map extent, folds and the years' zoom", onSelect: () => { copyLink(); trackEvent("share", { kind: "link" }); } },
           { label: "Copy image", icon: "ui-copy", hint: "the view as a figure, to the clipboard", onSelect: () => shareImage("copy") },
           { label: "Download PNG", icon: "ui-image", hint: "the same figure, as a file", onSelect: () => shareImage("download") },
           { label: "Send feedback", icon: "ui-feedback", hint: "this view's URL to the team", onSelect: () => setModal("feedback") }]} />
         <button className="pill act" onClick={() => { if (advanced && !minCards.timing) setAdvanced(false); else { setAdvanced(true); openCard("timing"); } }} aria-pressed={advanced} title="the timing marks and the SQL behind the view"><Icon name="ui-sql" />SQL &amp; timing</button>
       </div>
     </Group>
-    <div className="hint" style={{ marginTop: "auto" }}>{LENS_TITLE[sel.lens]}. Release {rel}{catalog ? ` · ${catalog.tables.length} tables` : ""} · DuckDB-WASM in a worker, no extensions, objects fetched whole from the release catalog.</div>
   </>;
   const depthBody = (wide: boolean) => <DepthStrip rows={depthRows} band={sel.depth} theme={theme} unit={unitLabel} empty={depthEmpty} onBand={(b) => setSel({ depth: b ?? [0, 500] })} byDataset={wide && depthDs.length ? { rows: depthDs, color: dsColor, short } : null} />;
   const yearsBody = <YearStrip rows={yearRows} monthRows={monthRows} onNeedMonths={setNeedMonths} years={years} months={sel.months} yearMax={yearMax} theme={theme} mode={seriesMode} unit={unitLabel} stat={stat}
@@ -701,26 +719,34 @@ export function App() {
   const body = (id: PanelId, wide = false) => id === "select" ? selectBody : id === "depth" ? depthBody(wide) : id === "years" ? yearsBody : id === "section" ? sectionBody : id === "cruise" ? cruiseBody : id === "station" ? stationBody : timingBody;
   const actions = (id: PanelId) => (id === "years" ? <>{sel.yview && <IconButton icon="ui-zoom-out" label="Reset zoom (double-click the strip)" className="sm" onClick={() => setSel({ yview: null })} data-tour="zoom-reset" />}{seriesToggle}</> : null);
   // ── figures (D19) and the whole-view share (D17): every panel exports PNG · SVG · CSV from its header with the shared footer
-  const stampFor = (id: PanelId): Stamp => ({ title: `${titles[id]} · ${legendTitle}`, release: rel, url: location.href }); // the legend title carries the unit
+  const stampFor = (id: FigureId): Stamp => ({ title: `${id === "map" ? `Map · ${LENS_SHORT[sel.lens]}` : titles[id]} · ${legendTitle}`, release: rel, url: location.href }); // the legend title carries the unit
   const plotDivOf = (id: PanelId) => document.querySelector<HTMLElement>(`.max-panel.panel-${id} .js-plotly-plot, .sheet .panel-body-${id} .js-plotly-plot, #rail-${id} .js-plotly-plot, .card-${id} .js-plotly-plot`);
   const panelElOf = (id: PanelId) => document.querySelector<HTMLElement>(`.max-panel.panel-${id}, .sheet .panel-body-${id}, #rail-${id}, .card-${id}`);
-  const rowsOf = (id: PanelId): Row[] => id === "years" ? (seriesMode === "cruises" && gantt ? gantt.rows : (monthRows ?? yearRows)) : id === "depth" ? (depthDs.length ? depthDs : depthRows)
+  // the map's table is what it draws: the lens summary per station / hexagon / region, the samples along a cruise track
+  const mapRows = (): Row[] => sel.lens === "hex" ? hexRows : sel.lens === "region" ? regionRows : sel.lens === "cruise" ? cruiseSamples : stationRows;
+  const rowsOf = (id: FigureId): Row[] => id === "map" ? mapRows() : id === "years" ? (seriesMode === "cruises" && gantt ? gantt.rows : (monthRows ?? yearRows)) : id === "depth" ? (depthDs.length ? depthDs : depthRows)
     : id === "section" ? sectionCells : id === "cruise" ? cruiseRows : id === "timing" ? marks : id === "station" ? (stationCard?.detail?.datasets ?? stationCard?.summary?.datasets ?? []).flatMap((d: any) => (d.years?.length ? d.years.map((y: [number, number]) => ({ grid_key: stationCard!.grid_key, dataset_key: d.dataset_key, year: y[0], n_obs: y[1] })) : [{ grid_key: stationCard!.grid_key, dataset_key: d.dataset_key, n_obs: d.n_obs, year_min: d.year_min, year_max: d.year_max }])) : [];
   // the figure as a blob (no download): what the export items and window.__figure share
-  const figure = async (id: PanelId, kind: "png" | "svg" | "csv"): Promise<{ blob: Blob; name: string }> => {
+  const figure = async (id: FigureId, kind: "png" | "svg" | "csv"): Promise<{ blob: Blob; name: string }> => {
     const name = figureName(id, sel.lens, rel, kind), st = stampFor(id);
     if (kind === "csv") return { blob: csvBlob(rowsOf(id)), name };
+    if (id === "map") {
+      // the map box without the floating cards and its own ⬇ — the basemap, the layers and the legend, stamped
+      if (kind === "svg") throw new Error("the map is WebGL — export it as PNG (the panels export SVG)");
+      const el = mapBox.current; if (!el) throw new Error("map: nothing to export");
+      return { blob: await canvasBlob(await captureView({ root: el, stamp: st, scale: 2, hide: [".card", ".map-tr", ".phone-pills", ".sheet"] })), name }; // 2× like the panels (the whole-view share stays at the device ratio)
+    }
     const div = plotDivOf(id);
     if (kind === "svg") { if (!div) throw new Error(`${id}: no plot to export as SVG (a card of several plots exports as PNG)`); return { blob: await plotSvg(div, st), name }; }
     if (div && id !== "station") return { blob: await plotPng(div, st), name };
     const el = panelElOf(id); if (!el) throw new Error(`${id}: nothing to export`);
     return { blob: await canvasBlob(await captureView({ root: el, stamp: st })), name }; // the station card: several mini plots -> the DOM capture
   };
-  const exportItems = (id: PanelId): MenuItem[] => {
+  const exportItems = (id: FigureId): MenuItem[] => {
     const go = (kind: "png" | "svg" | "csv") => async () => { try { const f = await figure(id, kind); saveBlob(f.blob, f.name); setStatus(`saved ${f.name}`); trackEvent("export", { panel: id, kind }); } catch (e: any) { setStatus(`export failed: ${e.message}`); } };
-    const items: MenuItem[] = [{ label: "PNG", icon: "ui-image", hint: "2×, with the selection and release stamped", onSelect: go("png") }];
-    if (id !== "station" && id !== "timing") items.push({ label: "SVG", icon: "ui-code", hint: "vector, for papers", onSelect: go("svg") });
-    items.push({ label: "CSV", icon: "ui-data", hint: id === "timing" ? "the timing marks" : "this panel's table (the bundle's, too)", onSelect: go("csv") });
+    const items: MenuItem[] = [{ label: "PNG", icon: "ui-image", hint: id === "map" ? "the map and its legend, 2×, with the selection and release stamped" : "2×, with the selection and release stamped", onSelect: go("png") }];
+    if (id !== "station" && id !== "timing" && id !== "map") items.push({ label: "SVG", icon: "ui-code", hint: "vector, for papers", onSelect: go("svg") });
+    items.push({ label: "CSV", icon: "ui-data", hint: id === "timing" ? "the timing marks" : id === "map" ? `the ${sel.lens === "cruise" ? "samples on the track" : `${LENS_SHORT[sel.lens].toLowerCase()} summary`} the map draws (the bundle's, too)` : "this panel's table (the bundle's, too)", onSelect: go("csv") });
     return items;
   };
   const viewStamp = (): Stamp => ({ title: legendTitle, release: rel, url: location.href });
@@ -734,7 +760,7 @@ export function App() {
       trackEvent("share", { kind: how === "copy" ? "image" : "png" });
     } catch (e: any) { setStatus(`capture failed: ${e.message}`); }
   };
-  (window as any).__figure = async (id: PanelId, kind: "png" | "svg" | "csv") => { const f = await figure(id, kind); const out: any = { name: f.name, bytes: f.blob.size, type: f.blob.type }; if (kind === "png") { Object.assign(out, await blobStats(f.blob)); out.dataUrl = await new Promise<string>((ok) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.readAsDataURL(f.blob); }); } else { const t = await f.blob.text(); out.text = t.slice(0, 300); out.stamped = /release /.test(t); out.lines = t.split("\n").length; } return out; };
+  (window as any).__figure = async (id: FigureId, kind: "png" | "svg" | "csv") => { const f = await figure(id, kind); const out: any = { name: f.name, bytes: f.blob.size, type: f.blob.type }; if (kind === "png") { Object.assign(out, await blobStats(f.blob)); out.dataUrl = await new Promise<string>((ok) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.readAsDataURL(f.blob); }); } else { const t = await f.blob.text(); out.text = t.slice(0, 300); out.stamped = /release /.test(t); out.lines = t.split("\n").length; } return out; };
   (window as any).__captureView = async () => { const c = await captureView({ stamp: viewStamp() }); return { w: c.width, h: c.height, ...luminanceStats(c), dataUrl: c.toDataURL("image/png") }; };
   const cardOpen: Record<CardId, boolean> = { section: displayLens === "section", cruise: displayLens === "cruise", station: !!stationCard, timing: advanced };
   const maxId: PanelId | null = sel.max && !phone && (sel.max === "select" || sel.max === "depth" || sel.max === "years" || cardOpen[sel.max as CardId]) ? sel.max : null;
@@ -760,17 +786,16 @@ export function App() {
           <img className="cc-logo-light" src="https://calcofi.io/brand/v1/logo_calcofi_light.svg" alt="CalCOFI" width="32" height="32" />
         </a>
         <a className="cc-title" href="./"><span className="cc-title-org">CalCOFI </span>Explorer<small><Icon name={LENS_ICON[sel.lens]} /> {LENS_TITLE[sel.lens]}</small></a>
+        <span className="cc-spacer" />
+        {/* the release chip sits at the right with the tools; the query / schema / docs links live in About (they were header clutter) */}
         <a className="cc-release" data-tour="release" href={`https://calcofi.io/db-schema/#erd?v=${rel}`} title="CalCOFI integrated database release — every value shown comes from this frozen release; schema and release notes"><span className="cc-release-word">release</span> <b>{rel}</b></a>
         {versions.length > 1 && <select className="cc-versions" value={version ?? ""} onChange={(e) => { setSel({ release: e.target.value }); location.search = new URLSearchParams({ ...Object.fromEntries(new URLSearchParams(location.search)), release: e.target.value }).toString(); }} title="switch release (reloads)">
           {versions.map((v) => <option key={v} value={v}>{v}</option>)}</select>}
-        <span className="cc-spacer" />
-        <nav className="cc-links"><a href="https://calcofi.io/db-query/">query</a><a href="https://calcofi.io/db-schema/">schema</a><a href="https://calcofi.io/docs/">docs</a></nav>
         <IconButton icon="ui-help" label="Take the tour (?)" className="hdr hdr-help" onClick={tour} data-tour="help" />
         <IconButton icon="ui-about" label="About the explorer" className="hdr hdr-about" onClick={() => setModal("about")} data-tour="about" />
         <IconButton icon="ui-feedback" label="Send feedback" className="hdr hdr-feedback" onClick={() => setModal("feedback")} data-tour="feedback" />
         <Menu className="cc-more" icon="ui-more" label="" title="more" align="right" data-tour="more" items={[
-          { label: "About", icon: "ui-about", onSelect: () => setModal("about") }, { label: "Feedback", icon: "ui-feedback", onSelect: () => setModal("feedback") },
-          { label: "query", href: "https://calcofi.io/db-query/", icon: "ui-open" }, { label: "schema", href: "https://calcofi.io/db-schema/", icon: "ui-open" }, { label: "docs", href: "https://calcofi.io/docs/", icon: "ui-open" }]} />
+          { label: "About", icon: "ui-about", onSelect: () => setModal("about") }, { label: "Feedback", icon: "ui-feedback", onSelect: () => setModal("feedback") }]} />
         <button className="cc-theme-toggle" type="button" aria-label="Toggle dark / light theme" title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}>
           {/* the sun while dark, the moon-in-sun while light — what a click switches to (theme.css shows one per theme) */}
           <svg className="cc-theme-icon cc-icon-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={ICON_SUN} /></svg>
@@ -782,8 +807,11 @@ export function App() {
           resizable={{ width: railW, min: 260, max: 440, onResize: setRailW }} data-tour="rail" exportable={undefined}
           summary={<><Icon name={LENS_ICON[sel.lens]} /><Icon name={sel.realm === "bio" ? "realm-bio" : "realm-env"} />{selectSummary}</>}>{selectBody}</Rail>}
         <div className="panel mapwrap" ref={mapBox} data-tour="map">
-          <MapView layers={layers} theme={theme} getTooltip={getTooltip} onClick={onClick} onFirstFrame={() => timing.add("first_paint", performance.now() - window.__t0, "basemap + grid dots")} />
-          <div className="status"><b>{status}</b>{sliceKey ? ` · ${fmtN(inView)} observations` : ""}</div>
+          <MapView layers={layers} theme={theme} view={sel.map ?? MAP_HOME} onView={(v) => setSel({ map: v })} getTooltip={getTooltip} onClick={onClick} onFirstFrame={() => timing.add("first_paint", performance.now() - window.__t0, "basemap + grid dots")} />
+          <div className="map-tr">
+            <Menu className="export-menu map-export" icon="ui-download" label="" title="export the map: PNG (the map and its legend, stamped) · CSV (the table it draws) — WebGL has no SVG" align="right" data-tour="map-export" items={exportItems("map")} />
+            <div className="status"><b>{status}</b>{sliceKey ? ` · ${fmtN(inView)} observations` : ""}</div>
+          </div>
           <div className="map-tl">
             {!phone && <PillRow pills={pills} />}
             <div className="legend" data-tour="legend">
