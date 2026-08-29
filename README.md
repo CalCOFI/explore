@@ -34,7 +34,7 @@ npm install
 ln -s ~/_big/calcofi/explore-spike/data2 public/data2
 VITE_DATA_URL=data2/ VITE_RELEASE_PREFIX=explore-dev/releases npm run dev   # http://localhost:5178/
 npm run build && npx vite preview --host --port 5179   # the numbers are taken here
-node scripts/verify.mjs http://localhost:5179/ shots/prod   # headed Chrome, fresh profile → screenshots + results.json
+node scripts/verify.mjs http://localhost:5179/ shots/prod --timing   # headed Chrome, fresh profile → state screenshots + lens timings + results.json
 node scripts/bundle_check.mjs http://localhost:5178/ shots/bundle  # download two bundles and list them
 node scripts/card_shots.mjs ~/Github/CalCOFI/CalCOFI.github.io/images  # the two themed card screenshots
 ```
@@ -46,5 +46,13 @@ reads `{prefix}/latest.txt` → `{prefix}/{version}/catalog.json` (+ `coverage.j
 path — never a hand-built `releases/{v}/parquet/` path.
 
 URL state: `lens · res · taxon|var · stage · den · years · depth · layer · region · line · cruise ·
-stat · anom · theme · tour=off`. The timing panel (bottom-right of the map) lists every mark;
-`window.__marks` is the same list.
+stat · anom · theme · tour=off`, plus the panel folds and maximize (`hide=depth,years` · `max=section`,
+absent when they are the viewport default). *SQL & timing* (EXPORT) opens the timing card, which lists
+every mark; `window.__marks` is the same list. `?native=1` swaps the comboboxes for plain `<select>`s.
+
+Layout (UI plan D11 · D18): the map is the page; the select / depth / years rails fold into state pills
+and maximize into the box; section, cruise, station and timing are floating cards (minimize to a pill,
+drag; position in `localStorage`); under 900 px the select rail is a bottom sheet with three detents and
+the strips are pills on the map's edge. Nothing re-lays out on a selection change.
+`scripts/verify.mjs --only=<regex>` screenshots every state at 1280 × 800 and 390 × 844 and asserts no
+overflow and every control in view; `--timing` adds the cold/warm lens runs.

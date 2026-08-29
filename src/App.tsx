@@ -12,10 +12,12 @@ import { buildBundle, saveBlob, copyAs } from "./bundle";
 import { Icon } from "./icons";
 import { Picker, type PickerItem, type GroupOpt } from "./picker";
 import { Menu, Group } from "./ui";
+import { Rail, FloatCard, PillRow, MaxPanel, Sheet, Sparkline, FOLDED_PX, SHEET_PEEK, type CardId, type CardBox, type Detent } from "./panels";
+import type { IconName } from "./icons";
 import { categoryRank, categoryIcon, envCategory, DATASET_CATEGORY_FALLBACK } from "./categories";
 import {
   fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LENS_ICON, RES_KM, LAYERS, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, STAT_LABEL, YEAR_OPEN,
-  type Sel, type Lens, type Den, type Stat, type PickerRow,
+  type Sel, type Lens, type Den, type Stat, type PickerRow, type PanelId,
 } from "./state";
 
 const DS_SHORT: Record<string, string> = {
@@ -395,6 +397,34 @@ export function App() {
   const yearsSet = sel.years[0] !== 1949 || sel.years[1] !== YEAR_OPEN;
   const depthSet = sel.depth[0] !== 0 || sel.depth[1] !== 500;
   const copyLink = async () => { try { await navigator.clipboard.writeText(location.href); setStatus("link copied"); } catch { setStatus("clipboard blocked"); } };
+
+  // ── panels (D11 · D18): folds + maximize in the URL; card minimize, rail width and the phone sheet in memory ────
+  const [railW, setRailW] = useState<number>(() => { try { const v = +(localStorage.getItem("explore.rail.select.w") ?? 0); return v >= 260 && v <= 440 ? v : 320; } catch { return 320; } });
+  const [minCards, setMinCards] = useState<Record<CardId, boolean>>({ section: false, cruise: false, station: false, timing: false });
+  const [topCard, setTopCard] = useState<CardId | null>(null);
+  const [sheet, setSheet] = useState<{ panel: PanelId; detent: Detent }>({ panel: "select", detent: "peek" });
+  const [depthPulse, setDepthPulse] = useState(false);
+  const [depthDs, setDepthDs] = useState<DepthRow[]>([]);
+  const mapBox = useRef<HTMLDivElement>(null);
+  const folded = (id: PanelId) => sel.hide.includes(id);
+  const toggleFold = (id: PanelId) => setSelRaw((s) => ({ ...s, hide: s.hide.includes(id) ? s.hide.filter((h) => h !== id) : [...s.hide, id] }));
+  const toggleMax = (id: PanelId) => setSelRaw((s) => ({ ...s, max: s.max === id ? null : id }));
+  const openCard = (id: CardId) => { setMinCards((m) => ({ ...m, [id]: false })); setTopCard(id); if (phone) setSheet({ panel: id, detent: "half" }); };
+  const minCard = (id: CardId) => { setMinCards((m) => ({ ...m, [id]: true })); if (phone) setSheet({ panel: "select", detent: "peek" }); };
+  // a lens owns its cards (rule 2): Sections opens the section card, Cruises the cruise card; the others open none
+  useEffect(() => {
+    if (sel.lens === "section") openCard("section"); else if (sel.lens === "cruise") openCard("cruise");
+    else if (phone) setSheet((s) => (s.panel === "section" || s.panel === "cruise" ? { panel: "select", detent: "peek" } : s));
+  }, [sel.lens]);
+  useEffect(() => { if (sel.station) openCard("station"); }, [sel.station]);   // a station click opens its card (a sheet on the phone)
+  useEffect(() => { try { localStorage.setItem("explore.rail.select.w", String(railW)); } catch { /* private mode */ } }, [railW]);
+  // the depth axis APPEARING while the rail is folded: one 600 ms pulse on the pill (rule 1) — never a re-layout
+  const hasDepthAxis = !sliceKey || depthRows.length > 0;
+  const prevAxis = useRef(hasDepthAxis);
+  useEffect(() => { if (hasDepthAxis && !prevAxis.current && sel.hide.includes("depth")) { setDepthPulse(true); setTimeout(() => setDepthPulse(false), 700); } prevAxis.current = hasDepthAxis; }, [hasDepthAxis]);
+  // the maximized water column adds one median line per dataset
+  useEffect(() => { if (sel.max !== "depth" || !sliceKey) { setDepthDs([]); return; } engine.query("depth_strip_ds", params).then((r) => setDepthDs(r as DepthRow[])).catch(console.error); }, [sel.max, sliceKey, params]);
+  const yearsSpark = useMemo(() => { const m = new Map(yearRows.map((r) => [r.year, r.n])); const out: number[] = []; for (let y = 1949; y <= yearMax; y++) out.push(m.get(y) ?? 0); return out; }, [yearRows, yearMax]);
   const unitLabel = sel.realm === "bio" ? (sel.den === "raw" ? "count" : sel.den === "per_10m2" ? "per 10 m²" : "per 1000 m³") : (picker[0]?.units ?? sel.var);
   const taxonRow = taxa.find((t) => t.taxon_key === sel.taxon);
   const legendTitle = preSlice ? "root samples · all datasets (coverage.json, before the engine is warm)" : sel.realm === "bio"
@@ -463,6 +493,143 @@ export function App() {
   const go = (v: number | undefined, lim: number) => (v == null ? "" : v < lim ? "go" : "nogo");
   const rel = version ?? sel.release ?? "…";
 
+  // ── panels (D11 · D18): folds + maximize live in the URL; card minimize, rail width and the phone sheet in memory ─
+  const tracks = { "--l": phone ? "0px" : folded("select") ? `${FOLDED_PX}px` : `${railW}px`, "--r": folded("depth") ? `${FOLDED_PX}px` : "210px", "--b": folded("years") ? `${FOLDED_PX}px` : "140px" } as React.CSSProperties;
+  const organism = organismItems.find((i) => i.key === sel.taxon);
+  const selectSummary = sel.realm === "bio" ? `${organism?.label ?? sel.taxon} · ${sel.stage ?? "all stages"} · ${unitLabel}` : `${envVar?.label ?? sel.var} · ${sel.depth[0]}–${sel.depth[1]} m`;
+  const depthSummary = sliceKey && !depthRows.length ? "Depth · integrated tows" : `Depth ${sel.depth[0]}–${sel.depth[1]} m`;
+  const depthEmpty = "depth-integrated net tows —<br>no water-column profile for this selection;<br>the tow span will draw here<br>once the release carries it";
+  const seriesToggle = <span className="seg" role="group" aria-label="year strip mode"><button className={seriesMode === "n" ? "on" : ""} onClick={() => setSeriesMode("n")}>observations</button><button className={seriesMode === "mean" ? "on" : ""} onClick={() => setSeriesMode("mean")}>mean ± se</button></span>;
+  const selectBody = <>
+    <Group title="Lens" icon="ui-layers" data-tour="lenses">
+      <div className="lenses">
+        {LENSES.map((l) => <button key={l} className={sel.lens === l ? "on" : ""} onClick={() => onLens(l)} title={LENS_TITLE[l]}><Icon name={LENS_ICON[l]} />{LENS_SHORT[l]}</button>)}
+      </div>
+      {sel.lens === "hex" && <div className="row opt"><span className="hint">hexagon size</span><span className="seg">{[3, 4, 5, 6, 7].map((r) => <button key={r} className={sel.res === r ? "on" : ""} title={`H3 resolution ${r} · mean edge ${RES_KM[r]}`} onClick={() => { lensClickAt.current = performance.now(); setSel({ res: r }); }}>{RES_KM[r]}</button>)}</span></div>}
+      {sel.lens === "region" && <div className="opt">
+        <label className="f">boundary layer<select value={sel.layer} onChange={(e) => setSel({ layer: e.target.value, region: null })}>{(spatial.length ? [...new Set(spatial.map((f) => f.properties.layer))].sort() : LAYERS).map((l) => <option key={l}>{l}</option>)}</select></label>
+        <div className="pills">{regionRows.slice().sort((a, b) => b.n - a.n).slice(0, 10).map((r) => <span key={r.spatial_key} className={`pill ${sel.region === r.spatial_key ? "" : "off"}`} onClick={() => setSel({ region: sel.region === r.spatial_key ? null : r.spatial_key })} style={{ cursor: "pointer" }}>{r.spatial_name} · {fmt(statOf(r))} ({fmtN(r.n)})</span>)}</div>
+        <div className="hint">{layerFeatures.length} polygons · {regionRows.length} with data · membership exact per root sample (sample_spatial)</div>
+      </div>}
+      {sel.lens === "section" && <div className="opt">
+        <label className="f">line<select value={sel.line} onChange={(e) => setSel({ line: +e.target.value, cruise: null })}>{lines.map((l) => <option key={l} value={l}>{l}</option>)}</select></label>
+        <Picker id="section-cruise" label="cruise" hint="newest first" value={sel.cruise ?? ""} items={sectionCruiseItems} onChange={(k) => setSel({ cruise: k })} sorts={["recent", "n"]} countLabel="stations" placeholder="search YYYY-MM-NODC…" loading={sectionCruises.length ? null : "…"} native={native} sheet={phone} />
+        {sel.realm === "env" && <label className="row" style={{ fontSize: 12 }}><input type="checkbox" checked={sel.anom} onChange={(e) => setSel({ anom: e.target.checked })} /> anomaly vs climatology ({years[0]}–{years[1]})</label>}
+      </div>}
+      {sel.lens === "cruise" && <div className="opt">
+        <Picker id="cruise" label="cruise" hint="newest first" value={sel.cruise ?? ""} items={cruiseItems} onChange={(k) => setSel({ cruise: k })} sorts={["recent", "n"]} placeholder="search YYYY-MM-NODC…" loading={cruiseRows.length ? null : "…"} native={native} sheet={phone} />
+        <div className="hint">{track ? `${track.path.length} root sampling events on the track` : "no track"}</div>
+      </div>}
+    </Group>
+    <Group title="Data" icon="ui-data" data-tour="data">
+      <div className="row"><span className="seg realm" data-tour="realm">
+        <button className={sel.realm === "bio" ? "on" : ""} onClick={() => setSel({ realm: "bio" })} title="one organism (taxon) at a time — realm bio"><Icon name="realm-bio" />Biology</button>
+        <button className={sel.realm === "env" ? "on" : ""} onClick={() => setSel({ realm: "env", cruise: null })} title="one variable (measurement type) at a time — realm env"><Icon name="realm-env" />Environment</button>
+      </span></div>
+      {sel.realm === "bio" ? <>
+        <Picker id="organism" label="organism" hint="(taxon)" value={sel.taxon} items={organismItems} onChange={(k) => setSel({ taxon: k, stage: null, den: null, cruise: null })}
+          groups={organismGroups} letters placeholder="search species, genus, family…" dsColor={dsColor} dsShort={short} loading={taxa.length ? null : status} native={native} sheet={phone} data-tour="picker" />
+        <div className="row">
+          <label className="f">life stage
+            <select value={sel.stage ?? ""} onChange={(e) => { const st = e.target.value || null; setSel({ stage: st, den: defaultDen(picker, st) }); }}>
+              {stages.map(([s, n]) => <option key={s ?? "null"} value={s ?? ""}>{s ?? "(none)"} ({fmtN(n)})</option>)}
+            </select></label>
+          <label className="f">summary<select value={stat} onChange={(e) => setSel({ stat: e.target.value as Stat })}>{Object.entries(STAT_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+        </div>
+        <div className="den" data-tour="denominator"><h4>denominator <span className="hint" style={{ textTransform: "none", letterSpacing: 0 }}>· how counts are standardized</span></h4>
+          {(["per_10m2", "per_1000m3", "raw"] as Den[]).map((d) => { const i = denInfo(d); return (
+            <label key={d} className={i.rows === 0 ? "off" : ""}>
+              <input type="radio" name="den" checked={sel.den === d} disabled={i.rows === 0} onChange={() => setSel({ den: d })} />
+              {DEN_LABEL[d]}<br /><span className="hint">{i.ok.map(short).join(", ") || "no dataset"}{i.excluded > 0 ? ` · ${fmtN(i.excluded)} observations excluded` : ""}{i.off.length ? ` (${i.off.map(short).join(", ")} cannot)` : ""}</span>
+            </label>); })}
+        </div>
+        <div className="pills">
+          {picker.length === 0 && <span className="pill off">{status}</span>}
+          {[...new Map(picker.map((r) => [`${r.dataset_key}|${r.life_stage}`, r])).keys()].map((k) => {
+            const rs = picker.filter((r) => `${r.dataset_key}|${r.life_stage}` === k); const r0 = rs[0];
+            const n = rs.reduce((a, r) => a + r.n, 0); const raw = rs.every((r) => r.effort_class === "raw_count_no_effort");
+            const on = r0.life_stage === sel.stage && dsOn(r0.dataset_key);
+            return <span key={k} className={`pill ${on ? "" : "off"} ${raw ? "warn" : ""} ${sel.datasets && dsOn(r0.dataset_key) ? "sel" : ""}`} style={{ cursor: "pointer" }} onClick={() => toggleDataset(r0.dataset_key)}
+              title={`${raw ? "raw count, no effort in release" : rs.map((r) => `${r.tow_type ?? "—"}: ${r.n}`).join(", ")} · click to toggle this dataset`}><i className="dot" style={{ background: dsColor(r0.dataset_key) }} />{short(r0.dataset_key)} {r0.life_stage ?? "—"} {fmtN(n)}{raw ? " ⚠" : ""}</span>;
+          })}
+        </div>
+        <div className="hint">{fmtN(inView)} observations in view · {sel.den === "raw" ? "raw counts are not comparable across gear or datasets" : "nothing averaged across denominators, datasets or stages"}</div>
+      </> : <>
+        <Picker id="variable" label="variable" value={sel.var} items={variableItems} onChange={(k) => setSel({ var: k, cruise: null })}
+          groups={variableGroups} defaultGroup="category" placeholder="search temperature, nitrate, chlorophyll…" dsColor={dsColor} dsShort={short} loading={variableItems.length ? null : "…"} native={native} sheet={phone} data-tour="picker" />
+        <div className="row"><label className="f">summary<select value={stat} onChange={(e) => setSel({ stat: e.target.value as Stat })}>{Object.entries(STAT_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label></div>
+        <div className="pills" data-tour="denominator">
+          {picker.length === 0 && <span className="pill off">{status}</span>}
+          {envPills.map(([dk, c]) => <span key={dk} className={`pill ${dsOn(dk) ? "" : "off"} ${sel.datasets && dsOn(dk) ? "sel" : ""}`} style={{ cursor: "pointer" }} onClick={() => toggleDataset(dk)} title="bottle and CTD values of one variable are comparable · click to toggle this dataset"><i className="dot" style={{ background: dsColor(dk) }} />{short(dk)} {fmtN(c.n)}{c.n_flagged ? ` · ${fmtN(c.n_flagged)} flagged` : ""}</span>)}
+        </div>
+        <div className="hint">{fmtN(inView)} observations in view</div>
+      </>}
+    </Group>
+    <Group title="Filters" icon="ui-filter" data-tour="filters">
+      <div className="chips">
+        <button type="button" className={`chip${yearsSet ? " on" : ""}`} onClick={() => setYearsEdit((v) => !v)} title="the year range · brush the years strip, or click to type"><Icon name="ui-years" />years {years[0]}–{years[1]}{yearsSet && <span className="x" role="button" aria-label="reset years" onClick={(e) => { e.stopPropagation(); setSel({ years: [1949, YEAR_OPEN] }); }}><Icon name="ui-close" /></span>}</button>
+        <button type="button" className={`chip${depthSet ? " on" : ""}`} onClick={() => { if (phone) setSheet({ panel: "depth", detent: "half" }); else if (folded("depth")) toggleFold("depth"); }} title="the depth band · brush the water column to change it"><Icon name="ui-tune" />depth {sel.depth[0]}–{sel.depth[1]} m{depthSet && <span className="x" role="button" aria-label="reset depth" onClick={(e) => { e.stopPropagation(); setSel({ depth: [0, 500] }); }}><Icon name="ui-close" /></span>}</button>
+        <span className={`chip${sel.datasets ? " on" : ""}`} title="the dataset filter · click the dataset pills under the organism or variable"><Icon name="ui-data" />datasets {sel.datasets ? sel.datasets.map(short).join(", ") : "all"}{sel.datasets && <button type="button" aria-label="all datasets" onClick={() => setSel({ datasets: null })}><Icon name="ui-close" /></button>}</span>
+      </div>
+      {yearsEdit && <div className="row"><input type="number" style={{ width: 62 }} value={years[0]} min={1949} max={yearMax} onChange={(e) => setSel({ years: [+e.target.value, years[1]] })} />–<input type="number" style={{ width: 62 }} value={years[1]} min={1949} max={yearMax} onChange={(e) => setSel({ years: [years[0], +e.target.value] })} /><span className="hint">or brush the years strip</span></div>}
+    </Group>
+    <Group title="Export" icon="ui-download" data-tour="export">
+      <div className="row">
+        <button className="pill act" disabled={!sliceKey || !!bundling} onClick={download} title="README · CITATION · summary (+GeoJSON) · observations (parquet/CSV) · the exact SQL against the release's object URLs · reproduce.R / .py">
+          <Icon name="ui-download" />{bundling ? `bundle: ${bundling}` : "Download data (zip)"}</button>
+        <Menu label="Copy code" icon="ui-code" title="the SQL this view ran, or R / Python that runs it" items={[
+          { label: "SQL", hint: "against the release's object URLs", onSelect: () => copy("sql") },
+          { label: "R", hint: "DBI + duckdb; calcofi4r noted", onSelect: () => copy("r") },
+          { label: "Python", hint: "duckdb; calcofi4py noted", onSelect: () => copy("py") }]} />
+        <Menu label="Share" icon="ui-share" title="the URL is the whole view" items={[
+          { label: "Copy link", icon: "ui-link", hint: "this view, folds and zoom included", onSelect: copyLink }]} />
+        <button className="pill act" onClick={() => { if (advanced && !minCards.timing) setAdvanced(false); else { setAdvanced(true); openCard("timing"); } }} aria-pressed={advanced} title="the timing marks and the SQL behind the view"><Icon name="ui-sql" />SQL &amp; timing</button>
+      </div>
+    </Group>
+    <div className="hint" style={{ marginTop: "auto" }}>{LENS_TITLE[sel.lens]}. Release {rel}{catalog ? ` · ${catalog.tables.length} tables` : ""} · DuckDB-WASM in a worker, no extensions, objects fetched whole from the release catalog.</div>
+  </>;
+  const depthBody = (wide: boolean) => <DepthStrip rows={depthRows} band={sel.depth} theme={theme} unit={unitLabel} empty={depthEmpty} onBand={(b) => setSel({ depth: b ?? [0, 500] })} byDataset={wide && depthDs.length ? { rows: depthDs, color: dsColor, short } : null} />;
+  const yearsBody = <YearStrip rows={yearRows} years={years} yearMax={yearMax} theme={theme} mode={seriesMode} unit={unitLabel} onYears={(y) => setSel({ years: y ?? [1949, YEAR_OPEN] })} />;
+  const sectionBody = <SectionPlot cells={sectionCells} clim={climCells} anom={sel.anom && sel.realm === "env"} yLabel={sel.realm === "env" ? "depth (m)" : "year"} theme={theme} unit={unitLabel}
+    title={`line ${sel.line} · ${sel.realm === "env" ? `cruise ${sel.cruise ?? "—"}${sel.anom ? " · anomaly vs climatology" : ""}` : "all cruises · tows are depth-integrated, so y is year"}`} />;
+  const cruiseBody = <CruiseSeries rows={cruiseRows} stat={stat} selected={sel.cruise} theme={theme} unit={unitLabel} onPick={(k) => setSel({ cruise: k })} />;
+  const stationBody = <StationCard summary={stationCard?.summary} detail={stationCard?.detail} theme={theme} short={short} yearMax={yearMax} />;
+  const timingBody = <div className="timing-body">
+    <div className="hint" style={{ padding: "4px 8px" }}>{anyCached ? "objects from cache" : "first visit"} · {navigator.hardwareConcurrency} cores{(navigator as any).deviceMemory ? ` · ${(navigator as any).deviceMemory} GB` : ""} · release {rel}</div>
+    <table><tbody>
+      <tr><td>first paint (&lt; 1 s)</td><td className={`ms ${go(firstPaint, 1000)}`}>{firstPaint ?? "…"} ms</td></tr>
+      <tr><td>engine + slice ready</td><td className="ms">{readyAt ?? "…"} ms</td></tr>
+      <tr><td>first lens query (&lt; 4 s cold)</td><td className={`ms ${go(firstQ?.ms, 4000)}`}>{firstQ ? `${firstQ.ms} ms` : "…"}</td></tr>
+      <tr><td>last lens query (&lt; 100 ms warm)</td><td className={`ms ${go(lastQ?.ms, 100)}`}>{lastQ ? `${lastQ.ms} ms (${lastQ.name.slice(6)})` : "…"}</td></tr>
+      <tr><td>grain switch (&lt; 300 ms)</td><td className={`ms ${go(grain?.ms, 300)}`}>{grain ? `${grain.ms} ms` : "…"}</td></tr>
+      {marks.map((m, i) => <tr key={i}><td>{m.name}{m.note ? <span className="hint"> {m.note}</span> : null}</td><td className="ms">{m.ms} ms <span className="hint">@{m.at}</span></td></tr>)}
+    </tbody></table>
+    <pre>{lastSql}</pre>
+  </div>;
+  const titles: Record<PanelId, string> = {
+    select: "Select", depth: "Depth", years: "Years", section: `Section · line ${sel.line}${sel.realm === "env" && sel.cruise ? ` · ${sel.cruise}` : ""}`, cruise: "Cruise series",
+    station: stationCard ? `${stationCard.grid_key} · line ${stationCard.cell?.line} station ${stationCard.cell?.station}` : "Station",
+    timing: `SQL & timing · ${anyCached ? "warm" : "cold"} · paint ${firstPaint ?? "…"} · ready ${readyAt ?? "…"} · query ${lastQ ? lastQ.ms : "…"} · switch ${grain ? grain.ms : "…"} ms`,
+  };
+  const icons: Record<PanelId, IconName> = { select: "ui-tune", depth: "ui-tune", years: "ui-years", section: "lens-sections", cruise: "lens-cruises", station: "lens-stations", timing: "ui-sql" };
+  const body = (id: PanelId, wide = false) => id === "select" ? selectBody : id === "depth" ? depthBody(wide) : id === "years" ? yearsBody : id === "section" ? sectionBody : id === "cruise" ? cruiseBody : id === "station" ? stationBody : timingBody;
+  const actions = (id: PanelId) => (id === "years" ? seriesToggle : null);
+  const cardOpen: Record<CardId, boolean> = { section: displayLens === "section", cruise: displayLens === "cruise", station: !!stationCard, timing: advanced };
+  const maxId: PanelId | null = sel.max && !phone && (sel.max === "select" || sel.max === "depth" || sel.max === "years" || cardOpen[sel.max as CardId]) ? sel.max : null;
+  const bottomBand = cardOpen.section && !minCards.section ? "46%" : cardOpen.cruise && !minCards.cruise ? "34%" : "0%";
+  const stationUp = cardOpen.station && !minCards.station;
+  const cardBox: Record<CardId, CardBox> = {
+    section: { left: 10, right: 44, bottom: 10, height: "46%" },
+    cruise: { left: 10, right: 44, bottom: 10, height: "34%" },
+    station: { top: 84, right: 10, width: 340, maxHeight: `calc(100% - 94px - ${bottomBand} - 10px)` },   // under the status chip + the map's +/− control
+    timing: { top: 84, right: stationUp ? 360 : 10, width: 420, maxHeight: `calc(100% - 94px - ${bottomBand} - 10px)` },
+  };
+  const closeCard: Partial<Record<CardId, () => void>> = { station: () => setSel({ station: null }), timing: () => setAdvanced(false) };
+  const pills = (["section", "cruise", "station", "timing"] as CardId[]).filter((c) => cardOpen[c] && minCards[c]).map((c) => ({ id: c, label: c === "station" ? stationCard!.grid_key : c === "timing" ? "SQL & timing" : titles[c], icon: icons[c], onRestore: () => openCard(c), onClose: closeCard[c] }));
+  const card = (c: CardId) => cardOpen[c] && !phone && <FloatCard key={c} id={c} title={titles[c]} icon={icons[c]} boxRef={mapBox} defaults={cardBox[c]} minimized={minCards[c]} onMinimize={() => minCard(c)} maximized={maxId === c} onMax={() => toggleMax(c)} onClose={closeCard[c]} raised={topCard === c} onTouch={() => setTopCard(c)} data-tour={c === "station" ? "station" : undefined}>{body(c)}</FloatCard>;
+  const lensStrip = <div className="lens-strip" data-tour="lenses">{LENSES.map((l) => <button key={l} className={sel.lens === l ? "on" : ""} onClick={() => onLens(l)} title={LENS_TITLE[l]}><Icon name={LENS_ICON[l]} />{LENS_SHORT[l]}</button>)}</div>;
+  const closeSheet = () => { const pnl = sheet.panel; if (pnl === "station") setSel({ station: null }); else if (pnl === "timing") setAdvanced(false); else if (pnl === "section" || pnl === "cruise") setMinCards((m) => ({ ...m, [pnl]: true })); setSheet({ panel: "select", detent: "peek" }); };
+
   return (
     <div className="app">
       <header className="cc-header">
@@ -470,148 +637,55 @@ export function App() {
           <img className="cc-logo-dark" src="https://calcofi.io/brand/v1/logo_calcofi.svg" alt="CalCOFI" width="32" height="32" />
           <img className="cc-logo-light" src="https://calcofi.io/brand/v1/logo_calcofi_light.svg" alt="CalCOFI" width="32" height="32" />
         </a>
-        <a className="cc-title" href="./">CalCOFI Explorer<small>{LENS_TITLE[sel.lens]}</small></a>
-        <a className="cc-release" href={`https://calcofi.io/db-schema/#erd?v=${rel}`} title="CalCOFI integrated database release — every value shown comes from this frozen release; schema and release notes">release <b>{rel}</b></a>
+        <a className="cc-title" href="./">CalCOFI Explorer<small><Icon name={LENS_ICON[sel.lens]} /> {LENS_TITLE[sel.lens]}</small></a>
+        <a className="cc-release" href={`https://calcofi.io/db-schema/#erd?v=${rel}`} title="CalCOFI integrated database release — every value shown comes from this frozen release; schema and release notes"><span className="cc-release-word">release</span> <b>{rel}</b></a>
         {versions.length > 1 && <select className="cc-versions" value={version ?? ""} onChange={(e) => { setSel({ release: e.target.value }); location.search = new URLSearchParams({ ...Object.fromEntries(new URLSearchParams(location.search)), release: e.target.value }).toString(); }} title="switch release (reloads)">
           {versions.map((v) => <option key={v} value={v}>{v}</option>)}</select>}
         <span className="cc-spacer" />
         <nav className="cc-links"><a href="https://calcofi.io/db-query/">query</a><a href="https://calcofi.io/db-schema/">schema</a><a href="https://calcofi.io/docs/">docs</a></nav>
+        <Menu className="cc-more" icon="ui-more" label="" title="more" align="right" items={[{ label: "query", href: "https://calcofi.io/db-query/", icon: "ui-open" }, { label: "schema", href: "https://calcofi.io/db-schema/", icon: "ui-open" }, { label: "docs", href: "https://calcofi.io/docs/", icon: "ui-open" }]} />
         <button className="cc-theme-toggle" type="button" aria-label="Toggle dark / light theme" title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}>
           {/* the sun while dark, the moon-in-sun while light — what a click switches to (theme.css shows one per theme) */}
           <svg className="cc-theme-icon cc-icon-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={ICON_SUN} /></svg>
           <svg className="cc-theme-icon cc-icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={ICON_MOON} /></svg>
         </button>
       </header>
-      <div className="main">
-        <div className="panel controls" data-tour="rail">
-          <Group title="Lens" icon="ui-layers" data-tour="lenses">
-            <div className="lenses">
-              {LENSES.map((l) => <button key={l} className={sel.lens === l ? "on" : ""} onClick={() => onLens(l)} title={LENS_TITLE[l]}><Icon name={LENS_ICON[l]} />{LENS_SHORT[l]}</button>)}
-            </div>
-            {sel.lens === "hex" && <div className="row opt"><span className="hint">hexagon size</span><span className="seg">{[3, 4, 5, 6, 7].map((r) => <button key={r} className={sel.res === r ? "on" : ""} title={`H3 resolution ${r} · mean edge ${RES_KM[r]}`} onClick={() => { lensClickAt.current = performance.now(); setSel({ res: r }); }}>{RES_KM[r]}</button>)}</span></div>}
-            {sel.lens === "region" && <div className="opt">
-              <label className="f">boundary layer<select value={sel.layer} onChange={(e) => setSel({ layer: e.target.value, region: null })}>{(spatial.length ? [...new Set(spatial.map((f) => f.properties.layer))].sort() : LAYERS).map((l) => <option key={l}>{l}</option>)}</select></label>
-              <div className="pills">{regionRows.slice().sort((a, b) => b.n - a.n).slice(0, 10).map((r) => <span key={r.spatial_key} className={`pill ${sel.region === r.spatial_key ? "" : "off"}`} onClick={() => setSel({ region: sel.region === r.spatial_key ? null : r.spatial_key })} style={{ cursor: "pointer" }}>{r.spatial_name} · {fmt(statOf(r))} ({fmtN(r.n)})</span>)}</div>
-              <div className="hint">{layerFeatures.length} polygons · {regionRows.length} with data · membership exact per root sample (sample_spatial)</div>
-            </div>}
-            {sel.lens === "section" && <div className="opt">
-              <label className="f">line<select value={sel.line} onChange={(e) => setSel({ line: +e.target.value, cruise: null })}>{lines.map((l) => <option key={l} value={l}>{l}</option>)}</select></label>
-              <Picker id="section-cruise" label="cruise" hint="newest first" value={sel.cruise ?? ""} items={sectionCruiseItems} onChange={(k) => setSel({ cruise: k })} sorts={["recent", "n"]} countLabel="stations" placeholder="search YYYY-MM-NODC…" loading={sectionCruises.length ? null : "…"} native={native} sheet={phone} />
-              {sel.realm === "env" && <label className="row" style={{ fontSize: 12 }}><input type="checkbox" checked={sel.anom} onChange={(e) => setSel({ anom: e.target.checked })} /> anomaly vs climatology ({years[0]}–{years[1]})</label>}
-            </div>}
-            {sel.lens === "cruise" && <div className="opt">
-              <Picker id="cruise" label="cruise" hint="newest first" value={sel.cruise ?? ""} items={cruiseItems} onChange={(k) => setSel({ cruise: k })} sorts={["recent", "n"]} placeholder="search YYYY-MM-NODC…" loading={cruiseRows.length ? null : "…"} native={native} sheet={phone} />
-              <div className="hint">{track ? `${track.path.length} root sampling events on the track` : "no track"}</div>
-            </div>}
-          </Group>
-          <Group title="Data" icon="ui-data" data-tour="data">
-            <div className="row"><span className="seg realm" data-tour="realm">
-              <button className={sel.realm === "bio" ? "on" : ""} onClick={() => setSel({ realm: "bio" })} title="one organism (taxon) at a time — realm bio"><Icon name="realm-bio" />Biology</button>
-              <button className={sel.realm === "env" ? "on" : ""} onClick={() => setSel({ realm: "env", cruise: null })} title="one variable (measurement type) at a time — realm env"><Icon name="realm-env" />Environment</button>
-            </span></div>
-            {sel.realm === "bio" ? <>
-              <Picker id="organism" label="organism" hint="(taxon)" value={sel.taxon} items={organismItems} onChange={(k) => setSel({ taxon: k, stage: null, den: null, cruise: null })}
-                groups={organismGroups} letters placeholder="search species, genus, family…" dsColor={dsColor} dsShort={short} loading={taxa.length ? null : status} native={native} sheet={phone} data-tour="picker" />
-              <div className="row">
-                <label className="f">life stage
-                  <select value={sel.stage ?? ""} onChange={(e) => { const st = e.target.value || null; setSel({ stage: st, den: defaultDen(picker, st) }); }}>
-                    {stages.map(([s, n]) => <option key={s ?? "null"} value={s ?? ""}>{s ?? "(none)"} ({fmtN(n)})</option>)}
-                  </select></label>
-                <label className="f">summary<select value={stat} onChange={(e) => setSel({ stat: e.target.value as Stat })}>{Object.entries(STAT_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
-              </div>
-              <div className="den" data-tour="denominator"><h4>denominator <span className="hint" style={{ textTransform: "none", letterSpacing: 0 }}>· how counts are standardized</span></h4>
-                {(["per_10m2", "per_1000m3", "raw"] as Den[]).map((d) => { const i = denInfo(d); return (
-                  <label key={d} className={i.rows === 0 ? "off" : ""}>
-                    <input type="radio" name="den" checked={sel.den === d} disabled={i.rows === 0} onChange={() => setSel({ den: d })} />
-                    {DEN_LABEL[d]}<br /><span className="hint">{i.ok.map(short).join(", ") || "no dataset"}{i.excluded > 0 ? ` · ${fmtN(i.excluded)} observations excluded` : ""}{i.off.length ? ` (${i.off.map(short).join(", ")} cannot)` : ""}</span>
-                  </label>); })}
-              </div>
-              <div className="pills">
-                {picker.length === 0 && <span className="pill off">{status}</span>}
-                {[...new Map(picker.map((r) => [`${r.dataset_key}|${r.life_stage}`, r])).keys()].map((k) => {
-                  const rs = picker.filter((r) => `${r.dataset_key}|${r.life_stage}` === k); const r0 = rs[0];
-                  const n = rs.reduce((a, r) => a + r.n, 0); const raw = rs.every((r) => r.effort_class === "raw_count_no_effort");
-                  const on = r0.life_stage === sel.stage && dsOn(r0.dataset_key);
-                  return <span key={k} className={`pill ${on ? "" : "off"} ${raw ? "warn" : ""} ${sel.datasets && dsOn(r0.dataset_key) ? "sel" : ""}`} style={{ cursor: "pointer" }} onClick={() => toggleDataset(r0.dataset_key)}
-                    title={`${raw ? "raw count, no effort in release" : rs.map((r) => `${r.tow_type ?? "—"}: ${r.n}`).join(", ")} · click to toggle this dataset`}><i className="dot" style={{ background: dsColor(r0.dataset_key) }} />{short(r0.dataset_key)} {r0.life_stage ?? "—"} {fmtN(n)}{raw ? " ⚠" : ""}</span>;
-                })}
-              </div>
-              <div className="hint">{fmtN(inView)} observations in view · {sel.den === "raw" ? "raw counts are not comparable across gear or datasets" : "nothing averaged across denominators, datasets or stages"}</div>
-            </> : <>
-              <Picker id="variable" label="variable" value={sel.var} items={variableItems} onChange={(k) => setSel({ var: k, cruise: null })}
-                groups={variableGroups} defaultGroup="category" placeholder="search temperature, nitrate, chlorophyll…" dsColor={dsColor} dsShort={short} loading={variableItems.length ? null : "…"} native={native} sheet={phone} data-tour="picker" />
-              <div className="row"><label className="f">summary<select value={stat} onChange={(e) => setSel({ stat: e.target.value as Stat })}>{Object.entries(STAT_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label></div>
-              <div className="pills" data-tour="denominator">
-                {picker.length === 0 && <span className="pill off">{status}</span>}
-                {envPills.map(([dk, c]) => <span key={dk} className={`pill ${dsOn(dk) ? "" : "off"} ${sel.datasets && dsOn(dk) ? "sel" : ""}`} style={{ cursor: "pointer" }} onClick={() => toggleDataset(dk)} title="bottle and CTD values of one variable are comparable · click to toggle this dataset"><i className="dot" style={{ background: dsColor(dk) }} />{short(dk)} {fmtN(c.n)}{c.n_flagged ? ` · ${fmtN(c.n_flagged)} flagged` : ""}</span>)}
-              </div>
-              <div className="hint">{fmtN(inView)} observations in view</div>
-            </>}
-          </Group>
-          <Group title="Filters" icon="ui-filter" data-tour="filters">
-            <div className="chips">
-              <button type="button" className={`chip${yearsSet ? " on" : ""}`} onClick={() => setYearsEdit((v) => !v)} title="the year range · brush the years strip, or click to type"><Icon name="ui-years" />years {years[0]}–{years[1]}{yearsSet && <span className="x" role="button" aria-label="reset years" onClick={(e) => { e.stopPropagation(); setSel({ years: [1949, YEAR_OPEN] }); }}><Icon name="ui-close" /></span>}</button>
-              <span className={`chip${depthSet ? " on" : ""}`} title="the depth band · brush the water column to change it"><Icon name="ui-tune" />depth {sel.depth[0]}–{sel.depth[1]} m{depthSet && <button type="button" aria-label="reset depth" onClick={() => setSel({ depth: [0, 500] })}><Icon name="ui-close" /></button>}</span>
-              <span className={`chip${sel.datasets ? " on" : ""}`} title="the dataset filter · click the dataset pills under the organism or variable"><Icon name="ui-data" />datasets {sel.datasets ? sel.datasets.map(short).join(", ") : "all"}{sel.datasets && <button type="button" aria-label="all datasets" onClick={() => setSel({ datasets: null })}><Icon name="ui-close" /></button>}</span>
-            </div>
-            {yearsEdit && <div className="row"><input type="number" style={{ width: 62 }} value={years[0]} min={1949} max={yearMax} onChange={(e) => setSel({ years: [+e.target.value, years[1]] })} />–<input type="number" style={{ width: 62 }} value={years[1]} min={1949} max={yearMax} onChange={(e) => setSel({ years: [years[0], +e.target.value] })} /><span className="hint">or brush the years strip</span></div>}
-          </Group>
-          <Group title="Export" icon="ui-download" data-tour="export">
-            <div className="row">
-              <button className="pill act" disabled={!sliceKey || !!bundling} onClick={download} title="README · CITATION · summary (+GeoJSON) · observations (parquet/CSV) · the exact SQL against the release's object URLs · reproduce.R / .py">
-                <Icon name="ui-download" />{bundling ? `bundle: ${bundling}` : "Download data (zip)"}</button>
-              <Menu label="Copy code" icon="ui-code" title="the SQL this view ran, or R / Python that runs it" items={[
-                { label: "SQL", hint: "against the release's object URLs", onSelect: () => copy("sql") },
-                { label: "R", hint: "DBI + duckdb; calcofi4r noted", onSelect: () => copy("r") },
-                { label: "Python", hint: "duckdb; calcofi4py noted", onSelect: () => copy("py") }]} />
-              <Menu label="Share" icon="ui-share" title="the URL is the whole view" items={[
-                { label: "Copy link", icon: "ui-link", hint: "this view, folds and zoom included", onSelect: copyLink }]} />
-              <button className="pill act" onClick={() => setAdvanced((v) => !v)} aria-pressed={advanced} title="the timing marks and the SQL behind the view"><Icon name="ui-sql" />SQL &amp; timing</button>
-            </div>
-          </Group>
-          {stationCard && <div className="station-card">
-            <div className="row" style={{ justifyContent: "space-between" }}><b>{stationCard.grid_key}</b><span className="hint">line {stationCard.cell?.line} · station {stationCard.cell?.station}</span><button className="pill" onClick={() => setSel({ station: null })}>×</button></div>
-            <StationCard summary={stationCard.summary} detail={stationCard.detail} theme={theme} short={short} yearMax={yearMax} />
-          </div>}
-          <div className="hint" style={{ marginTop: "auto" }}>{LENS_TITLE[sel.lens]}. Release {rel}{catalog ? ` · ${catalog.tables.length} tables` : ""} · DuckDB-WASM in a worker, no extensions, objects fetched whole from the release catalog.</div>
-        </div>
-        <div className="panel mapwrap">
+      <div className="main" style={tracks}>
+        {!phone && <Rail id="select" side="left" title="Select" icon="ui-tune" folded={folded("select")} onFold={() => toggleFold("select")} maximized={maxId === "select"} onMax={() => toggleMax("select")}
+          resizable={{ width: railW, min: 260, max: 440, onResize: setRailW }} data-tour="rail"
+          summary={<><Icon name={LENS_ICON[sel.lens]} /><Icon name={sel.realm === "bio" ? "realm-bio" : "realm-env"} />{selectSummary}</>}>{selectBody}</Rail>}
+        <div className="panel mapwrap" ref={mapBox} data-tour="map">
           <MapView layers={layers} theme={theme} getTooltip={getTooltip} onClick={onClick} onFirstFrame={() => timing.add("first_paint", performance.now() - window.__t0, "basemap + grid dots")} />
           <div className="status"><b>{status}</b>{sliceKey ? ` · ${fmtN(inView)} observations` : ""}</div>
-          <div className="legend">
-            <div className="ttl">{legendTitle}</div>
-            <div className="bar" style={{ background: viridisCss }} />
-            <div className="ticks"><span>{fmt(domain[0])}</span><span>5–95 %</span><span>{fmt(domain[1])}</span></div>
-            {!preSlice && sel.realm === "bio" && <div className="hint">{stageRows.filter((r) => (sel.den === "per_10m2" ? r.n_10m2 : sel.den === "per_1000m3" ? r.n_1000m3 : r.n) > 0).map((r) => r.dataset_key).filter((v, i, a) => a.indexOf(v) === i).map(short).join(" + ") || "—"}{denInfo(sel.den ?? "raw").excluded ? ` · ${fmtN(denInfo(sel.den ?? "raw").excluded)} observations excluded` : ""}</div>}
+          <div className="map-tl">
+            {!phone && <PillRow pills={pills} />}
+            <div className="legend" data-tour="legend">
+              <div className="ttl">{legendTitle}</div>
+              <div className="bar" style={{ background: viridisCss }} />
+              <div className="ticks"><span>{fmt(domain[0])}</span><span>5–95 %</span><span>{fmt(domain[1])}</span></div>
+              {!preSlice && sel.realm === "bio" && <div className="hint">{stageRows.filter((r) => (sel.den === "per_10m2" ? r.n_10m2 : sel.den === "per_1000m3" ? r.n_1000m3 : r.n) > 0).map((r) => r.dataset_key).filter((v, i, a) => a.indexOf(v) === i).map(short).join(" + ") || "—"}{denInfo(sel.den ?? "raw").excluded ? ` · ${fmtN(denInfo(sel.den ?? "raw").excluded)} observations excluded` : ""}</div>}
+            </div>
           </div>
-          {displayLens === "section" && <div className="section-panel">
-            <SectionPlot cells={sectionCells} clim={climCells} anom={sel.anom && sel.realm === "env"} yLabel={sel.realm === "env" ? "depth (m)" : "year"} theme={theme} unit={unitLabel}
-              title={`line ${sel.line} · ${sel.realm === "env" ? `cruise ${sel.cruise ?? "—"}${sel.anom ? " · anomaly vs climatology" : ""}` : "all cruises · tows are depth-integrated, so y is year"}`} />
-          </div>}
-          {displayLens === "cruise" && <div className="cruise-panel">
-            <CruiseSeries rows={cruiseRows} stat={stat} selected={sel.cruise} theme={theme} unit={unitLabel} onPick={(k) => setSel({ cruise: k })} />
-          </div>}
-          {advanced && <div className="timing">
-            <div className="row head" style={{ padding: "4px 8px", justifyContent: "space-between" }}><b>timing · {anyCached ? "warm" : "cold"} · paint {firstPaint ?? "…"} · ready {readyAt ?? "…"} · query {lastQ ? lastQ.ms : "…"} · switch {grain ? grain.ms : "…"} ms</b><button className="pill" onClick={() => setAdvanced(false)}>×</button></div>
-            <div className="hint" style={{ padding: "0 8px" }}>{anyCached ? "objects from cache" : "first visit"} · {navigator.hardwareConcurrency} cores{(navigator as any).deviceMemory ? ` · ${(navigator as any).deviceMemory} GB` : ""} · release {rel}</div>
-            <table><tbody>
-              <tr><td>first paint (&lt; 1 s)</td><td className={`ms ${go(firstPaint, 1000)}`}>{firstPaint ?? "…"} ms</td></tr>
-              <tr><td>engine + slice ready</td><td className="ms">{readyAt ?? "…"} ms</td></tr>
-              <tr><td>first lens query (&lt; 4 s cold)</td><td className={`ms ${go(firstQ?.ms, 4000)}`}>{firstQ ? `${firstQ.ms} ms` : "…"}</td></tr>
-              <tr><td>last lens query (&lt; 100 ms warm)</td><td className={`ms ${go(lastQ?.ms, 100)}`}>{lastQ ? `${lastQ.ms} ms (${lastQ.name.slice(6)})` : "…"}</td></tr>
-              <tr><td>grain switch (&lt; 300 ms)</td><td className={`ms ${go(grain?.ms, 300)}`}>{grain ? `${grain.ms} ms` : "…"}</td></tr>
-              {marks.map((m, i) => <tr key={i}><td>{m.name}{m.note ? <span className="hint"> {m.note}</span> : null}</td><td className="ms">{m.ms} ms <span className="hint">@{m.at}</span></td></tr>)}
-            </tbody></table>
-            <pre>{lastSql}</pre>
-          </div>}
+          {card("section")}{card("cruise")}{card("station")}{card("timing")}
+          {phone && <>
+            <div className="phone-pills" style={{ bottom: SHEET_PEEK + 8 }}>
+              <button type="button" className={`pill${sliceKey && !depthRows.length ? " muted" : ""}`} onClick={() => setSheet({ panel: "depth", detent: "half" })} data-tour="depth"><Icon name="ui-tune" />{depthSummary}</button>
+              <button type="button" className="pill" onClick={() => setSheet({ panel: "years", detent: "half" })} data-tour="years"><Icon name="ui-years" />Years {years[0]}–{years[1]}<Sparkline values={yearsSpark} width={40} height={10} /></button>
+              {(["section", "cruise", "station", "timing"] as CardId[]).filter((c) => cardOpen[c] && sheet.panel !== c).map((c) => <button key={c} type="button" className="pill" onClick={() => openCard(c)}><Icon name={icons[c]} />{c === "station" ? stationCard!.grid_key : c === "timing" ? "SQL & timing" : titles[c]}</button>)}
+            </div>
+            <Sheet detent={sheet.detent} onDetent={(d) => setSheet((s) => ({ ...s, detent: d }))} title={sheet.panel === "select" ? undefined : titles[sheet.panel]} onClose={sheet.panel === "select" ? undefined : closeSheet} data-tour="sheet"
+              peek={sheet.panel === "select" ? <>
+                <div className="sheet-summary" onClick={() => setSheet((s) => ({ ...s, detent: s.detent === "peek" ? "half" : "peek" }))}><Icon name={LENS_ICON[sel.lens]} /><Icon name={sel.realm === "bio" ? "realm-bio" : "realm-env"} /><span>{selectSummary}</span></div>
+                {lensStrip}</> : sheet.panel === "years" ? seriesToggle : null}>
+              {sheet.panel === "select" ? selectBody : body(sheet.panel, true)}
+            </Sheet>
+          </>}
         </div>
-        <div className="panel depth">
-          <DepthStrip rows={depthRows} band={sel.depth} theme={theme} unit={unitLabel} onBand={(b) => setSel({ depth: b ?? [0, 500] })} />
-        </div>
-        <div className="panel strip">
-          <YearStrip rows={yearRows} years={years} yearMax={yearMax} theme={theme} mode={seriesMode} unit={unitLabel} onYears={(y) => setSel({ years: y ?? [1949, YEAR_OPEN] })} />
-          <span className="seg strip-mode"><button className={seriesMode === "n" ? "on" : ""} onClick={() => setSeriesMode("n")}>observations</button><button className={seriesMode === "mean" ? "on" : ""} onClick={() => setSeriesMode("mean")}>mean ± se</button></span>
-        </div>
+        {!phone && <Rail id="years" side="bottom" title="Years" icon="ui-years" folded={folded("years")} onFold={() => toggleFold("years")} maximized={maxId === "years"} onMax={() => toggleMax("years")} actions={seriesToggle} data-tour="years"
+          summary={<>Years {years[0]}–{years[1]}<Sparkline values={yearsSpark} /></>}>{yearsBody}</Rail>}
+        {!phone && <Rail id="depth" side="right" title="Depth" icon="ui-tune" folded={folded("depth")} onFold={() => toggleFold("depth")} maximized={maxId === "depth"} onMax={() => toggleMax("depth")} muted={!!sliceKey && !depthRows.length} pulse={depthPulse} data-tour="depth"
+          summary={depthSummary}>{depthBody(false)}</Rail>}
+        {maxId && <MaxPanel id={maxId} title={titles[maxId]} icon={icons[maxId]} onRestore={() => setSel({ max: null })} actions={actions(maxId)}>{body(maxId, true)}</MaxPanel>}
       </div>
     </div>
   );

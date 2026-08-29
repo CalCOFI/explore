@@ -14,36 +14,55 @@ function base(theme: string) {
     xaxis: { gridcolor: border, zerolinecolor: border, color: muted, linecolor: border },
     yaxis: { gridcolor: border, zerolinecolor: border, color: muted, linecolor: border },
     margin: { l: 44, r: 8, t: 6, b: 28 },
-    accent: cssVar("--accent") || (theme === "dark" ? "#4dabf7" : "#2780e3"),
+    accent: cssVar("--accent") || (theme === "dark" ? "#4dabf7" : "#2780e3"), muted,
   };
 }
 const CFG = { displayModeBar: false, responsive: true } as const;
 
+// a plot draws only once its container has a size (a rail mid-transition is 28 px wide, and Plotly lays
+// out Infinity into it) and follows the container's size thereafter — `responsive: true` only watches the
+// window, and the rails resize their tracks without one
 function usePlot(deps: any[], draw: (div: HTMLDivElement, Plotly: any) => void) {
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => { let live = true; plotly().then((P) => { if (live && ref.current) draw(ref.current, P); }); return () => { live = false; }; }, deps);
+  const drawn = useRef(false);
+  useEffect(() => {
+    let live = true; const div = ref.current; if (!div) return;
+    const sized = () => div.clientWidth >= 40 && div.clientHeight >= 40;
+    let P: any = null;
+    const go = () => { if (!live || !P) return; if (sized()) { draw(div, P); drawn.current = true; } };
+    plotly().then((m) => { P = m; go(); });
+    const ro = new ResizeObserver(() => { if (!live || !P) return; if (!drawn.current) go(); else if (sized()) P.Plots.resize(div); });
+    ro.observe(div);
+    return () => { live = false; ro.disconnect(); };
+  }, deps);
   return ref;
 }
 
-export interface DepthRow { depth_bin: number; n: number; med: number; q1: number; q3: number }
-export function DepthStrip(p: { rows: DepthRow[]; band: [number, number]; theme: string; unit: string; onBand: (b: [number, number] | null) => void }) {
-  const ref = usePlot([p.rows, p.band, p.theme, p.unit], (div, Plotly) => {
+export interface DepthRow { depth_bin: number; n: number; med: number; q1: number; q3: number; dataset_key?: string }
+// the water-column strip; `byDataset` (the maximized wide profile) adds one median line per dataset in its colour
+export function DepthStrip(p: { rows: DepthRow[]; band: [number, number]; theme: string; unit: string; onBand: (b: [number, number] | null) => void; empty?: string; byDataset?: { rows: DepthRow[]; color: (dk: string) => string; short: (dk: string) => string } | null }) {
+  const ref = usePlot([p.rows, p.band, p.theme, p.unit, p.empty, p.byDataset], (div, Plotly) => {
     const b = base(p.theme);
     const r = p.rows;
+    const ds = p.byDataset ? [...new Set(p.byDataset.rows.map((d) => d.dataset_key!))] : [];
+    const perDs: any[] = ds.map((dk) => { const rr = p.byDataset!.rows.filter((d) => d.dataset_key === dk); return {
+      x: rr.map((d) => d.med), y: rr.map((d) => d.depth_bin), type: "scatter", mode: "lines", line: { color: p.byDataset!.color(dk), width: 1.5, dash: "dot" }, name: p.byDataset!.short(dk),
+      text: rr.map((d) => `n ${d.n}`), hovertemplate: `${p.byDataset!.short(dk)} %{y} m: median %{x:.2f}<br>%{text}<extra></extra>` }; });
     const data: any[] = r.length ? [
       { x: [...r.map((d) => d.q1), ...r.slice().reverse().map((d) => d.q3)], y: [...r.map((d) => d.depth_bin), ...r.slice().reverse().map((d) => d.depth_bin)],
         fill: "toself", fillcolor: "rgba(77,171,247,0.22)", line: { width: 0 }, hoverinfo: "skip", type: "scatter", mode: "lines", name: "IQR" },
       { x: r.map((d) => d.med), y: r.map((d) => d.depth_bin), type: "scatter", mode: "lines", line: { color: b.accent, width: 2 },
         text: r.map((d) => `n ${d.n}`), hovertemplate: "%{y} m: median %{x:.2f}<br>%{text}<extra></extra>", name: "median" },
+      ...perDs,
     ] : [];
     const ymax = r.length ? Math.max(500, ...r.map((d) => d.depth_bin)) : 500;
     Plotly.react(div, data, {
-      ...b, showlegend: false, dragmode: "select", selectdirection: "v",
+      ...b, showlegend: perDs.length > 0, legend: { orientation: "h", y: -0.02, font: { size: 10 } }, dragmode: "select", selectdirection: "v",
       xaxis: { ...b.xaxis, title: { text: p.unit, standoff: 4 }, side: "top" },
       yaxis: { ...b.yaxis, range: [Math.min(ymax, 520), -5], title: { text: "depth (m)", standoff: 4 }, fixedrange: false },
       margin: { l: 44, r: 6, t: 30, b: 6 },
       shapes: (p.band[0] === 0 && p.band[1] >= 500) ? [] : [{ type: "rect", xref: "paper", x0: 0, x1: 1, y0: p.band[0], y1: p.band[1], fillcolor: "rgba(255,214,10,0.10)", line: { color: "rgba(255,214,10,0.6)", width: 1 } }],
-      annotations: r.length ? [] : [{ text: "no depth axis in this cut<br>(depth-integrated tows)", xref: "paper", yref: "paper", x: 0.5, y: 0.5, showarrow: false, font: { color: b.font.color, size: 11 } }],
+      annotations: r.length ? [] : [{ text: p.empty ?? "no depth axis in this cut<br>(depth-integrated tows)", xref: "paper", yref: "paper", x: 0.5, y: 0.5, showarrow: false, font: { color: b.muted, size: 11 }, align: "center" }],
     }, CFG);
     const d = div as any;
     d.removeAllListeners?.("plotly_selected"); d.removeAllListeners?.("plotly_deselect");

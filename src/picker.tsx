@@ -124,7 +124,7 @@ export function Picker(p: {
 
   let idx = 0;
   return (
-    <div ref={root} className={`picker${open ? " open" : ""}${p.sheet ? " sheet" : ""}`} data-tour={p["data-tour"]}>
+    <div ref={root} className={`picker${open ? " open" : ""}${p.sheet ? " fullscreen" : ""}`} data-tour={p["data-tour"]}>
       <label className="f" htmlFor={`${p.id}-btn`}>{p.label}{p.hint && <span className="hint"> {p.hint}</span>}</label>
       <button ref={btn} id={`${p.id}-btn`} type="button" className="picker-btn" aria-haspopup="listbox" aria-expanded={open} aria-controls={listId} onClick={() => setOpen((v) => !v)} title={selected ? `${selected.label}${selected.sub ? ` — ${selected.sub}` : ""}` : p.value}>
         {selected?.datasets?.length ? <span className="dots">{selected.datasets.map(dot)}</span> : null}

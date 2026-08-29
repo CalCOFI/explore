@@ -26,7 +26,13 @@ export interface Sel {
   station: string | null;      // a selected grid cell (its coverage card)
   datasets: string[] | null;   // dataset filter (pills); null = every dataset in the slice
   theme: "dark" | "light" | null;
+  hide: PanelId[];             // folded rails (D11 rule 4: `hide=depth,years`, absent when it is the viewport default)
+  max: PanelId | null;         // the maximized panel (`max=section`)
 }
+export type PanelId = "select" | "depth" | "years" | "section" | "cruise" | "station" | "timing";
+export const PANEL_IDS: PanelId[] = ["select", "depth", "years", "section", "cruise", "station", "timing"];
+/** the folds a visit starts with (D11 rule 3, once per visit): ≥ 1200 px all open; 900–1200 the depth rail folded */
+export const DEFAULT_HIDE: PanelId[] = typeof innerWidth === "number" && innerWidth < 1200 ? ["depth"] : [];
 
 export const LENSES: Lens[] = ["station", "hex", "cruise", "region", "section"];
 export const LENS_TITLE: Record<Lens, string> = {
@@ -59,6 +65,7 @@ export const DEFAULTS: Sel = {
   lens: "station", res: 5, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature",
   stage: null, den: null, years: [1949, YEAR_OPEN], depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
   line: 90, cruise: null, stat: "mean", anom: false, tour: true, theme: null, release: null, station: null, datasets: null,
+  hide: DEFAULT_HIDE, max: null,
 };
 
 const num = (v: string | null, d: number) => (v != null && v !== "" && !isNaN(+v) ? +v : d);
@@ -96,6 +103,8 @@ export function fromUrl(): Sel {
     station: p.get("station"),
     datasets: p.get("datasets") ? p.get("datasets")!.split(",").filter(Boolean) : null,
     theme: (p.get("theme") as Sel["theme"]) ?? null,
+    hide: p.has("hide") ? (p.get("hide")!.split(",").filter((x): x is PanelId => (PANEL_IDS as string[]).includes(x))) : DEFAULT_HIDE,
+    max: (PANEL_IDS as string[]).includes(p.get("max") ?? "") ? (p.get("max") as PanelId) : null,
   };
 }
 
@@ -120,6 +129,8 @@ export function toUrl(s: Sel) {
   if (s.station) p.set("station", s.station);
   if (s.datasets?.length) p.set("datasets", s.datasets.join(","));
   if (s.theme) p.set("theme", s.theme);
+  if (s.hide.slice().sort().join(",") !== DEFAULT_HIDE.slice().sort().join(",")) p.set("hide", s.hide.join(","));
+  if (s.max) p.set("max", s.max);
   const url = `${location.pathname}?${p.toString()}`;
   if (url !== location.pathname + location.search) history.replaceState(null, "", url);
 }
