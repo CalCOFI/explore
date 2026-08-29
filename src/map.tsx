@@ -213,6 +213,8 @@ export function MapView(props: {
       center: [-121.5, 33.2], zoom: 5.1, attributionControl: false,
     });
     m.addControl(new maplibregl.AttributionControl({ compact: true }));
+    // compact attribution starts collapsed to its (i); MapLibre opens it on load, so close it after the style lands
+    m.once("load", () => el.current?.querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show"));
     m.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
     const o = new MapboxOverlay({
       interleaved: false, layers: props.layers,

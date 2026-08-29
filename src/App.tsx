@@ -85,6 +85,8 @@ export function App() {
   const [lastSql, setLastSql] = useState("");
   const [bundling, setBundling] = useState<string | null>(null);
   const [seriesMode, setSeriesMode] = useState<"n" | "mean">("n");
+  // advanced: the timing marks + the last SQL, behind a gear (off by default; ?timing=1 opens it)
+  const [advanced, setAdvanced] = useState<boolean>(() => new URLSearchParams(location.search).get("timing") === "1");
   const lensClickAt = useRef<number | null>(null);
   const opened = useRef(false);
   const gen = useRef(0);
@@ -531,9 +533,10 @@ export function App() {
           {displayLens === "cruise" && <div className="cruise-panel">
             <CruiseSeries rows={cruiseRows} stat={stat} selected={sel.cruise} theme={theme} unit={unitLabel} onPick={(k) => setSel({ cruise: k })} />
           </div>}
-          <details className="timing">
-            <summary>timing · {anyCached ? "warm" : "cold"} · paint {firstPaint ?? "…"} · ready {readyAt ?? "…"} · query {lastQ ? lastQ.ms : "…"} · switch {grain ? grain.ms : "…"} ms</summary>
-            <div className="hint" style={{ padding: "0 8px" }}>{anyCached ? "objects from cache" : "first visit"} · {navigator.hardwareConcurrency} cores{(navigator as any).deviceMemory ? ` · ${(navigator as any).deviceMemory} GB` : ""}</div>
+          <button className="gear" type="button" title="advanced: timing marks and the SQL behind the view" aria-label="Advanced settings" onClick={() => setAdvanced((v) => !v)}>⚙</button>
+          {advanced && <div className="timing">
+            <div className="row head" style={{ padding: "4px 8px", justifyContent: "space-between" }}><b>timing · {anyCached ? "warm" : "cold"} · paint {firstPaint ?? "…"} · ready {readyAt ?? "…"} · query {lastQ ? lastQ.ms : "…"} · switch {grain ? grain.ms : "…"} ms</b><button className="pill" onClick={() => setAdvanced(false)}>×</button></div>
+            <div className="hint" style={{ padding: "0 8px" }}>{anyCached ? "objects from cache" : "first visit"} · {navigator.hardwareConcurrency} cores{(navigator as any).deviceMemory ? ` · ${(navigator as any).deviceMemory} GB` : ""} · release {rel}</div>
             <table><tbody>
               <tr><td>first paint (&lt; 1 s)</td><td className={`ms ${go(firstPaint, 1000)}`}>{firstPaint ?? "…"} ms</td></tr>
               <tr><td>engine + slice ready</td><td className="ms">{readyAt ?? "…"} ms</td></tr>
@@ -543,7 +546,7 @@ export function App() {
               {marks.map((m, i) => <tr key={i}><td>{m.name}{m.note ? <span className="hint"> {m.note}</span> : null}</td><td className="ms">{m.ms} ms <span className="hint">@{m.at}</span></td></tr>)}
             </tbody></table>
             <pre>{lastSql}</pre>
-          </details>
+          </div>}
         </div>
         <div className="panel depth">
           <DepthStrip rows={depthRows} band={sel.depth} theme={theme} unit={unitLabel} onBand={(b) => setSel({ depth: b ?? [0, 500] })} />

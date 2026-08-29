@@ -34,7 +34,9 @@ label.f select, label.f input { font: inherit; color: var(--fg); background: var
 .legend .ttl { font-weight: 600; }
 .status { position: absolute; right: 48px; top: 10px; background: color-mix(in srgb, var(--panel) 85%, transparent); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 11px; color: var(--muted); }
 .status b { color: var(--fg); }
-.timing { position: absolute; right: 10px; bottom: 10px; background: color-mix(in srgb, var(--panel) 92%, transparent); border: 1px solid var(--border); border-radius: 6px; font-size: 11px; max-width: 360px; max-height: 60%; overflow: auto; }
+.timing { position: absolute; right: 44px; bottom: 36px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; font-size: 11px; width: 400px; max-width: 80%; max-height: 70%; overflow: auto; box-shadow: 0 4px 16px rgba(0,0,0,0.35); }
+.gear { position: absolute; right: 10px; bottom: 36px; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--border); background: color-mix(in srgb, var(--panel) 90%, transparent); color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; }
+.gear:hover { color: var(--fg); }
 .timing summary { padding: 4px 8px; cursor: pointer; font-weight: 600; font-variant-numeric: tabular-nums; }
 .timing table { border-collapse: collapse; margin: 0 6px 6px; font-variant-numeric: tabular-nums; }
 .timing td { padding: 1px 6px; border-top: 1px solid var(--border); white-space: nowrap; }
@@ -63,3 +65,5 @@ h4 { margin: 4px 0 0; font-size: 12px; color: var(--muted); text-transform: uppe
 .strip-mode { position: absolute; right: 10px; top: 6px; z-index: 2; }
 .strip-mode button { padding: 1px 6px; font-size: 11px; }
 .pill.sel { border-color: var(--accent); }
+.timing .row.head { flex-wrap: nowrap; }
+.timing .row.head b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
