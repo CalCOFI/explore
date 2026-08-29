@@ -228,6 +228,25 @@ const STATES = [
       if (!(await page.$(".annot-text"))) { fail("u7_annotate_text: no text input after a click"); return; }
       await page.keyboard.type("spike here"); await page.keyboard.press("Enter"); await sleep(200); },
     assert: async () => { const t = await page.$eval(".annotator .hint", (el) => el.textContent); if (!/1 mark/.test(t)) fail(`u7_annotate_text: ${t}`); const n = await page.$$eval(".annot-tools .seg[aria-label=colour] button", (r) => r.length); if (n !== 3) fail(`u7_annotate_text: ${n} colours (expected 3)`); } },
+  // U7b — a dataset filter from the other realm (Ben's ?lens=hex&var=temperature&datasets=swfsc_ichthyo) is pruned when the slice answers, never shown as "0 observations" under the pre-engine legend
+  { name: "u7_stale_dataset_filter", url: "?lens=hex&res=5&var=temperature&q=3&datasets=swfsc_ichthyo&hide=depth&tour=off", steps: async () => { await sleep(800); },
+    assert: async () => {
+      const u = await page.evaluate(() => location.search); if (/datasets=/.test(u)) fail(`u7_stale_dataset_filter: datasets= survived (${u})`);
+      const ttl = await page.$eval(".legend .ttl", (el) => el.textContent); if (/coverage\.json/.test(ttl)) fail(`u7_stale_dataset_filter: the legend is the pre-engine text: ${ttl}`);
+      const st = await page.$eval(".status", (el) => el.textContent); const n = +(st.match(/([\d,]+) observations/)?.[1] ?? "0").replace(/,/g, ""); if (!(n > 0)) fail(`u7_stale_dataset_filter: status "${st}"`); else console.log(`  ${st}`);
+      const hexes = await page.evaluate(() => (window.__overlay?._deck?.props.layers ?? []).find((l) => l.id === "hexes")?.props.data?.length ?? 0); if (hexes < 10) fail(`u7_stale_dataset_filter: ${hexes} hexagons drawn`); } },
+  { name: "u7_realm_switch_drops_filter", url: "?lens=hex&res=5&datasets=swfsc_ichthyo&tour=off", steps: async () => { await clickText(".seg.realm button", "Environment"); await waitMark(/^slice:env/); await sleep(1500); },
+    assert: async () => { const u = await page.evaluate(() => location.search); if (/datasets=/.test(u)) fail(`u7_realm_switch_drops_filter: datasets= survived the realm switch (${u})`); const st = await page.$eval(".status", (el) => el.textContent); if (/ 0 observations/.test(st)) fail(`u7_realm_switch_drops_filter: ${st}`); } },
+  // Ben's second screenshot: a hexagon view whose FIRST lens answer was empty (a filter with nothing in it) kept the pre-engine legend and a
+  // count-mode colour domain after the filter was cleared — the station table is fetched once at open on a non-station lens, and
+  // preSlice was keyed on it being empty. Now it is keyed on the first lens having answered.
+  { name: "u7_empty_then_filled", url: "?lens=hex&res=5&var=temperature&years=2030-2031&tour=off", steps: async () => { await sleep(600);
+      const ttl0 = await page.$eval(".legend .ttl", (el) => el.textContent); const empty = await page.$(".legend-empty"); console.log(`  before: "${ttl0.slice(0, 40)}…" empty-note ${!!empty}`); if (/coverage\.json/.test(ttl0)) fail(`u7_empty_then_filled: empty result shown under the pre-engine legend: ${ttl0}`); if (!empty) fail("u7_empty_then_filled: no 'nothing in the selection' note");
+      await expandGroup("filters"); await click(".chip::-p-text(years) .x"); await waitMark(/^query:hex$/); await sleep(1500); },
+    assert: async () => {
+      const ttl = await page.$eval(".legend .ttl", (el) => el.textContent); if (/coverage\.json/.test(ttl)) fail(`u7_empty_then_filled: still the pre-engine legend after the filter cleared: ${ttl}`);
+      const ticks = await page.$$eval(".legend .ticks span", (r) => r.map((x) => x.textContent)); const lo = parseFloat(ticks[0].replace(/,/g, "")); if (!(lo > 0)) fail(`u7_empty_then_filled: colour domain ${ticks.join(" ")} — count mode (0 …), not the 5–95 % of the mean`); else console.log(`  legend "${ttl.slice(0, 50)}" · domain ${ticks[0]}–${ticks[2]}`);
+      if (await page.$(".legend-empty")) fail("u7_empty_then_filled: the empty note survived"); } },
   // U4b — feedback: the dialog captures the view, the annotator draws, Send posts to the endpoint (mocked here) and thanks with the issue link
   { name: "u4b_feedback_open", url: "?tour=off", steps: async () => { await click('[data-tour="feedback"]'); await page.waitForSelector(".feedback-shot img", { timeout: 20000 }); await sleep(300); },
     assert: async () => { const src = await page.$eval(".feedback-shot img", (i) => i.src); if (!src.startsWith("data:image/jpeg")) fail("u4b_feedback_open: no thumbnail"); const dis = await page.$eval('[data-tour="feedback-send"]', (b) => b.disabled); if (!dis) fail("u4b_feedback_open: Send enabled with no text / no endpoint"); if (!(await page.$(".hint.warn"))) fail("u4b_feedback_open: no 'no endpoint' note"); } },

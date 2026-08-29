@@ -343,3 +343,7 @@ button.chip { cursor: pointer; }
 .browse-item:hover { background: var(--panel-2); }
 .browse-item.sel .lab { color: var(--accent); }
 .browse-item .span { font-size: 10px; white-space: nowrap; }
+
+/* ── U7b: an empty result names its filters in the legend (never the pre-engine text) ─────────────────── */
+.legend .legend-empty { margin-top: 3px; }
+.linkish { all: unset; cursor: pointer; color: var(--accent); text-decoration: underline; }

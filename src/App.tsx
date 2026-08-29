@@ -93,6 +93,7 @@ export function App() {
   const [picker, setPicker] = useState<PickerRow[]>([]);
   const [sliceKey, setSliceKey] = useState<string | null>(null);
   const [status, setStatus] = useState("grid (static)");
+  const [lensReady, setLensReady] = useState(false); // the first lens has answered: from here an empty result is "nothing in the selection", never the coverage cube
   const [marks, setMarks] = useState<Mark[]>(timing.marks);
   const [stationRows, setStationRows] = useState<Row[]>([]);
   const [hexRows, setHexRows] = useState<Row[]>([]);
@@ -224,12 +225,17 @@ export function App() {
       if (g !== gen.current) return;
       timing.add(`slice:${key}`, performance.now() - t, `${fmtN(rows.reduce((a, r) => a + r.n, 0))} observations`);
       setPicker(rows);
+      // the dataset filter is set against THIS slice's pills: a dataset the new slice does not have (ichthyo carried from
+      // Biology into a temperature view, whose datasets are bottle and CTD) would filter everything out — prune it, and
+      // drop it when nothing is left or everything is
+      const present = new Set(rows.map((r) => r.dataset_key));
+      const prune = (ds: string[] | null) => { if (!ds) return null; const kept = ds.filter((d) => present.has(d)); return kept.length && kept.length < present.size ? kept : null; };
       if (sel.realm === "bio") {
         const stages = new Set(rows.map((r) => r.life_stage));
         const stage = sel.stage != null && stages.has(sel.stage) ? sel.stage : defaultStage(rows);
         const den = sel.den ?? defaultDen(rows, stage);
-        setSelRaw((s) => ({ ...s, stage, den }));
-      }
+        setSelRaw((s) => ({ ...s, stage, den, datasets: prune(s.datasets) }));
+      } else setSelRaw((s) => { const d = prune(s.datasets); return d === s.datasets ? s : { ...s, datasets: d }; });
       setSliceKey(key);
     })().catch((e) => { console.error(e); setStatus(`error: ${e.message}`); });
   }, [catalog, sel.realm, sel.taxon, sel.var]);
@@ -318,7 +324,7 @@ export function App() {
       const ms = performance.now() - t;
       if (lensClickAt.current != null) { timing.add(`grain_switch:${lens}`, performance.now() - lensClickAt.current, `${LENS_SHORT[lens]} data ready (transition ${duration} ms on top)`); lensClickAt.current = null; }
       if (!opened.current) {
-        opened.current = true;
+        opened.current = true; setLensReady(true);
         timing.add("first_lens_ready", ms, "all panels answered");
         // the opening move: stations first, then the URL's lens (D6), unless ?tour=off or reduced motion
         if (lens !== "station" && sel.tour && !reducedMotion) setTimeout(() => setDisplayLens(lens), 900);
@@ -346,16 +352,19 @@ export function App() {
     for (const s of cov?.stations ?? []) { const n = s.datasets.reduce((a, d) => a + d.n_roots, 0); m.set(s.grid_key, { n, n_samples: n, mean: n, med: n }); }
     return m;
   }, [cov]);
-  const stationMap = useMemo(() => (stationRows.length ? new Map<string, StatRow>(stationRows.map((r) => [r.grid_key, r as StatRow])) : covStation), [stationRows, covStation]);
+  // before the first lens answers the dots carry the coverage cube; after it, what the lens returned — an empty table draws every dot as "no data"
+  const stationMap = useMemo(() => (stationRows.length || lensReady ? new Map<string, StatRow>(stationRows.map((r) => [r.grid_key, r as StatRow])) : covStation), [stationRows, covStation, lensReady]);
   const layerFeatures = useMemo(() => spatial.filter((f) => f.properties.layer === sel.layer), [spatial, sel.layer]);
   const centroids = useMemo(() => new Map<string, [number, number]>(layerFeatures.map((f) => [f.properties.spatial_key, polyCentroid(f)])), [layerFeatures]);
   const regionStats = useMemo(() => new Map(regionRows.map((r) => [r.spatial_key, r as any])), [regionRows]);
   const cruiseStations = useMemo(() => new Set<string>(cruiseSamples.map((r) => r.grid_key).filter(Boolean)), [cruiseSamples]);
-  const preSlice = !stationRows.length;
+  const preSlice = !lensReady;
+  const lensRows = displayLens === "hex" ? hexRows : displayLens === "region" ? regionRows : displayLens === "cruise" ? cruiseSamples : stationRows;
+  const emptyResult = lensReady && sliceKey != null && !lensRows.length; // the selection answers with nothing (a filter that excludes every dataset, a season no cruise sampled)
   const domain = useMemo(() => {
-    const rows = displayLens === "hex" ? hexRows : displayLens === "region" ? regionRows : displayLens === "cruise" ? cruiseSamples : stationRows.length ? stationRows : [...covStation.values()];
-    return quantileDomain(rows.map(stationRows.length || displayLens !== "station" ? statOf : (r) => r.n), stationRows.length ? stat : "n");
-  }, [displayLens, hexRows, regionRows, cruiseSamples, stationRows, covStation, stat]);
+    const rows = preSlice && displayLens === "station" ? [...covStation.values()] : lensRows;
+    return quantileDomain(rows.map(preSlice && displayLens === "station" ? (r) => r.n : statOf), preSlice ? "n" : stat);
+  }, [displayLens, lensRows, covStation, stat, preSlice]);
 
   const layers = useMemo(() => buildLayers({
     lens: displayLens, res: sel.res, stat: preSlice ? "n" : stat, grid, station: stationMap, hex: hexRows as any,
@@ -587,6 +596,8 @@ export function App() {
   const seriesToggle = <span className="seg" role="group" aria-label="year strip mode" data-tour="strip-mode"><button className={seriesMode === "n" ? "on" : ""} onClick={() => setSeriesMode("n")}>observations</button><button className={seriesMode === "mean" ? "on" : ""} onClick={() => setSeriesMode("mean")}>mean ± se</button><button className={seriesMode === "cruises" ? "on" : ""} onClick={() => setSeriesMode("cruises")} title="one bar per cruise in lanes by ship; zoom in for the codes; click a bar to pick the cruise"><Icon name="ui-gantt" />cruises</button></span>;
   const Q_LABEL = ["Jan–Mar", "Apr–Jun", "Jul–Sep", "Oct–Dec"];
   const seasonLabel = sel.q?.length && sel.q.length < 4 ? sel.q.map((x) => `Q${x}`).join(" ") : "all";
+  // the filters in force, in words — the folded FILTERS heading and an empty result's legend say them
+  const filterWords = [yearsSet && (sel.months ? `${years[0]}-${String(sel.months[0]).padStart(2, "0")} → ${years[1]}-${String(sel.months[1]).padStart(2, "0")}` : `${years[0]}–${years[1]}`), sel.q && seasonLabel, depthSet && `${sel.depth[0]}–${sel.depth[1]} m`, sel.datasets && sel.datasets.map(short).join(", ")].filter(Boolean) as string[];
   const toggleQ = (x: number) => { const cur = sel.q ?? [1, 2, 3, 4]; const next = cur.includes(x) ? cur.filter((y) => y !== x) : [...cur, x].sort(); setSel({ q: next.length === 0 || next.length === 4 ? null : next }); };
   const selectBody = <>
     <Group title="Lens" icon="ui-layers" data-tour="lenses">
@@ -611,8 +622,9 @@ export function App() {
     </Group>
     <Group title="Data" icon="ui-data" data-tour="data">
       <div className="row"><span className="seg realm" data-tour="realm">
-        <button className={sel.realm === "bio" ? "on" : ""} onClick={() => setSel({ realm: "bio" })} title="one organism (taxon) at a time — realm bio"><Icon name="realm-bio" />Biology</button>
-        <button className={sel.realm === "env" ? "on" : ""} onClick={() => setSel({ realm: "env", cruise: null })} title="one variable (measurement type) at a time — realm env"><Icon name="realm-env" />Environment</button>
+        {/* a realm switch drops the dataset filter: it was set against the other realm's pills (the slice effect prunes it again for a URL) */}
+        <button className={sel.realm === "bio" ? "on" : ""} onClick={() => setSel({ realm: "bio", datasets: null })} title="one organism (taxon) at a time — realm bio"><Icon name="realm-bio" />Biology</button>
+        <button className={sel.realm === "env" ? "on" : ""} onClick={() => setSel({ realm: "env", cruise: null, datasets: null })} title="one variable (measurement type) at a time — realm env"><Icon name="realm-env" />Environment</button>
       </span></div>
       {sel.realm === "bio" ? <>
         <Picker id="organism" label="organism" hint="(taxon)" value={sel.taxon} items={organismItems} onChange={(k) => setSel({ taxon: k, stage: null, den: null, cruise: null })}
@@ -664,7 +676,7 @@ export function App() {
       </>}
     </Group>
     <Group title="Filters" icon="ui-filter" data-tour="filters" open={open.filters} onToggle={() => toggleOpen("filters")}
-      right={!open.filters && (yearsSet || sel.q || depthSet || sel.datasets) ? <span className="hint">{[yearsSet && (sel.months ? `${years[0]}-${String(sel.months[0]).padStart(2, "0")} → ${years[1]}-${String(sel.months[1]).padStart(2, "0")}` : `${years[0]}–${years[1]}`), sel.q && seasonLabel, depthSet && `${sel.depth[0]}–${sel.depth[1]} m`, sel.datasets && sel.datasets.map(short).join(", ")].filter(Boolean).join(" · ")}</span> : undefined}>
+      right={!open.filters && filterWords.length ? <span className="hint">{filterWords.join(" · ")}</span> : undefined}>
       <div className="chips">
         <button type="button" className={`chip${yearsSet ? " on" : ""}`} onClick={() => setYearsEdit((v) => !v)} title="the year range · brush the years strip, or click to type"><Icon name="ui-years" />years {sel.months ? `${years[0]}-${String(sel.months[0]).padStart(2, "0")} → ${years[1]}-${String(sel.months[1]).padStart(2, "0")}` : `${years[0]}–${years[1]}`}{yearsSet && <span className="x" role="button" aria-label="reset years" onClick={(e) => { e.stopPropagation(); setSel({ years: [1949, YEAR_OPEN], months: null }); }}><Icon name="ui-close" /></span>}</button>
         <button type="button" className={`chip${sel.q ? " on" : ""}`} onClick={() => setSeasonEdit((v) => !v)} title="season: keep only these quarters (the cheap sibling of a month brush)"><Icon name="ui-calendar" />season {seasonLabel}{sel.q && <span className="x" role="button" aria-label="all seasons" onClick={(e) => { e.stopPropagation(); setSel({ q: null }); }}><Icon name="ui-close" /></span>}</button>
@@ -818,7 +830,9 @@ export function App() {
               <div className="ttl">{legendTitle}</div>
               <div className="bar" style={{ background: viridisCss }} />
               <div className="ticks"><span>{fmt(domain[0])}</span><span>5–95 %</span><span>{fmt(domain[1])}</span></div>
-              {!preSlice && sel.realm === "bio" && <div className="hint">{stageRows.filter((r) => (sel.den === "per_10m2" ? r.n_10m2 : sel.den === "per_1000m3" ? r.n_1000m3 : r.n) > 0).map((r) => r.dataset_key).filter((v, i, a) => a.indexOf(v) === i).map(short).join(" + ") || "—"}{denInfo(sel.den ?? "raw").excluded ? ` · ${fmtN(denInfo(sel.den ?? "raw").excluded)} observations excluded` : ""}</div>}
+              {emptyResult && <div className="hint warn legend-empty">nothing in the selection{filterWords.length ? ` — the filters (${filterWords.join(" · ")}) leave no observation` : ""}
+                {sel.datasets && <> · <button type="button" className="linkish" onClick={() => setSel({ datasets: null })}>all datasets</button></>}</div>}
+              {!preSlice && !emptyResult && sel.realm === "bio" && <div className="hint">{stageRows.filter((r) => (sel.den === "per_10m2" ? r.n_10m2 : sel.den === "per_1000m3" ? r.n_1000m3 : r.n) > 0).map((r) => r.dataset_key).filter((v, i, a) => a.indexOf(v) === i).map(short).join(" + ") || "—"}{denInfo(sel.den ?? "raw").excluded ? ` · ${fmtN(denInfo(sel.den ?? "raw").excluded)} observations excluded` : ""}</div>}
             </div>
           </div>
           {card("section")}{card("cruise")}{card("station")}{card("timing")}
