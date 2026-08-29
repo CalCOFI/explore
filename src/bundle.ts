@@ -14,12 +14,8 @@ export interface BundleCtx {
   onStatus?: (s: string) => void;
 }
 
-function csv(rows: Row[]): string {
-  if (!rows.length) return "";
-  const cols = Object.keys(rows[0]);
-  const esc = (v: any) => v == null ? "" : typeof v === "number" ? String(v) : (v instanceof Date ? v.toISOString() : `"${String(v).replace(/"/g, '""')}"`);
-  return cols.join(",") + "\n" + rows.map((r) => cols.map((c) => esc(r[c])).join(",")).join("\n") + "\n";
-}
+import { csv, saveBlob } from "./export";
+export { saveBlob };
 const today = () => new Date().toISOString().slice(0, 10);
 
 /** the SQL the view ran, in order, with the browser's registered file names replaced by the release's URLs */
@@ -145,7 +141,3 @@ export async function buildBundle(ctx: BundleCtx): Promise<{ blob: Blob; name: s
   return { blob, name: `calcofi_explore_${sel.lens}_${version}_${today().replace(/-/g, "")}.zip` };
 }
 
-export function saveBlob(blob: Blob, name: string) {
-  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
-  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
-}

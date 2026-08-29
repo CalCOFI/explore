@@ -6,7 +6,7 @@
 // change or a breakpoint — never on a selection change.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "./icons";
-import { IconButton } from "./ui";
+import { IconButton, Menu, type MenuItem } from "./ui";
 
 export type RailId = "select" | "depth" | "years";
 export type CardId = "section" | "cruise" | "station" | "timing";
@@ -22,7 +22,8 @@ function store<T>(key: string, v?: T): T | undefined {
 const vpKey = () => `${innerWidth}x${innerHeight}`;
 
 // ── maximize: the panel takes the box with a backdrop; Esc or ⤡ restores ────────────────────────────
-export function MaxPanel(p: { title: ReactNode; icon?: IconName; onRestore: () => void; actions?: ReactNode; children: ReactNode; id: string }) {
+const ExportMenu = (items?: MenuItem[]) => items?.length ? <Menu className="export-menu" icon="ui-download" label="" title="export this panel: PNG · SVG · CSV" items={items} align="right" /> : null;
+export function MaxPanel(p: { title: ReactNode; icon?: IconName; onRestore: () => void; actions?: ReactNode; children: ReactNode; id: string; exportable?: MenuItem[] }) {
   const ref = useRef<HTMLElement>(null);
   useEffect(() => {
     const el = ref.current; el?.focus();
@@ -34,7 +35,7 @@ export function MaxPanel(p: { title: ReactNode; icon?: IconName; onRestore: () =
     <div className="max-layer">
       <div className="max-backdrop" onClick={p.onRestore} />
       <section ref={ref} className={`max-panel panel-${p.id}`} role="dialog" aria-modal="true" aria-label={typeof p.title === "string" ? p.title : undefined} tabIndex={-1}>
-        <header className="rail-head">{p.icon && <Icon name={p.icon} />}<b>{p.title}</b><span className="spacer" />{p.actions}<IconButton icon="ui-collapse" label="Restore (Esc)" className="sm" onClick={p.onRestore} /></header>
+        <header className="rail-head">{p.icon && <Icon name={p.icon} />}<b>{p.title}</b><span className="spacer" />{p.actions}{ExportMenu(p.exportable)}<IconButton icon="ui-collapse" label="Restore (Esc)" className="sm" onClick={p.onRestore} /></header>
         <div className="rail-body">{p.children}</div>
       </section>
     </div>
@@ -46,7 +47,7 @@ export function Rail(p: {
   id: RailId; side: "left" | "right" | "bottom"; title: string; icon?: IconName;
   summary: ReactNode; muted?: boolean; pulse?: boolean;
   folded: boolean; onFold: () => void; maximized: boolean; onMax: () => void;
-  actions?: ReactNode; resizable?: { width: number; min: number; max: number; onResize: (w: number) => void };
+  actions?: ReactNode; resizable?: { width: number; min: number; max: number; onResize: (w: number) => void }; exportable?: MenuItem[];
   children: ReactNode; "data-tour"?: string;
 }) {
   const foldIcon: IconName = p.side === "left" ? "ui-left" : p.side === "right" ? "ui-right" : "ui-down";
@@ -66,7 +67,7 @@ export function Rail(p: {
   return (
     <section id={`rail-${p.id}`} className={`rail side-${p.side} rail-${p.id}${p.maximized ? " is-max" : ""}`} data-tour={p["data-tour"]}>
       <header className="rail-head">
-        {p.icon && <Icon name={p.icon} />}<b>{p.title}</b><span className="spacer" />{p.actions}
+        {p.icon && <Icon name={p.icon} />}<b>{p.title}</b><span className="spacer" />{p.actions}{ExportMenu(p.exportable)}
         <IconButton icon={p.maximized ? "ui-collapse" : "ui-expand"} label={p.maximized ? `Restore ${p.title}` : `Maximize ${p.title}`} className="sm" onClick={p.onMax} pressed={p.maximized} />
         <IconButton icon={foldIcon} label={`Fold ${p.title}`} className="sm" onClick={p.onFold} />
       </header>
@@ -80,7 +81,7 @@ export interface CardBox { left?: number; top?: number; right?: number; bottom?:
 export function FloatCard(p: {
   id: CardId; title: ReactNode; icon?: IconName; boxRef: React.RefObject<HTMLElement | null>; defaults: CardBox;
   minimized: boolean; onMinimize: () => void; maximized: boolean; onMax: () => void; onClose?: () => void;
-  actions?: ReactNode; raised?: boolean; onTouch?: () => void; children: ReactNode; className?: string; "data-tour"?: string;
+  actions?: ReactNode; raised?: boolean; onTouch?: () => void; children: ReactNode; className?: string; "data-tour"?: string; exportable?: MenuItem[];
 }) {
   const key = `explore.card.${p.id}`;
   const [pos, setPos] = useState<{ left: number; top: number } | null>(() => { const s = store<{ vp: string; left: number; top: number }>(key); return s && s.vp === vpKey() ? { left: s.left, top: s.top } : null; });
@@ -109,7 +110,7 @@ export function FloatCard(p: {
   return (
     <section ref={ref} className={`card card-${p.id}${p.raised ? " raised" : ""}${p.className ? ` ${p.className}` : ""}`} style={style} role="region" aria-label={typeof p.title === "string" ? p.title : p.id} onPointerDown={p.onTouch} data-tour={p["data-tour"]}>
       <header className="card-head" onPointerDown={onHead} title="drag to move">
-        {p.icon && <Icon name={p.icon} />}<b className="card-title">{p.title}</b><span className="spacer" />{p.actions}
+        {p.icon && <Icon name={p.icon} />}<b className="card-title">{p.title}</b><span className="spacer" />{p.actions}{ExportMenu(p.exportable)}
         <IconButton icon="ui-minimize" label="Minimize to a pill" className="sm" onClick={p.onMinimize} />
         <IconButton icon="ui-expand" label="Maximize" className="sm" onClick={p.onMax} />
         {p.onClose && <IconButton icon="ui-close" label="Close" className="sm" onClick={p.onClose} />}
@@ -133,7 +134,7 @@ export function PillRow(p: { pills: { id: string; label: ReactNode; icon?: IconN
 // ── the phone's bottom sheet ─────────────────────────────────────────────────────────────────────
 export type Detent = "peek" | "half" | "full";
 export const SHEET_PEEK = 104;
-export function Sheet(p: { detent: Detent; onDetent: (d: Detent) => void; peek: ReactNode; title?: ReactNode; onClose?: () => void; children: ReactNode; "data-tour"?: string }) {
+export function Sheet(p: { detent: Detent; onDetent: (d: Detent) => void; peek: ReactNode; title?: ReactNode; onClose?: () => void; children: ReactNode; "data-tour"?: string; exportable?: MenuItem[] }) {
   const [drag, setDrag] = useState<number | null>(null); // live height while dragging
   const heights = () => ({ peek: SHEET_PEEK, half: Math.round(innerHeight * 0.5), full: Math.round(innerHeight * 0.9) });
   const onHandle = (e: React.PointerEvent) => {
@@ -156,7 +157,7 @@ export function Sheet(p: { detent: Detent; onDetent: (d: Detent) => void; peek: 
         onKeyDown={(e) => { if (e.key === "ArrowUp") p.onDetent(p.detent === "peek" ? "half" : "full"); if (e.key === "ArrowDown") p.onDetent(p.detent === "full" ? "half" : "peek"); }}>
         <span className="sheet-grip" />
       </div>
-      {p.title != null && <header className="rail-head sheet-title"><b>{p.title}</b><span className="spacer" />
+      {p.title != null && <header className="rail-head sheet-title"><b>{p.title}</b><span className="spacer" />{ExportMenu(p.exportable)}
         <IconButton icon={p.detent === "full" ? "ui-down" : "ui-up"} label={p.detent === "full" ? "Lower" : "Raise"} className="sm" onClick={() => p.onDetent(p.detent === "full" ? "half" : "full")} />
         {p.onClose && <IconButton icon="ui-close" label="Close" className="sm" onClick={p.onClose} />}</header>}
       <div className="sheet-peek">{p.peek}</div>

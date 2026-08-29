@@ -163,6 +163,31 @@ const STATES = [
   { name: "u6_max_cruises", url: "?tour=off&max=years&yview=1995-2015", steps: async () => { await clickText(".max-panel .seg button", "cruises"); await sleep(1800); } },
   { name: "u6_light_mean_zoomed", url: "?tour=off&var=temperature&yview=2010-2016&theme=light", steps: async () => { await clickText(".rail-years .seg button", "mean ± se"); await sleep(1500); } },
   { name: "p6_years_cruises", url: "?tour=off", viewport: PHONE, steps: async () => { await click(".phone-pills button[data-tour=years]"); await sleep(900); await clickText(".sheet .seg button", "cruises"); await sleep(1800); } },
+  // U4a — share + figures: the whole-view capture is not blank (spread + non-background fraction, since a dark map and a blank
+  // dark canvas share a mean), every panel exports PNG / SVG / CSV, the maximized panel at its larger size
+  { name: "u4_share_menu", url: "?tour=off", steps: async () => { await clickText(".menu-btn", "Share"); await sleep(300); } },
+  { name: "u4_export_menu", url: "?tour=off", steps: async () => { await click(".rail-years .export-menu .menu-btn"); await sleep(300); } },
+  { name: "u4_capture", url: "?tour=off", steps: async () => {}, assert: async () => {
+      const r = await page.evaluate(() => window.__captureView());
+      fs.writeFileSync(path.join(out, "u4_capture_export.png"), Buffer.from(r.dataUrl.split(",")[1], "base64"));
+      console.log(`  capture ${r.w}×${r.h} · mean ${r.mean.toFixed(1)} sd ${r.sd.toFixed(1)} non-bg ${(r.nonBg * 100).toFixed(0)} %`);
+      if (r.sd < 15 || r.nonBg < 0.15) fail(`u4_capture: looks blank (sd ${r.sd.toFixed(1)}, non-bg ${(r.nonBg * 100).toFixed(0)} %)`); } },
+  { name: "u4_capture_section_light", url: "?lens=section&var=temperature&line=90&tour=off&theme=light", steps: async () => {}, assert: async () => {
+      const r = await page.evaluate(() => window.__captureView()); fs.writeFileSync(path.join(out, "u4_capture_section_light_export.png"), Buffer.from(r.dataUrl.split(",")[1], "base64"));
+      console.log(`  capture ${r.w}×${r.h} · mean ${r.mean.toFixed(1)} sd ${r.sd.toFixed(1)} non-bg ${(r.nonBg * 100).toFixed(0)} %`); if (r.sd < 15 || r.nonBg < 0.15) fail("u4_capture_section_light: looks blank"); } },
+  { name: "u4_figures", url: "?lens=section&var=temperature&line=90&station=st90-ln90&tour=off", steps: async () => { await sleep(1200); }, assert: async () => {
+      for (const [id, kind] of [["years", "png"], ["years", "svg"], ["years", "csv"], ["depth", "png"], ["depth", "csv"], ["section", "png"], ["section", "svg"], ["section", "csv"], ["station", "png"], ["station", "csv"], ["timing", "csv"]]) {
+        try { const r = await page.evaluate((id, kind) => window.__figure(id, kind), id, kind);
+          const ok = kind === "png" ? (r.sd >= 8 && r.nonBg >= 0.03) : kind === "svg" ? /<svg/.test(r.text) && r.stamped : r.bytes > 20 && r.lines > 2;
+          console.log(`  ${id}.${kind}: ${r.name} ${r.bytes} B${kind === "png" ? ` ${r.w}×${r.h} sd ${r.sd.toFixed(1)} non-bg ${(r.nonBg * 100).toFixed(0)} %` : ""}${ok ? "" : "  <-- FAIL"}`);
+          if (!ok) fail(`u4_figures: ${id}.${kind} looks wrong`);
+          if (kind === "png") fs.writeFileSync(path.join(out, `u4_figure_${id}.png`), Buffer.from(r.dataUrl.split(",")[1], "base64"));
+          if (!new RegExp(`^calcofi_explore_${id}_section_v\\d{4}\\.\\d{2}\\.\\d{2}_\\d{8}\\.${kind}$`).test(r.name)) fail(`u4_figures: filename ${r.name}`);
+        } catch (e) { fail(`u4_figures: ${id}.${kind}: ${e.message}`); }
+      } } },
+  { name: "u4_figure_max", url: "?tour=off&max=years", steps: async () => { await sleep(800); }, assert: async () => {
+      const r = await page.evaluate(() => window.__figure("years", "png")); console.log(`  maximized years.png ${r.w}×${r.h}`); if (r.w < 2000) fail(`u4_figure_max: ${r.w}px wide — not the maximized size`); } },
+  { name: "p4_share", url: "?tour=off", viewport: PHONE, steps: async () => { await click(".sheet-summary"); await sleep(400); await page.evaluate(() => document.querySelector(".sheet-body").scrollTo(0, 9999)); await sleep(200); await clickText(".menu-btn", "Share"); await sleep(400); } },
 ];
 // every tour step: its anchor resolves and is on screen in the state its before() produced; one screenshot per step
 async function walkTour(name) {
