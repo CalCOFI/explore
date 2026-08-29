@@ -21,7 +21,8 @@ export interface Sel {
   cruise: string | null;       // cruise + section lens
   stat: Stat;
   anom: boolean;               // section: anomaly vs climatology
-  tour: boolean;               // ?tour=off suppresses the opening morph
+  tour: boolean;               // ?tour=off suppresses the opening morph, the welcome card and the tour
+  tourOn: boolean;             // ?tour=on forces the welcome card (demos)
   release: string | null;      // ?release=vYYYY.MM.DD; null = latest.txt
   station: string | null;      // a selected grid cell (its coverage card)
   datasets: string[] | null;   // dataset filter (pills); null = every dataset in the slice
@@ -64,7 +65,7 @@ export const YEAR_OPEN = 9999; // "through the latest year in the release" until
 export const DEFAULTS: Sel = {
   lens: "station", res: 5, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature",
   stage: null, den: null, years: [1949, YEAR_OPEN], depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
-  line: 90, cruise: null, stat: "mean", anom: false, tour: true, theme: null, release: null, station: null, datasets: null,
+  line: 90, cruise: null, stat: "mean", anom: false, tour: true, tourOn: false, theme: null, release: null, station: null, datasets: null,
   hide: DEFAULT_HIDE, max: null,
 };
 
@@ -99,6 +100,7 @@ export function fromUrl(): Sel {
     stat: stat && (stat in STAT_LABEL) ? (stat as Stat) : DEFAULTS.stat,
     anom: p.get("anom") === "1",
     tour: p.get("tour") !== "off",
+    tourOn: p.get("tour") === "on",
     release: p.get("release"),
     station: p.get("station"),
     datasets: p.get("datasets") ? p.get("datasets")!.split(",").filter(Boolean) : null,
@@ -124,7 +126,7 @@ export function toUrl(s: Sel) {
   if (s.lens === "section") { p.set("line", String(s.line)); if (s.anom) p.set("anom", "1"); }
   if ((s.lens === "section" || s.lens === "cruise") && s.cruise) p.set("cruise", s.cruise);
   if (s.stat !== DEFAULTS.stat) p.set("stat", s.stat);
-  if (!s.tour) p.set("tour", "off");
+  if (!s.tour) p.set("tour", "off"); else if (s.tourOn) p.set("tour", "on");
   if (s.release) p.set("release", s.release);
   if (s.station) p.set("station", s.station);
   if (s.datasets?.length) p.set("datasets", s.datasets.join(","));

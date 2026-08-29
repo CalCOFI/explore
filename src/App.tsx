@@ -14,6 +14,9 @@ import { Picker, type PickerItem, type GroupOpt } from "./picker";
 import { Menu, Group } from "./ui";
 import { Rail, FloatCard, PillRow, MaxPanel, Sheet, Sparkline, FOLDED_PX, SHEET_PEEK, type CardId, type CardBox, type Detent } from "./panels";
 import type { IconName } from "./icons";
+import { Welcome, About, FeedbackStub, seenWelcome, markWelcome } from "./help";
+import { startTour, type TourActions } from "./tour";
+import { IconButton } from "./ui";
 import { categoryRank, categoryIcon, envCategory, DATASET_CATEGORY_FALLBACK } from "./categories";
 import {
   fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LENS_ICON, RES_KM, LAYERS, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, STAT_LABEL, YEAR_OPEN,
@@ -424,6 +427,32 @@ export function App() {
   useEffect(() => { if (hasDepthAxis && !prevAxis.current && sel.hide.includes("depth")) { setDepthPulse(true); setTimeout(() => setDepthPulse(false), 700); } prevAxis.current = hasDepthAxis; }, [hasDepthAxis]);
   // the maximized water column adds one median line per dataset
   useEffect(() => { if (sel.max !== "depth" || !sliceKey) { setDepthDs([]); return; } engine.query("depth_strip_ds", params).then((r) => setDepthDs(r as DepthRow[])).catch(console.error); }, [sel.max, sliceKey, params]);
+  // ── help (D16): the welcome card once per browser (?tour=on forces it, ?tour=off never), about, feedback, the tour
+  const [modal, setModal] = useState<"welcome" | "about" | "feedback" | null>(() => (sel.tour && (sel.tourOn || !seenWelcome()) ? "welcome" : null));
+  const closeModal = () => { if (modal === "welcome") markWelcome(); setModal(null); };
+  const tourSnap = useRef<{ lens: Lens; hide: PanelId[]; sheet: typeof sheet } | null>(null);
+  const selRef = useRef(sel); selRef.current = sel;
+  const sheetRef = useRef(sheet); sheetRef.current = sheet;
+  const tourActions: TourActions = {
+    phone, reducedMotion,
+    getLens: () => selRef.current.lens, setLens: (l) => onLens(l),
+    isFolded: (id) => selRef.current.hide.includes(id), unfold: (id) => setSelRaw((s) => ({ ...s, hide: s.hide.filter((h) => h !== id) })),
+    sheet: (panel, detent) => setSheet({ panel, detent }),
+    snapshot: () => { tourSnap.current = { lens: selRef.current.lens, hide: selRef.current.hide, sheet: sheetRef.current }; },
+    restore: () => { const t = tourSnap.current; if (!t) return; setSelRaw((s) => ({ ...s, lens: t.lens, hide: t.hide })); if (phone) setSheet(t.sheet); tourSnap.current = null; },
+    openFeedback: () => setModal("feedback"),
+  };
+  const tour = () => { if (modal === "welcome") markWelcome(); setModal(null); setTimeout(() => startTour(tourActions), modal ? 250 : 0); };
+  (window as any).__tour = tour; // verify.mjs steps it through window.__tourDriver
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== "?" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement; if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      if ((window as any).__tourDriver || modal) return;
+      e.preventDefault(); tour();
+    };
+    document.addEventListener("keydown", key); return () => document.removeEventListener("keydown", key);
+  }, [modal, phone]);
   const yearsSpark = useMemo(() => { const m = new Map(yearRows.map((r) => [r.year, r.n])); const out: number[] = []; for (let y = 1949; y <= yearMax; y++) out.push(m.get(y) ?? 0); return out; }, [yearRows, yearMax]);
   const unitLabel = sel.realm === "bio" ? (sel.den === "raw" ? "count" : sel.den === "per_10m2" ? "per 10 m²" : "per 1000 m³") : (picker[0]?.units ?? sel.var);
   const taxonRow = taxa.find((t) => t.taxon_key === sel.taxon);
@@ -627,7 +656,7 @@ export function App() {
   const closeCard: Partial<Record<CardId, () => void>> = { station: () => setSel({ station: null }), timing: () => setAdvanced(false) };
   const pills = (["section", "cruise", "station", "timing"] as CardId[]).filter((c) => cardOpen[c] && minCards[c]).map((c) => ({ id: c, label: c === "station" ? stationCard!.grid_key : c === "timing" ? "SQL & timing" : titles[c], icon: icons[c], onRestore: () => openCard(c), onClose: closeCard[c] }));
   const card = (c: CardId) => cardOpen[c] && !phone && <FloatCard key={c} id={c} title={titles[c]} icon={icons[c]} boxRef={mapBox} defaults={cardBox[c]} minimized={minCards[c]} onMinimize={() => minCard(c)} maximized={maxId === c} onMax={() => toggleMax(c)} onClose={closeCard[c]} raised={topCard === c} onTouch={() => setTopCard(c)} data-tour={c === "station" ? "station" : undefined}>{body(c)}</FloatCard>;
-  const lensStrip = <div className="lens-strip" data-tour="lenses">{LENSES.map((l) => <button key={l} className={sel.lens === l ? "on" : ""} onClick={() => onLens(l)} title={LENS_TITLE[l]}><Icon name={LENS_ICON[l]} />{LENS_SHORT[l]}</button>)}</div>;
+  const lensStrip = <div className="lens-strip" data-tour="lens-strip">{LENSES.map((l) => <button key={l} className={sel.lens === l ? "on" : ""} onClick={() => onLens(l)} title={LENS_TITLE[l]}><Icon name={LENS_ICON[l]} />{LENS_SHORT[l]}</button>)}</div>;
   const closeSheet = () => { const pnl = sheet.panel; if (pnl === "station") setSel({ station: null }); else if (pnl === "timing") setAdvanced(false); else if (pnl === "section" || pnl === "cruise") setMinCards((m) => ({ ...m, [pnl]: true })); setSheet({ panel: "select", detent: "peek" }); };
 
   return (
@@ -637,13 +666,18 @@ export function App() {
           <img className="cc-logo-dark" src="https://calcofi.io/brand/v1/logo_calcofi.svg" alt="CalCOFI" width="32" height="32" />
           <img className="cc-logo-light" src="https://calcofi.io/brand/v1/logo_calcofi_light.svg" alt="CalCOFI" width="32" height="32" />
         </a>
-        <a className="cc-title" href="./">CalCOFI Explorer<small><Icon name={LENS_ICON[sel.lens]} /> {LENS_TITLE[sel.lens]}</small></a>
-        <a className="cc-release" href={`https://calcofi.io/db-schema/#erd?v=${rel}`} title="CalCOFI integrated database release — every value shown comes from this frozen release; schema and release notes"><span className="cc-release-word">release</span> <b>{rel}</b></a>
+        <a className="cc-title" href="./"><span className="cc-title-org">CalCOFI </span>Explorer<small><Icon name={LENS_ICON[sel.lens]} /> {LENS_TITLE[sel.lens]}</small></a>
+        <a className="cc-release" data-tour="release" href={`https://calcofi.io/db-schema/#erd?v=${rel}`} title="CalCOFI integrated database release — every value shown comes from this frozen release; schema and release notes"><span className="cc-release-word">release</span> <b>{rel}</b></a>
         {versions.length > 1 && <select className="cc-versions" value={version ?? ""} onChange={(e) => { setSel({ release: e.target.value }); location.search = new URLSearchParams({ ...Object.fromEntries(new URLSearchParams(location.search)), release: e.target.value }).toString(); }} title="switch release (reloads)">
           {versions.map((v) => <option key={v} value={v}>{v}</option>)}</select>}
         <span className="cc-spacer" />
         <nav className="cc-links"><a href="https://calcofi.io/db-query/">query</a><a href="https://calcofi.io/db-schema/">schema</a><a href="https://calcofi.io/docs/">docs</a></nav>
-        <Menu className="cc-more" icon="ui-more" label="" title="more" align="right" items={[{ label: "query", href: "https://calcofi.io/db-query/", icon: "ui-open" }, { label: "schema", href: "https://calcofi.io/db-schema/", icon: "ui-open" }, { label: "docs", href: "https://calcofi.io/docs/", icon: "ui-open" }]} />
+        <IconButton icon="ui-help" label="Take the tour (?)" className="hdr hdr-help" onClick={tour} data-tour="help" />
+        <IconButton icon="ui-about" label="About the explorer" className="hdr hdr-about" onClick={() => setModal("about")} data-tour="about" />
+        <IconButton icon="ui-feedback" label="Send feedback" className="hdr hdr-feedback" onClick={() => setModal("feedback")} data-tour="feedback" />
+        <Menu className="cc-more" icon="ui-more" label="" title="more" align="right" data-tour="more" items={[
+          { label: "About", icon: "ui-about", onSelect: () => setModal("about") }, { label: "Feedback", icon: "ui-feedback", onSelect: () => setModal("feedback") },
+          { label: "query", href: "https://calcofi.io/db-query/", icon: "ui-open" }, { label: "schema", href: "https://calcofi.io/db-schema/", icon: "ui-open" }, { label: "docs", href: "https://calcofi.io/docs/", icon: "ui-open" }]} />
         <button className="cc-theme-toggle" type="button" aria-label="Toggle dark / light theme" title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}>
           {/* the sun while dark, the moon-in-sun while light — what a click switches to (theme.css shows one per theme) */}
           <svg className="cc-theme-icon cc-icon-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={ICON_SUN} /></svg>
@@ -687,6 +721,9 @@ export function App() {
           summary={depthSummary}>{depthBody(false)}</Rail>}
         {maxId && <MaxPanel id={maxId} title={titles[maxId]} icon={icons[maxId]} onRestore={() => setSel({ max: null })} actions={actions(maxId)}>{body(maxId, true)}</MaxPanel>}
       </div>
+      {modal === "welcome" && <Welcome release={rel} onTour={tour} onClose={closeModal} />}
+      {modal === "about" && <About release={rel} nTables={catalog?.tables.length} datasets={datasets} cov={cov} short={short} onClose={closeModal} onTour={tour} onFeedback={() => setModal("feedback")} />}
+      {modal === "feedback" && <FeedbackStub url={location.href} release={rel} onClose={closeModal} />}
     </div>
   );
 }

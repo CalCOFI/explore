@@ -120,7 +120,33 @@ const STATES = [
   { name: "p_organism", url: "?tour=off", viewport: PHONE, steps: async () => { await click(".sheet-summary"); await sleep(400); await click("#organism-btn"); await sleep(500); } },
   { name: "p_hex", url: "?lens=hex&res=5&tour=off", viewport: PHONE, steps: async () => {} },
   { name: "p_light", url: "?tour=off&theme=light", viewport: PHONE, steps: async () => { await click(".sheet-summary"); await sleep(400); } },
+  // U3 — help: the welcome card (?tour=on), about, feedback, and every tour step resolving in the state its before() makes
+  { name: "u3_welcome", url: "?tour=on", steps: async () => {}, assert: async () => { if (!(await page.$(".modal-welcome"))) fail("u3_welcome: no welcome card"); } },
+  { name: "u3_no_welcome_after_seen", url: "?tour=on", steps: async () => { await click(".modal-welcome .btn:not(.primary)"); await sleep(300); await page.goto(base + "?lens=hex&res=5", { waitUntil: "domcontentloaded" }); await waitMark(/^first_lens_ready$/); await sleep(800); },
+    assert: async () => { if (await page.$(".modal-welcome")) fail("u3: the welcome card came back after Explore"); } },
+  { name: "u3_about", url: "?tour=off", steps: async () => { await click('[data-tour="about"]'); await sleep(500); }, assert: async () => { const n = await page.$$eval(".about-datasets tr", (r) => r.length); if (n < 10) fail(`u3_about: ${n} dataset rows`); } },
+  { name: "u3_feedback", url: "?tour=off", steps: async () => { await click('[data-tour="feedback"]'); await sleep(400); }, assert: async () => { const href = await page.$eval(".modal-feedback a.btn", (a) => a.href); if (!/github\.com\/CalCOFI\/explore\/issues\/new/.test(href)) fail(`u3_feedback: issue link ${href}`); } },
+  { name: "u3_about_light", url: "?tour=off&theme=light", steps: async () => { await click('[data-tour="about"]'); await sleep(500); } },
+  { name: "u3_tour", url: "?tour=off", steps: async () => { await page.evaluate(() => window.__tour()); await sleep(900); }, tour: true },
+  { name: "p3_welcome", url: "?tour=on", viewport: PHONE, steps: async () => {} },
+  { name: "p3_about", url: "?tour=off", viewport: PHONE, steps: async () => { await click('[data-tour="more"] button'); await sleep(300); await clickText(".menu-item", "About"); await sleep(500); } },
+  { name: "p3_tour", url: "?tour=off", viewport: PHONE, steps: async () => { await page.evaluate(() => window.__tour()); await sleep(900); }, tour: true },
 ];
+// every tour step: its anchor resolves and is on screen in the state its before() produced; one screenshot per step
+async function walkTour(name) {
+  for (let i = 0; i < 12; i++) {
+    const st = await page.evaluate(() => { const d = window.__tourDriver; if (!d || !d.isActive()) return null; const s = d.getActiveStep(); const el = document.querySelector(".driver-active-element"); const b = el?.getBoundingClientRect(); return { i: d.getActiveIndex(), title: s?.popover?.title, has: d.hasNextStep(), box: b ? [Math.round(b.left), Math.round(b.top), Math.round(b.width), Math.round(b.height)] : null, pop: !!document.querySelector(".driver-popover") }; });
+    if (!st) { if (i === 0) fail(`${name}: the tour did not start`); break; }
+    const [l, t, w, h] = st.box ?? [0, 0, 0, 0];
+    if (!st.box || w === 0 || h === 0) fail(`${name} step ${st.i} (${st.title}): no highlighted element`);
+    else if (l < -1 || t < -1 || l + w > (await page.evaluate(() => innerWidth)) + 1 || t + h > (await page.evaluate(() => innerHeight)) + 1) fail(`${name} step ${st.i} (${st.title}): anchor off-screen ${st.box.join(",")}`);
+    if (!st.pop) fail(`${name} step ${st.i}: no popover`);
+    await shot(`${name}_${String(st.i).padStart(2, "0")}`);
+    console.log(`  step ${st.i} ${st.title} @ ${st.box?.join(",")}`);
+    if (!st.has) { await page.evaluate(() => window.__tourDriver?.destroy()); break; }
+    await page.click(".driver-popover-next-btn"); await sleep(900);
+  }
+}
 for (const st of STATES) {
   if (only && !only.test(st.name)) continue;
   console.log(`\n== ${st.name}: ${st.url}`);
@@ -131,6 +157,7 @@ for (const st of STATES) {
     await sleep(700);
     const lay = await assertLayout(st.name);
     if (st.assert) await st.assert(lay);
+    if (st.tour) await walkTour(st.name);
     const file = await shot(st.name);
     results.states[st.name] = { url: st.url, layout: lay, ok: errors.length === n0, shot: file };
     console.log(`  shot ${file} · scroll ${lay.scrollW}×${lay.scrollH} in ${lay.vw}×${lay.vh}${lay.off.length ? "" : " · all controls in view"}`);

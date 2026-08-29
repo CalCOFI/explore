@@ -1,6 +1,6 @@
 /* the brand's tokens (--bg --panel --panel-2 --border --fg --muted --accent --warn) come from theme.css */
-html, body, #root { height: 100%; margin: 0; }
-body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 13px; overflow: hidden; }
+html, body, #root { height: 100%; margin: 0; overflow: clip; } /* clip, not hidden: a hidden body is still scrollable by scrollIntoView (the tour scrolled the phone page) */
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 13px; }
 a { color: var(--accent); }
 .app { display: grid; grid-template-rows: auto 1fr; height: 100%; }
 .cc-header .cc-title small { margin-left: 0.5rem; }
@@ -219,7 +219,7 @@ button.chip { cursor: pointer; }
   body { font-size: 14px; }
   .cc-header { padding: 0.4rem 0.5rem; gap: 0.4rem; }
   .cc-header .cc-title { font-size: 0.95rem; }
-  .cc-header .cc-title small, .cc-header .cc-links, .cc-header .cc-versions, .cc-header .cc-release .cc-release-word { display: none; }
+  .cc-header .cc-title small, .cc-header .cc-title-org, .cc-header .cc-links, .cc-header .cc-versions, .cc-header .cc-release .cc-release-word { display: none; }  /* the plan's phone header: ⭘ Explorer [chip] ? ⋯ 🌓 */
   .cc-header .cc-release { padding: 0.1rem 0.45rem; margin-left: 0; }
   .cc-more { display: inline-block; }
   .main { display: block; padding: 0; gap: 0; }
@@ -233,3 +233,41 @@ button.chip { cursor: pointer; }
   .group-title { font-size: 12px; }
   .max-panel { inset: 6px; }
 }
+
+/* ── U3: modals (welcome · about · feedback) and the tour popover in the brand's tokens (plan D16) ── */
+.modal-backdrop { position: fixed; inset: 0; z-index: var(--z-modal); background: color-mix(in srgb, var(--bg) 70%, transparent); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.modal { display: flex; flex-direction: column; width: 100%; max-width: 560px; max-height: 92vh; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 16px 48px rgba(0,0,0,0.5); outline: none; overflow: hidden; }
+.modal.wide { max-width: 760px; }
+.modal-head { padding: 6px 6px 6px 14px; font-size: 13px; text-transform: none; letter-spacing: 0; color: var(--fg); }
+.modal-body { overflow: auto; padding: 12px 16px; font-size: 13px; line-height: 1.5; }
+.modal-body p { margin: 0 0 10px; }
+.modal-body h5 { display: flex; align-items: center; gap: 6px; margin: 14px 0 6px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.modal-body h5 .cc-release { text-transform: none; letter-spacing: 0; }
+.modal-body code, .mono { font-family: var(--mono); font-size: 0.92em; }
+.modal-body kbd { font-family: var(--mono); font-size: 0.85em; border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; background: var(--panel-2); }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; padding: 10px 16px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+.btn { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 13px; color: var(--fg); background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; cursor: pointer; text-decoration: none; }
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { background: var(--accent-d); color: #fff; }
+.about-datasets { border-collapse: collapse; width: 100%; font-size: 12px; }
+.about-datasets td { padding: 4px 6px; border-top: 1px solid var(--border); vertical-align: top; }
+.about-datasets td:first-child { color: var(--muted); font-size: 16px; width: 24px; }
+.about-datasets .links { text-align: right; white-space: nowrap; }
+.about-datasets .links a, .about-datasets .links span { margin-left: 8px; font-size: 11px; }
+.cc-header .hdr { color: var(--muted); }
+.cc-header .hdr:hover { color: var(--accent); }
+/* driver.js in the brand's tokens */
+.driver-popover.cc-tour { background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; font-family: var(--sans); box-shadow: 0 12px 40px rgba(0,0,0,0.5); max-width: 340px; }
+.driver-popover.cc-tour .driver-popover-title { font-size: 14px; color: var(--fg); font-weight: 600; }
+.driver-popover.cc-tour .driver-popover-description { font-size: 12.5px; line-height: 1.45; color: var(--fg); }
+.driver-popover.cc-tour .driver-popover-progress-text { color: var(--muted); font-size: 11px; }
+.driver-popover.cc-tour .driver-popover-close-btn { color: var(--muted); }
+.driver-popover.cc-tour .driver-popover-navigation-btns button { font: inherit; font-size: 12px; color: var(--fg); background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px; text-shadow: none; padding: 4px 10px; }
+.driver-popover.cc-tour .driver-popover-navigation-btns button:hover { border-color: var(--accent); color: var(--accent); }
+.driver-popover.cc-tour .driver-popover-navigation-btns button.driver-popover-next-btn { background: var(--accent); border-color: var(--accent); color: #fff; }
+.driver-popover.cc-tour.driver-popover-arrow-side-left .driver-popover-arrow, .driver-popover.cc-tour .driver-popover-arrow-side-left { border-left-color: var(--panel); }
+.driver-popover.cc-tour .driver-popover-arrow-side-right { border-right-color: var(--panel); }
+.driver-popover.cc-tour .driver-popover-arrow-side-top { border-top-color: var(--panel); }
+.driver-popover.cc-tour .driver-popover-arrow-side-bottom { border-bottom-color: var(--panel); }
+@media (max-width: 899px) { .cc-header .hdr-about, .cc-header .hdr-feedback { display: none; } .modal-backdrop { padding: 8px; } .modal { max-height: 96vh; } }
