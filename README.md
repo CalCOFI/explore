@@ -54,6 +54,10 @@ Layout (UI plan D11 · D18): the map is the page; the select / depth / years rai
 and maximize into the box; section, cruise, station and timing are floating cards (minimize to a pill,
 drag; position in `localStorage`); under 900 px the select rail is a bottom sheet with three detents and
 the strips are pills on the map's edge. Nothing re-lays out on a selection change.
+The pickers' **Browse** tab lists the whole holding by category or by dataset from `coverage.json` (`taxa[]` and
+`variables[].category` since calcofi4db 3.25.0; `src/categories.ts` keeps the keyword stopgap for a release without
+them); the categories are `workflows/metadata/category.csv`, the icons `calcofi.io/brand/v1/icons/`
+(`scripts/build_icons.mjs` regenerates the sprite + masks from `src/icon-paths.ts`).
 `scripts/verify.mjs --only=<regex>` screenshots every state at 1280 × 800 and 390 × 844 and asserts no
 overflow and every control in view; `--timing` adds the cold/warm lens runs.
 

@@ -21,10 +21,16 @@ const DESKTOP = { width: 1280, height: 800 };
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: false, userDataDir: profile,
   args: ["--window-size=1300,900", "--no-first-run", "--no-default-browser-check", "--hide-scrollbars"], defaultViewport: DESKTOP });
-const page = (await browser.pages())[0] ?? (await browser.newPage());
 const errors = [];
-page.on("pageerror", (e) => { errors.push(e.message); console.log("PAGEERROR", e.message); });
-page.on("console", (m) => { if (m.type() === "error") console.log("CONSOLE", m.text().slice(0, 200)); });
+let page;
+// a long headed session can lose its tab ("detached Frame" / "Session closed"): open a fresh one and carry on
+async function freshPage() {
+  page = await browser.newPage();
+  page.on("pageerror", (e) => { errors.push(e.message); console.log("PAGEERROR", e.message); });
+  page.on("console", (m) => { if (m.type() === "error") console.log("CONSOLE", m.text().slice(0, 200)); });
+  for (const p of await browser.pages()) if (p !== page) await p.close().catch(() => {});
+}
+await freshPage();
 const marks = () => page.evaluate(() => window.__marks ?? []);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const waitMark = async (re, timeout = 90000) => {
@@ -63,9 +69,10 @@ async function shot(name) { const file = path.join(out, `${name}.png`); await pa
 const click = async (sel) => { await page.click(sel); };
 const clickText = async (scope, txt) => page.click(`${scope}::-p-text(${txt})`);
 const clickLens = async (txt) => { await clickText(".lenses button", txt); await waitMark(/^grain_switch:/); };
-async function ready(url, viewport = DESKTOP) {
+async function ready(url, viewport = DESKTOP, until = "lens") {
   await page.setViewport(viewport);
   await page.goto(url, { waitUntil: "domcontentloaded" });
+  if (until === "sidecars") { await waitMark(/^fetch:sidecars$/); await sleep(200); return; }
   await waitMark(/^first_lens_ready$/);
   await waitMark(/^first_paint$/, 20000).catch(() => console.log("  (no first_paint mark)"));
   await sleep(1200);
@@ -211,6 +218,18 @@ const STATES = [
       if (j.image && j.image.length > 4.2e6) fail(`u4b_send_mock: image ${j.image.length} chars > 3 MB after fitBytes`);
       const t = await page.$eval(".modal-feedback .modal-body", (el) => el.textContent); if (!/public issue/.test(t)) fail(`u4b_send_mock: thanks reads ${t.slice(0, 80)}`); } },
   { name: "p4b_feedback", url: "?tour=off", viewport: PHONE, steps: async () => { await click('[data-tour="more"] button'); await sleep(200); await clickText(".menu-item", "Feedback"); await page.waitForSelector(".feedback-shot img", { timeout: 20000 }); await sleep(300); } },
+  // U2 — Browse (by category · by dataset) from coverage.json's taxa[] and categories; the organism list before the engine is warm
+  { name: "u2_prewarm", url: "?tour=off", ready: "sidecars", steps: async () => { await click("#organism-btn"); await sleep(300); },
+    assert: async () => { const n = await page.$$eval("#organism-list li[role=option]", (r) => r.length); const warm = await page.evaluate(() => (window.__marks ?? []).some((m) => m.name === "query:taxa")); console.log(`  ${n} organisms listed · taxa.sql answered: ${warm}`); if (n < 1000) fail(`u2_prewarm: ${n} organisms before the engine (coverage.json taxa[])`); } },
+  { name: "u2_browse_category", url: "?tour=off", steps: async () => { await click("#organism-btn"); await sleep(300); await click('[data-tour="browse"]'); await sleep(300); await clickText(".picker-tabs .seg button", "by category"); await sleep(200); await clickText(".browse-row .lab", "Fish Eggs"); await sleep(300); },
+    assert: async () => { const g = await page.$$eval(".browse-group", (r) => r.map((x) => `${x.querySelector(".lab").firstChild.textContent} (${x.querySelector(".lab small").textContent})`)); const items = await page.$$eval(".browse-group.open .browse-item", (r) => r.length); console.log(`  ${g.length} categories: ${g.join(" · ")} · ${items} organisms under the open one`); if (g.length < 6 || items < 500) fail(`u2_browse_category: ${g.length} groups, ${items} items`); } },
+  { name: "u2_browse_dataset", url: "?tour=off", steps: async () => { await click("#organism-btn"); await sleep(300); await click('[data-tour="browse"]'); await sleep(200); await clickText(".picker-tabs .seg button", "by dataset"); await sleep(300); await clickText(".browse-row .lab", "farallon"); await sleep(300); },
+    assert: async () => { const g = await page.$$eval(".browse-group", (r) => r.length); const items = await page.$$eval(".browse-group.open .browse-item", (r) => r.length); console.log(`  ${g} datasets · ${items} organisms under farallon`); if (g < 8 || items < 50) fail(`u2_browse_dataset: ${g} groups, ${items} items`); } },
+  { name: "u2_browse_pick", url: "?tour=off", steps: async () => { await click("#organism-btn"); await sleep(300); await click('[data-tour="browse"]'); await sleep(200); await clickText(".picker-tabs .seg button", "by category"); await sleep(200); await clickText(".browse-row .lab", "Seabirds"); await sleep(300); await clickText(".browse-item .lab", "Sooty Shearwater"); await sleep(1500); },
+    assert: async () => { const u = await page.evaluate(() => location.search); if (!/taxon=itis/.test(u)) fail(`u2_browse_pick: ${u}`); else console.log(`  picked → ${decodeURIComponent(u).match(/taxon=[^&]+/)[0]}`); } },
+  { name: "u2_variable_browse", url: "?var=temperature&tour=off", steps: async () => { await click("#variable-btn"); await sleep(300); await click('[data-tour="browse"]'); await sleep(300); await clickText(".browse-row .lab", "Nutrients"); await sleep(300); },
+    assert: async () => { const g = await page.$$eval(".browse-group", (r) => r.map((x) => x.querySelector(".lab").firstChild.textContent)); console.log(`  categories: ${g.join(" · ")}`); if (!g.includes("Nutrients & Chemistry") || !g.includes("Carbonate System")) fail("u2_variable_browse: the registry's categories are missing"); } },
+  { name: "p2_browse", url: "?tour=off", viewport: PHONE, steps: async () => { await click(".sheet-summary"); await sleep(400); await click("#organism-btn"); await sleep(400); await click('[data-tour="browse"]'); await sleep(300); } },
 ];
 // every tour step: its anchor resolves and is on screen in the state its before() produced; one screenshot per step
 async function walkTour(name) {
@@ -231,8 +250,9 @@ for (const st of STATES) {
   if (only && !only.test(st.name)) continue;
   console.log(`\n== ${st.name}: ${st.url}`);
   const n0 = errors.length;
+  if (page.isClosed() || page.mainFrame().detached) { console.log("  (tab lost — opening a fresh one)"); await freshPage(); }
   try {
-    await ready(base + st.url, st.viewport ?? DESKTOP);
+    await ready(base + st.url, st.viewport ?? DESKTOP, st.ready);
     await st.steps();
     await sleep(700);
     const lay = await assertLayout(st.name);
@@ -241,7 +261,9 @@ for (const st of STATES) {
     const file = await shot(st.name);
     results.states[st.name] = { url: st.url, layout: lay, ok: errors.length === n0, shot: file };
     console.log(`  shot ${file} · scroll ${lay.scrollW}×${lay.scrollH} in ${lay.vw}×${lay.vh}${lay.off.length ? "" : " · all controls in view"}`);
-  } catch (e) { fail(`${st.name}: ${e.message}`); results.states[st.name] = { url: st.url, error: e.message }; }
+  } catch (e) {
+    if (/detached Frame|Session closed|Target closed/.test(e.message)) { console.log("  (tab lost mid-state — fresh tab, one retry)"); await freshPage(); try { await ready(base + st.url, st.viewport ?? DESKTOP, st.ready); await st.steps(); await sleep(700); const lay = await assertLayout(st.name); if (st.assert) await st.assert(lay); if (st.tour) await walkTour(st.name); const file = await shot(st.name); results.states[st.name] = { url: st.url, layout: lay, ok: true, shot: file, retried: true }; continue; } catch (e2) { e = e2; } }
+    fail(`${st.name}: ${e.message}`); results.states[st.name] = { url: st.url, error: e.message }; }
   if (errors.length > n0) fail(`${st.name}: ${errors.length - n0} page error(s)`);
 }
 

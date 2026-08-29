@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PickingInfo } from "@deck.gl/core";
 import { engine, timing, hexExpr, datasetFilterSql, type Mark, type Row } from "./engine";
-import { UNIFIED, members } from "./variables";
+import { UNIFIED, members, setUnified, unifiedDefs } from "./variables";
 import { buildLayers, MapView, quantileDomain, viridisCss, type GridCell, type StatRow } from "./map";
 import { DepthStrip, YearStrip, SectionPlot, CruiseSeries, StationCard, MONTH_LOD_YEARS, type DepthRow, type YearRow, type SectionCell, type CruiseRow, type GanttRow, type StripMode } from "./charts";
 import { resolveVersion, fetchCatalog, fetchVersions, sources, sidecarUrl, earlySidecar, type Catalog } from "./release";
@@ -56,7 +56,9 @@ export interface Coverage {
   datasets: { dataset_key: string; realm: string; n_obs: number; n_roots: number; year_min: number; year_max: number }[];
   stations: { grid_key: string; datasets: { dataset_key: string; n_obs: number; n_roots: number; year_min: number; year_max: number }[] }[];
   years: { dataset_key: string; year: number; n_obs: number; n_roots: number }[];
-  variables: { dataset_key: string; realm: string; measurement_type: string; n_obs: number; n_roots: number; year_min: number; year_max: number; depth_min_m: number | null; depth_max_m: number | null }[];
+  variables: { dataset_key: string; realm: string; measurement_type: string; n_obs: number; n_roots: number; year_min: number; year_max: number; depth_min_m: number | null; depth_max_m: number | null; category?: string | null; variable?: string | null }[];
+  // since calcofi4db 3.25.0 (plan D14): one row per taxon, so the organism list opens before the engine is warm
+  taxa?: { taxon_key: string; scientific_name: string | null; common_name: string | null; rank: string | null; class: string | null; n_obs: number; n_roots: number; year_min: number | null; year_max: number | null; life_stages: string[]; datasets: { dataset_key: string; n_obs: number; n_roots: number; year_min: number; year_max: number }[] }[];
 }
 export interface CoverageStations { version: string; stations: { grid_key: string; datasets: { dataset_key: string; n_obs: number; year_min: number; year_max: number; years: [number, number][]; months: number[] }[] }[] }
 
@@ -162,11 +164,16 @@ export function App() {
         grid_key: f.properties.grid_key, line: f.properties.line, station: f.properties.station, home: [f.properties.lon_ctr, f.properties.lat_ctr],
       })).sort((a: GridCell, b: GridCell) => a.line - b.line || a.station - b.station);
       setGrid(cells); setCov(cv);
+      // the release's cross-dataset crosswalk (measurement_type.variable) supersedes src/variables.ts once it is there
+      const byVar = new Map<string, Set<string>>();
+      for (const x of cv.variables) if (x.realm === "env" && x.variable) (byVar.get(x.variable) ?? byVar.set(x.variable, new Set()).get(x.variable)!).add(x.measurement_type);
+      const defs = [...byVar.entries()].filter(([, m]) => m.size > 1).map(([key, m]) => ({ key, label: UNIFIED.find((u) => u.key === key)?.label ?? key, members: [...m].sort() }));
+      if (defs.length) { setUnified(defs); timing.add("variables:release", 0, `${defs.length} unified variables from coverage.json`); }
       timing.add("fetch:sidecars", performance.now() - t, `${cells.length} cells · coverage ${cv.datasets.length} datasets`);
       // the engine + the objects every lens needs, in parallel with the paint
       setStatus("engine warming…");
       ensure(REG.obs_bio); ensure(REG.taxon); ensure(REG.measurement_type); ensure(REG.sample_spatial); ensure(REG.dataset);
-      if (sel.realm === "env") for (const m of members(sel.var)) ensure(envReg(m));
+      if (sel.realm === "env") for (const m of members(sel.var)) ensure(envReg(m)); // after setUnified(), so the members are the release's
       Promise.all([ensure(REG.obs_bio), ensure(REG.taxon)])
         .then(() => engine.query("taxa", { src: q(REG.obs_bio), taxon_src: q(REG.taxon) })).then((r) => setTaxa(r));
       Promise.all([ensure(REG.measurement_type), ensure(REG.dataset)]).then(async () => {
@@ -376,31 +383,36 @@ export function App() {
   const dsRow = (dk: string) => datasets.find((d) => d.dataset_key === dk);
   const dsColor = (dk: string) => dsRow(dk)?.color ?? "var(--muted)";
   const dsCategory = (dk: string) => dsRow(dk)?.category ?? DATASET_CATEGORY_FALLBACK[dk] ?? "Other";
-  const organismItems = useMemo<PickerItem[]>(() => taxa.map((t) => {
+  const organismItems = useMemo<PickerItem[]>(() => (taxa.length ? taxa : (cov?.taxa ?? []).map((t) => ({
+    taxon_key: t.taxon_key, scientific_name: t.scientific_name, common_name: t.common_name, class: t.class, n: t.n_obs, y0: t.year_min, y1: t.year_max,
+    datasets: t.datasets.slice().sort((a, b) => b.n_obs - a.n_obs).map((d) => d.dataset_key).join(","), rank: t.rank }))).map((t: Row) => {
     const ds: string[] = (t.datasets ?? "").split(",").filter(Boolean);
     const local = !/^(worms|itis):/.test(t.taxon_key); // a dataset-local class (zooscan eggs, phyto "other"): the code, and the dataset as its subtitle
-    return { key: t.taxon_key, label: t.common_name ?? t.scientific_name ?? (local ? t.taxon_key.replace(/^[^:]+:/, "") : t.taxon_key), sub: t.common_name ? t.scientific_name : local ? `${short(ds[0])} class` : undefined, subItalic: !!t.common_name, n: t.n, year: t.y1,
+    return { key: t.taxon_key, label: t.common_name ?? t.scientific_name ?? (local ? t.taxon_key.replace(/^[^:]+:/, "") : t.taxon_key), sub: t.common_name ? t.scientific_name : local ? `${short(ds[0])} class` : undefined, subItalic: !!t.common_name, n: t.n, year: t.y1, year0: t.y0,
       datasets: ds, groups: { category: dsCategory(ds[0]), dataset: ds[0] ?? "—", class: t.class ?? "—" }, search: t.taxon_key };
-  }), [taxa, datasets]);
+  }), [taxa, cov, datasets]);
   const organismGroups = useMemo<GroupOpt[]>(() => [
     { key: "category", label: "category", icon: (c) => categoryIcon(c), rank: categoryRank },
     { key: "dataset", label: "dataset", short: short },
     { key: "class", label: "class" }], []);
   const variableItems = useMemo<PickerItem[]>(() => {
     const env = (cov?.variables ?? []).filter((x) => x.realm === "env");
-    const byType = new Map<string, { n: number; y1: number; ds: Map<string, number> }>();
-    for (const x of env) { const c = byType.get(x.measurement_type) ?? { n: 0, y1: 0, ds: new Map() }; c.n += x.n_obs; c.y1 = Math.max(c.y1, x.year_max ?? 0); c.ds.set(x.dataset_key, (c.ds.get(x.dataset_key) ?? 0) + x.n_obs); byType.set(x.measurement_type, c); }
-    const inUnified = new Set(UNIFIED.flatMap((v) => v.members));
-    const item = (key: string, label: string, units: string | undefined, c: { n: number; y1: number; ds: Map<string, number> }, search = ""): PickerItem => {
+    const byType = new Map<string, { n: number; y0: number; y1: number; ds: Map<string, number>; cat: string | null }>();
+    for (const x of env) { const c = byType.get(x.measurement_type) ?? { n: 0, y0: 9999, y1: 0, ds: new Map(), cat: null }; c.n += x.n_obs; c.y0 = Math.min(c.y0, x.year_min ?? 9999); c.y1 = Math.max(c.y1, x.year_max ?? 0); c.ds.set(x.dataset_key, (c.ds.get(x.dataset_key) ?? 0) + x.n_obs); c.cat = c.cat ?? x.category ?? null; byType.set(x.measurement_type, c); }
+    const defs = unifiedDefs();
+    const inUnified = new Set(defs.flatMap((v) => v.members));
+    const item = (key: string, label: string, units: string | undefined, c: { n: number; y0: number; y1: number; ds: Map<string, number>; cat: string | null }, search = ""): PickerItem => {
       const ds = [...c.ds.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k);
-      return { key, label, sub: units, n: c.n, year: c.y1 || null, datasets: ds, groups: { category: envCategory(key, label), dataset: ds[0] ?? "—" }, search: `${key} ${search}` };
+      // the registry's category (coverage.json, since calcofi4db 3.25.0) wins; the keyword rule is the stopgap for a release without it
+      return { key, label, sub: units, n: c.n, year: c.y1 || null, year0: c.y0 < 9999 ? c.y0 : null, datasets: ds, groups: { category: c.cat ?? envCategory(key, label), dataset: ds[0] ?? "—" }, search: `${key} ${search}` };
     };
     // a unified variable (bottle + CTD headline types, comparable) is one row; every other type is its own
-    const uni = UNIFIED.map((v) => { const c = { n: 0, y1: 0, ds: new Map<string, number>() }; for (const m of v.members) { const x = byType.get(m); if (x) { c.n += x.n; c.y1 = Math.max(c.y1, x.y1); for (const [k, n] of x.ds) c.ds.set(k, (c.ds.get(k) ?? 0) + n); } }
-      const u = v.label.match(/\(([^)]+)\)$/)?.[1]; return item(v.key, v.label.replace(/\s*\([^)]+\)$/, ""), u, c, v.members.join(" ")); }).filter((v) => v.n > 0);
+    const uni = defs.map((v) => { const c = { n: 0, y0: 9999, y1: 0, ds: new Map<string, number>(), cat: null as string | null }; for (const m of v.members) { const x = byType.get(m); if (x) { c.n += x.n; c.y0 = Math.min(c.y0, x.y0); c.y1 = Math.max(c.y1, x.y1); c.cat = c.cat ?? x.cat; for (const [k, n] of x.ds) c.ds.set(k, (c.ds.get(k) ?? 0) + n); } }
+      const lab = v.label !== v.key ? v.label : (mt.get(v.members[0])?.description ?? ENV_VARS_FALLBACK[v.key] ?? v.key);
+      const u = lab.match(/\(([^)]+)\)$/)?.[1] ?? mt.get(v.members[0])?.units; return item(v.key, lab.replace(/\s*\([^)]+\)$/, ""), u, c, v.members.join(" ")); }).filter((v) => v.n > 0);
     const rest = [...byType.entries()].filter(([k]) => !inUnified.has(k)).map(([k, c]) => { const m = mt.get(k); return item(k, m?.description ?? ENV_VARS_FALLBACK[k] ?? k, m?.units, c); });
     return [...uni, ...rest];
-  }, [cov, mt]);
+  }, [cov, mt, catalog]);
   const variableGroups = useMemo<GroupOpt[]>(() => [
     { key: "category", label: "category", icon: (c) => categoryIcon(c), rank: categoryRank },
     { key: "dataset", label: "dataset", short: short }], []);
@@ -596,7 +608,7 @@ export function App() {
       </span></div>
       {sel.realm === "bio" ? <>
         <Picker id="organism" label="organism" hint="(taxon)" value={sel.taxon} items={organismItems} onChange={(k) => setSel({ taxon: k, stage: null, den: null, cruise: null })}
-          groups={organismGroups} letters placeholder="search species, genus, family…" dsColor={dsColor} dsShort={short} loading={taxa.length ? null : status} native={native} sheet={phone} data-tour="picker" />
+          groups={organismGroups} letters browse placeholder="search species, genus, family…" dsColor={dsColor} dsShort={short} loading={organismItems.length ? null : status} native={native} sheet={phone} data-tour="picker" />
         <div className="row">
           <label className="f">life stage
             <select value={sel.stage ?? ""} onChange={(e) => { const st = e.target.value || null; setSel({ stage: st, den: defaultDen(picker, st) }); }}>
@@ -624,7 +636,7 @@ export function App() {
         <div className="hint">{fmtN(inView)} observations in view · {sel.den === "raw" ? "raw counts are not comparable across gear or datasets" : "nothing averaged across denominators, datasets or stages"}</div>
       </> : <>
         <Picker id="variable" label="variable" value={sel.var} items={variableItems} onChange={(k) => setSel({ var: k, cruise: null })}
-          groups={variableGroups} defaultGroup="category" placeholder="search temperature, nitrate, chlorophyll…" dsColor={dsColor} dsShort={short} loading={variableItems.length ? null : "…"} native={native} sheet={phone} data-tour="picker" />
+          groups={variableGroups} defaultGroup="category" browse placeholder="search temperature, nitrate, chlorophyll…" dsColor={dsColor} dsShort={short} loading={variableItems.length ? null : "…"} native={native} sheet={phone} data-tour="picker" />
         <div className="row"><label className="f">summary<select value={stat} onChange={(e) => setSel({ stat: e.target.value as Stat })}>{Object.entries(STAT_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label></div>
         <div className="pills" data-tour="denominator">
           {picker.length === 0 && <span className="pill off">{status}</span>}

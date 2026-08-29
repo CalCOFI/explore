@@ -9,6 +9,7 @@ import { useAnchor } from "./ui";
 
 export interface PickerItem {
   key: string;
+  year0?: number | null;            // first year (Browse shows the span)
   label: string;                    // organism: common name (or scientific) · variable: description · cruise: key
   sub?: string;                     // organism: scientific name · variable: units · cruise: ship + dates
   subItalic?: boolean;
@@ -38,6 +39,7 @@ export function Picker(p: {
   sorts?: SortKey[]; defaultSort?: SortKey; groups?: GroupOpt[]; defaultGroup?: string; countLabel?: string; placeholder?: string;
   dsColor?: (dk: string) => string; dsShort?: (dk: string) => string; loading?: string | null; letters?: boolean; native?: boolean; "data-tour"?: string;
   sheet?: boolean; // phone: the popover fills the viewport
+  browse?: boolean; // the Browse tab (D14): the whole holding by category or by dataset, click -> select
 }) {
   const sorts = p.sorts ?? ["az", "n", "recent"];
   const [open, setOpen] = useState(false);
@@ -45,6 +47,11 @@ export function Picker(p: {
   const [sort, setSortRaw] = useState<SortKey>(() => { const s = remember<SortKey>(p.id, "sort", undefined); return s && sorts.includes(s) ? s : (p.defaultSort ?? sorts[0]); });
   const [group, setGroupRaw] = useState<string>(() => remember<string>(p.id, "group", undefined) ?? p.defaultGroup ?? "none");
   const [active, setActive] = useState(0);
+  const [tab, setTabRaw] = useState<"search" | "browse">(() => (remember<"search" | "browse">(p.id, "tab", undefined) ?? "search"));
+  const [browseBy, setBrowseByRaw] = useState<"category" | "dataset">(() => (remember<"category" | "dataset">(p.id, "browse", undefined) ?? "category"));
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const setTab = (t: "search" | "browse") => { setTabRaw(t); remember(p.id, "tab", t); };
+  const setBrowseBy = (b: "category" | "dataset") => { setBrowseByRaw(b); remember(p.id, "browse", b); setOpenGroup(null); };
   const root = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLUListElement>(null);
@@ -85,6 +92,7 @@ export function Picker(p: {
     const i = Math.max(0, flat.findIndex((it) => it.key === p.value));
     setActive(i);
     requestAnimationFrame(() => { input.current?.focus(); scrollTo(i, "center"); });
+    setOpenGroup(null);
     const off = (e: MouseEvent) => { if (!root.current?.contains(e.target as Node)) setOpen(false); };
     document.addEventListener("mousedown", off);
     return () => document.removeEventListener("mousedown", off);
@@ -113,6 +121,21 @@ export function Picker(p: {
   };
   const jump = (l: string) => { const i = flat.findIndex((it) => (sortKey(it.label)[0]?.toUpperCase() ?? "#") === l); if (i >= 0) { setActive(i); scrollTo(i, "start"); } };
   const listId = `${p.id}-list`;
+  // Browse (D14): the tree with counts, year spans and dataset dots; by category (an item under its category) or by
+  // dataset (an item in two datasets lists under both, with per-dataset counts when the item carries them)
+  const browseGroups = useMemo(() => {
+    if (!p.browse) return [];
+    const by = new Map<string, PickerItem[]>();
+    for (const it of p.items) {
+      const keys = browseBy === "category" ? [it.groups?.category ?? "Other"] : (it.datasets?.length ? it.datasets : ["—"]);
+      for (const g of keys) (by.get(g) ?? by.set(g, []).get(g)!).push(it);
+    }
+    const opt = p.groups?.find((g) => g.key === browseBy);
+    return [...by.entries()].sort((a, b) => (opt?.rank ? opt.rank(a[0]) - opt.rank(b[0]) : 0) || sortKey(opt?.short ? opt.short(a[0]) : a[0]).localeCompare(sortKey(opt?.short ? opt.short(b[0]) : b[0])))
+      .map(([g, items]) => { const ys = items.map((i) => i.year0).filter((y): y is number => y != null), ye = items.map((i) => i.year).filter((y): y is number => y != null);
+        return { key: g, title: opt?.short ? opt.short(g) : g, icon: opt?.icon?.(g), items: items.slice().sort((a, b) => sortKey(a.label).localeCompare(sortKey(b.label))), n: items.reduce((a, it) => a + it.n, 0), y0: ys.length ? Math.min(...ys) : null, y1: ye.length ? Math.max(...ye) : null, ds: [...new Set(items.flatMap((i) => i.datasets ?? []))] }; });
+  }, [p.items, p.browse, browseBy, p.groups]);
+  const span = (y0: number | null | undefined, y1: number | null | undefined) => (y0 != null && y1 != null ? (y0 === y1 ? String(y0) : `${y0}–${y1}`) : y1 != null ? String(y1) : "");
   const dot = (dk: string) => <i key={dk} className="dot" style={{ background: p.dsColor?.(dk) ?? "var(--muted)" }} title={p.dsShort?.(dk) ?? dk} />;
 
   if (p.native) return (
@@ -133,6 +156,13 @@ export function Picker(p: {
       </button>
       {open && <div className="picker-pop" role="dialog" aria-label={p.label} style={p.sheet ? undefined : box ?? { visibility: "hidden" }}>
         <div className="picker-head">
+          {p.browse && <div className="picker-tabs" role="tablist">
+            <button type="button" role="tab" aria-selected={tab === "search"} className={tab === "search" ? "on" : ""} onClick={() => setTab("search")}><Icon name="ui-search" /> Search</button>
+            <button type="button" role="tab" aria-selected={tab === "browse"} className={tab === "browse" ? "on" : ""} onClick={() => setTab("browse")} data-tour="browse"><Icon name="ui-layers" /> Browse</button>
+            {tab === "browse" && <span className="seg" role="group" aria-label="browse by"><button type="button" className={browseBy === "category" ? "on" : ""} onClick={() => setBrowseBy("category")}>by category</button><button type="button" className={browseBy === "dataset" ? "on" : ""} onClick={() => setBrowseBy("dataset")}>by dataset</button></span>}
+            {p.sheet && <button type="button" className="cc-icon-button" aria-label="Close" onClick={() => setOpen(false)} style={{ marginLeft: "auto" }}><Icon name="ui-close" size="1.25rem" /></button>}
+          </div>}
+          {tab === "browse" ? <div className="hint picker-count">{fmtN(p.items.length)} in {fmtN(browseGroups.length)} {browseBy === "category" ? "categories" : "datasets"} · {p.countLabel ?? "observations"}, log scale</div> : <>
           <div className="picker-search">
             <Icon name="ui-search" />
             <input ref={input} type="search" role="combobox" aria-autocomplete="list" aria-controls={listId} aria-expanded={open} aria-activedescendant={flat[active] ? `${p.id}-opt-${active}` : undefined}
@@ -148,8 +178,26 @@ export function Picker(p: {
             <span className="hint picker-count">{fmtN(flat.length)} of {fmtN(p.items.length)} · {p.countLabel ?? "observations"}, log scale</span>
           </div>
           {letters && <div className="letters" aria-label="jump to letter">{letters.map(({ l, on }) => <button key={l} type="button" disabled={!on} onClick={() => jump(l)}>{l}</button>)}</div>}
+          </>}
         </div>
-        <ul ref={list} id={listId} role="listbox" aria-label={p.label}>
+        {tab === "browse" ? <ul className="browse" role="tree" aria-label={`${p.label} by ${browseBy}`}>
+          {p.loading && !p.items.length && <li className="hint pad">{p.loading}</li>}
+          {browseGroups.map((g) => { const on = openGroup === g.key; return (
+            <li key={g.key} role="treeitem" aria-expanded={on} className={`browse-group${on ? " open" : ""}`}>
+              <div className="browse-row" onClick={() => setOpenGroup(on ? null : g.key)}>
+                <Icon name={on ? "ui-down" : "ui-right"} className="chev" />{g.icon && <Icon name={g.icon} className="gicon" />}
+                <span className="lab">{g.title}<small>{fmtN(g.items.length)} {fmtN(g.items.length) === "1" ? "item" : "items"}{span(g.y0, g.y1) ? ` · ${span(g.y0, g.y1)}` : ""}</small></span>
+                <span className="dots">{g.ds.slice(0, 6).map(dot)}</span>
+                <span className="cnt" title={`${fmtN(g.n)} ${p.countLabel ?? "observations"}`}><span className="bar" style={{ width: `${Math.max(1, Math.round(44 * Math.log10(g.n + 1) / Math.log10(Math.max(1, ...browseGroups.map((x) => x.n)) + 1)))}px` }} /><span>{fmtN(g.n)}</span></span>
+              </div>
+              {on && <ul role="group">{g.items.map((it) => <li key={it.key} role="treeitem" className={`browse-item${it.key === p.value ? " sel" : ""}`} onClick={() => choose(it)}>
+                <span className="dots">{(it.datasets ?? []).map(dot)}</span>
+                <span className="lab">{it.label}{it.sub && <small className={it.subItalic ? "i" : ""}>{it.sub}</small>}</span>
+                <span className="hint span">{span(it.year0, it.year)}</span>
+                <span className="cnt"><span className="bar" style={{ width: `${Math.max(1, Math.round(44 * Math.log10(it.n + 1) / Math.log10(maxN + 1)))}px` }} /><span>{fmtN(it.n)}</span></span>
+              </li>)}</ul>}
+            </li>); })}
+        </ul> : <ul ref={list} id={listId} role="listbox" aria-label={p.label}>
           {p.loading && !p.items.length && <li className="hint pad">{p.loading}</li>}
           {!p.loading && !flat.length && <li className="hint pad">no match for “{q}”</li>}
           {sections.map((s, si) => <li key={si} role="presentation" className="picker-section">
@@ -164,7 +212,7 @@ export function Picker(p: {
                 </li>); })}
             </ul>
           </li>)}
-        </ul>
+        </ul>}
       </div>}
     </div>
   );

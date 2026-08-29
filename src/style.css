@@ -309,3 +309,21 @@ button.chip { cursor: pointer; }
 .annot-stage canvas { display: block; width: 100%; height: auto; }
 .annot-text { position: absolute; font: 600 14px system-ui, sans-serif; background: rgba(0,0,0,0.6); border: 1px dashed var(--warn); border-radius: 3px; padding: 2px 6px; min-width: 120px; transform: translateY(-2px); }
 .modal.wide.modal-feedback { max-width: 900px; }
+
+/* ── U2: the picker's Browse tab (plan D14) ──────────────────────────────────────────────────── */
+.picker-tabs { display: flex; align-items: center; gap: 6px; }
+.picker-tabs [role=tab] { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 3px 8px; border-radius: 4px; color: var(--muted); }
+.picker-tabs [role=tab].on { color: var(--fg); background: var(--panel-2); font-weight: 600; }
+.picker-tabs .seg { margin-left: 4px; }
+.picker-tabs .seg button { padding: 2px 6px; font-size: 11px; }
+.picker-pop > ul.browse { overflow: auto; flex: 1; min-height: 0; padding: 4px 0; }
+.browse-row { display: grid; grid-template-columns: 16px 20px 1fr auto 86px; gap: 6px; align-items: center; padding: 5px 8px; cursor: pointer; font-size: 12px; }
+.browse-row:hover { background: var(--panel-2); }
+.browse-row .chev { color: var(--muted); }
+.browse-row .gicon { color: var(--muted); font-size: 16px; }
+.browse-row .lab small { display: block; color: var(--muted); font-size: 10px; }
+.browse-group.open > .browse-row { background: var(--panel-2); position: sticky; top: 0; z-index: 1; }
+.browse-item { display: grid; grid-template-columns: 28px 1fr auto 86px; gap: 6px; align-items: center; padding: 3px 8px 3px 24px; cursor: pointer; font-size: 12px; }
+.browse-item:hover { background: var(--panel-2); }
+.browse-item.sel .lab { color: var(--accent); }
+.browse-item .span { font-size: 10px; white-space: nowrap; }

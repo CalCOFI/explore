@@ -14,7 +14,12 @@ export const UNIFIED: VariableDef[] = [
   { key: "oxygen_umol_kg", label: "Dissolved oxygen (µmol/kg)",       members: ["oxygen_umol_kg", "oxygen_umol_kg_ave_sta_corr"] },
   { key: "sigma_theta",    label: "Potential density σθ (kg/m³)",     members: ["sigma_theta", "sigma_theta_1"] },
 ];
+let unified: VariableDef[] = UNIFIED;
+/** the crosswalk in force: the release's `measurement_type.variable` (coverage.json variables[].variable, D14) when the
+ *  release carries it, else the stopgap above. Called once from the boot, before any slice is built. */
+export function setUnified(defs: VariableDef[]) { if (defs.length) unified = defs; }
+export function unifiedDefs(): VariableDef[] { return unified; }
 /** the member measurement types of a variable key (a plain type is its own single member) */
 export function members(key: string): string[] {
-  return UNIFIED.find((v) => v.key === key)?.members ?? [key];
+  return unified.find((v) => v.key === key)?.members ?? [key];
 }
