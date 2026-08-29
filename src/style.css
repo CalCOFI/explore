@@ -5,7 +5,11 @@ a { color: var(--accent); }
 .app { display: grid; grid-template-rows: auto 1fr; height: 100%; }
 .cc-header .cc-title small { margin-left: 0.5rem; }
 .cc-header .cc-links a { color: var(--muted); text-decoration: none; margin-left: 0.8rem; }
-.cc-header .cc-theme-toggle { background: none; border: 0; font-size: 1.1rem; cursor: pointer; }
+/* the theme toggle is drawn by brand v1 (theme.css: one icon per theme); the rules are repeated
+   here so a dev server or a build that runs ahead of the brand deploy never shows both icons */
+.cc-header .cc-theme-icon { display: none; width: 1.25rem; height: 1.25rem; fill: currentColor; }
+:root:not([data-theme="light"]) .cc-header .cc-icon-sun { display: block; }
+:root[data-theme="light"] .cc-header .cc-icon-moon { display: block; }
 .main { display: grid; grid-template-columns: 290px 1fr 210px; grid-template-rows: 1fr 140px; gap: 6px; padding: 6px; min-height: 0; }
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; min-height: 0; overflow: auto; }
 .controls { grid-row: 1 / 3; padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; }

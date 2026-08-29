@@ -21,6 +21,10 @@ const DS_SHORT: Record<string, string> = {
   "sio_pic-zooplankton": "PIC", "calcofi_picoplankton": "picoplankton",
 };
 const short = (d: string) => DS_SHORT[d] ?? d;
+// brand v1's theme-toggle pair (Material Design Icons brightness-7 / brightness-4, Apache-2.0): the same
+// paths theme.js injects elsewhere; rendered here so React owns the nodes and theme.js only sets the title
+const ICON_SUN = "M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z";
+const ICON_MOON = "M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z";
 const fmt = (v: number | null | undefined, d = 2) => (v == null || !Number.isFinite(v) ? "–" : v.toLocaleString(undefined, { maximumFractionDigits: d }));
 const fmtN = (v: number) => v.toLocaleString();
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -435,7 +439,11 @@ export function App() {
           {versions.map((v) => <option key={v} value={v}>{v}</option>)}</select>}
         <span className="cc-spacer" />
         <nav className="cc-links"><a href="https://calcofi.io/db-query/">query</a><a href="https://calcofi.io/db-schema/">schema</a><a href="https://calcofi.io/docs/">docs</a></nav>
-        <button className="cc-theme-toggle" type="button" aria-label="Toggle dark / light theme">🌓</button>
+        <button className="cc-theme-toggle" type="button" aria-label="Toggle dark / light theme" title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}>
+          {/* the sun while dark, the moon-in-sun while light — what a click switches to (theme.css shows one per theme) */}
+          <svg className="cc-theme-icon cc-icon-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={ICON_SUN} /></svg>
+          <svg className="cc-theme-icon cc-icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={ICON_MOON} /></svg>
+        </button>
       </header>
       <div className="main">
         <div className="panel controls">
