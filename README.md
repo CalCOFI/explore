@@ -1,89 +1,147 @@
 # CalCOFI Explorer
 
-One browser-native app across station, hexagon, cruise, region and section grains, over the
-integrated CalCOFI database release — live at **https://calcofi.io/explore/**. Plan:
-`workflows/.claude/plans/2026-08-28 CalCOFI Explorer …` (Phase 0 spike → Phases 1–2 shipped 2026-08-28).
+Live at **https://calcofi.io/explore/**.
 
-What it does: every lens is SQL over the release's browser-shaped objects (`obs_bio`, one `obs_env`
-variable, `sample_root`, `sample_spatial` — cut by `calcofi4db::build_*` at release time), run in
-DuckDB-WASM in a worker and drawn with deck.gl; the picker is taxon × life stage × denominator with
-dataset pills and excluded counts (plan D8 — nothing is averaged across denominators, datasets or
-stages); the water-column and year strips are linked brushes; a station click opens its coverage card;
-**⬇ download bundle** hands over the bytes, the exact SQL against the release's content-addressed
-object URLs, citations and `reproduce.R`/`.py` (plan D10).
+One web app for looking at the integrated CalCOFI database through five *lenses* — **stations**,
+**hexagons**, **cruises**, **regions** and **sections** — for one **organism** (a taxon, from the net tows
+and censuses) or one **ocean variable** (from the bottle, CTD, carbonate and weather series) at a time.
+Everything runs in your browser: the SQL executes in DuckDB-WASM against the frozen release, so there is
+no server between you and the data, and the same bytes `calcofi4r` / `calcofi4py` read.
 
-- Vite + React 18 + TypeScript · MapLibre GL (keyless CARTO style, swapped on `cc:theme`) ·
-  deck.gl `MapboxOverlay` (`ScatterplotLayer` as the morph carrier, `H3HexagonLayer`,
-  `GeoJsonLayer`, `TripsLayer`) · DuckDB-WASM **self-hosted in a Web Worker, no extensions**,
-  objects fetched whole and registered as buffers · Plotly (depth strip, year strip, section,
-  cruise series) · `h3-js` · brand v1 from `calcofi.io/brand/v1/` (dark default).
-- `sql/*.sql` are the lens templates the browser runs (`{{named}}` params, the shared filter in
-  `_filters.sql`, `density.sql` = the fixture shared with calcofi4r/calcofi4py); `src/engine.ts`
-  renders + times them; `src/release.ts` resolves objects through the catalog (port of
-  `cc_release_sources`); `src/state.ts` is the URL selection model (`lens · res · taxon|var · stage ·
-  den · years · depth · layer · region · line · cruise · stat · anom · station · release · theme ·
-  tour`); `src/map.tsx` the layers and the morph; `src/charts.tsx` the Plotly panels; `src/bundle.ts`
-  the download; `src/App.tsx` the shell. The D8 defaults are `state.ts::defaultStage/defaultDen`
-  (= `calcofi4r::cc_default_stage()/cc_default_denominator()`).
+The design history lives in two planning documents in the `workflows` repo
+(`.claude/plans/2026-08-28 CalCOFI Explorer …` and `2026-08-29 CalCOFI Explorer UI …`); this README
+says what the app does and how to work on it without needing them.
+
+## Using it
+
+- **The map is the page.** The *Select* rail on the left picks the lens and the data; the *Depth* rail
+  (right) and the *Years* strip (bottom) are brushes — drag on them to filter the map to a depth band or a
+  span of years. Either rail folds into a labelled pill, or maximizes into the map's box. Under 900 px
+  (a phone) the rail becomes a bottom sheet and the strips become pills on the map's edge.
+- **Picking an organism or variable.** The picker opens as a **tree folded by category** — each category
+  one row with its icon, item count, year span and a log-scale bar of how much data it holds — with the
+  current pick shown under its own category and a *"… N more"* row for the rest. Click a category to open
+  it in full; type to search within the tree; the *Search* tab is the flat A–Z list with sort and grouping
+  for when you know the name.
+- **Nothing is averaged across things that should not be averaged.** Biology views are one taxon × one
+  life stage × one *denominator*: **per 10 m² of sea surface** (count × standard haul factor ÷ proportion
+  sorted — the CalCOFI larvae-per-10 m² standard, for oblique and vertical tows), **per 1000 m³ strained**
+  (count ÷ proportion sorted ÷ volume strained × 1000 — for manta tows and any tow with a flowmeter) or
+  the **raw count** (not comparable across gear or datasets). The denominator line under the picker says
+  which is in force, for which datasets, and how many observations it excludes; open it for the formulas.
+  One pill per dataset × stage; a ⚠ pill is a raw count with no effort in the release. The default stage
+  and denominator follow the same rule as `calcofi4r::cc_default_stage()` / `cc_default_denominator()`.
+- **The URL is the whole view.** Lens, organism or variable, stage, denominator, years, season, depth,
+  dataset filter, region, line, cruise, summary statistic, theme, which panels are folded or maximized,
+  and the **map extent** (`map=lon,lat,zoom`) are all in it — so *Share → Copy link*, a bookmark and a
+  feedback report all reopen at exactly the same place. `?tour=off` suppresses the welcome card and tour;
+  `?theme=dark|light` sets the theme.
+- **Taking it with you** (the *Export* group, folded by default): **Download data (zip)** hands over the
+  bytes shown, the exact SQL against the release's content-addressed object URLs, per-dataset citations
+  and `reproduce.R` / `reproduce.py` that run the same query; **Copy code** gives that SQL, or R or
+  Python; **Share** copies the link, or the whole view as a PNG with the selection, release and URL
+  stamped in a footer. Every panel's header has its own ⬇ (PNG · SVG · CSV), and the map's ⬇ beside the
+  status chip exports the map with its legend (PNG) or the table the lens draws (CSV) — the map is WebGL,
+  so it has no SVG.
+- **Feedback** (💬 in the header) captures the view, lets you mark it up (arrow, circle, rectangle, pen,
+  text; yellow, blue or hot pink) and sends it with your note, the view URL, release, viewport and theme
+  to the team — by mail with the screenshot inline, to a Sheet, and as a public issue in this repo
+  *without* your email. Without a configured endpoint the dialog offers a prefilled GitHub issue instead.
+- **Keyboard:** `?` replays the tour · `Esc` closes a dialog or restores a maximized panel · `↑ ↓ Enter`
+  in the lists · `A`–`Z` strip to jump in the flat list.
+
+## Run it locally
 
 ```sh
 npm install
-# data comes from a release catalog: VITE_DATA_URL is the bucket root, VITE_RELEASE_PREFIX the releases
-# prefix under it (default https://storage.googleapis.com/calcofi-db/ + ducklake/releases). for dev,
-# a catalog-shaped local copy of the Phase-1 objects (built by ~/_big/calcofi/explore-spike/data2/build_dev_catalog.R):
-ln -s ~/_big/calcofi/explore-spike/data2 public/data2
-VITE_DATA_URL=data2/ VITE_RELEASE_PREFIX=explore-dev/releases npm run dev   # http://localhost:5178/
-npm run build && npx vite preview --host --port 5179   # the numbers are taken here
-node scripts/verify.mjs http://localhost:5179/ shots/prod --timing   # headed Chrome, fresh profile → state screenshots + lens timings + results.json
-node scripts/bundle_check.mjs http://localhost:5178/ shots/bundle  # download two bundles and list them
-node scripts/card_shots.mjs ~/Github/CalCOFI/CalCOFI.github.io/images  # the two themed card screenshots
 ```
 
-Deploy: `.github/workflows/pages.yml` builds with `VITE_DATA_URL` (bucket root) + `VITE_RELEASE_PREFIX`
-(releases prefix under it) + `VITE_BASE=/explore/` and publishes `dist/` to GitHub Pages. The page
-reads `{prefix}/latest.txt` → `{prefix}/{version}/catalog.json` (+ `coverage.json`,
-`coverage_stations.json`, `grid.geojson`, `spatial.geojson` sidecars) and every object by its catalog
+### Preview locally (before pushing)
+
+The app needs a release catalog to read. For development, use the catalog-shaped local copy of the
+release objects (built once by `~/_big/calcofi/explore-spike/data2/build_dev_catalog.R`; the same
+content is on GCS under `explore-dev`, which the deployed site reads):
+
+```sh
+ln -s ~/_big/calcofi/explore-spike/data2 public/data2      # once
+VITE_DATA_URL=data2/ VITE_RELEASE_PREFIX=explore-dev/releases npm run dev
+```
+
+then open **http://localhost:5178/**. This is Vite's dev server with hot reload: every saved edit shows
+in the browser without a rebuild, so leave it running while you work. Ctrl-C stops it.
+
+For a production-shaped check — the real bundle, same data — build it and serve the build:
+
+```sh
+VITE_DATA_URL=data2/ VITE_RELEASE_PREFIX=explore-dev/releases npm run build
+npx vite preview --host --port 5179     # http://localhost:5179/  (--host also exposes it to a phone on the same Wi-Fi)
+```
+
+`VITE_DATA_URL` is the bucket (or folder) root and `VITE_RELEASE_PREFIX` the releases prefix under it;
+unset, they default to the real release on `https://storage.googleapis.com/calcofi-db/` +
+`ducklake/releases`, which works too once a release carries the browser-shaped objects.
+
+### Checks
+
+```sh
+node scripts/verify.mjs http://localhost:5178/ shots/dev --only=<regex>   # drive the app through its states
+node scripts/verify.mjs http://localhost:5179/ shots/prod --timing        # + cold/warm lens timings
+node scripts/bundle_check.mjs http://localhost:5178/ shots/bundle          # download two bundles and list them
+node scripts/card_shots.mjs ~/Github/CalCOFI/CalCOFI.github.io/images     # the two themed card screenshots
+```
+
+`verify.mjs` opens the installed Chrome (headed, fresh profile) at 1280 × 800 and 390 × 844, walks every
+named state, screenshots each, asserts no horizontal overflow and every control in view, and writes
+`results.json`. It is the only reliable way to see the app under automation; `--only` picks states by
+regex. `npm run build` also type-checks (`tsc --noEmit`).
+
+## Deploy
+
+`.github/workflows/pages.yml` builds with `VITE_DATA_URL` + `VITE_RELEASE_PREFIX` + `VITE_BASE=/explore/`
+(and `VITE_FEEDBACK_URL`, see below) and publishes `dist/` to GitHub Pages on every push to `main`. The
+page reads `{prefix}/latest.txt` → `{prefix}/{version}/catalog.json` (plus the `coverage.json`,
+`coverage_stations.json`, `grid.geojson` and `spatial.geojson` sidecars) and every object by its catalog
 path — never a hand-built `releases/{v}/parquet/` path.
 
-URL state: `lens · res · taxon|var · stage · den · years · depth · layer · region · line · cruise ·
-stat · anom · theme · tour=off`, plus the panel folds and maximize (`hide=depth,years` · `max=section`,
-absent when they are the viewport default). *SQL & timing* (EXPORT) opens the timing card, which lists
-every mark; `window.__marks` is the same list. `?native=1` swaps the comboboxes for plain `<select>`s.
+### The feedback endpoint (once)
 
-Layout (UI plan D11 · D18): the map is the page; the select / depth / years rails fold into state pills
-and maximize into the box; section, cruise, station and timing are floating cards (minimize to a pill,
-drag; position in `localStorage`); under 900 px the select rail is a bottom sheet with three detents and
-the strips are pills on the map's edge. Nothing re-lays out on a selection change.
-The pickers **open on the Browse tree** (U7c): every category folded to one row with its glyph, item count, year
-span and log-scale bar; the selected item's category open to that item + "… N more"; typing searches within the
-tree (matching categories open); a header click opens a category in full, a second click folds it. The Search tab
-is the flat list. The **Browse** tree lists the whole holding by category or by dataset from `coverage.json` (`taxa[]` and
-`variables[].category` since calcofi4db 3.25.0; `src/categories.ts` keeps the keyword stopgap for a release without
-them); the categories are `workflows/metadata/category.csv`, the icons `calcofi.io/brand/v1/icons/`
-(`scripts/build_icons.mjs` regenerates the sprite + masks from `src/icon-paths.ts`).
-`scripts/verify.mjs --only=<regex>` screenshots every state at 1280 × 800 and 390 × 844 and asserts no
-overflow and every control in view; `--timing` adds the cold/warm lens runs.
+The dialog posts to a Google Apps Script that `calcofi4r::cc_feedback_script()` generates. Setup: a
+Sheet with a `feedback` tab (header = `calcofi4r::cc_feedback_header()`) and a `recipients` tab (one
+email per row — edit a cell to add someone, no redeploy); paste `cat(cc_feedback_script())` as the
+Sheet's script and deploy it as a web app ("execute as me", "anyone"); add `GITHUB_TOKEN` (contents +
+issues on this repo) as a script property for the public issue; put the `/exec` URL in the repository
+variable `VITE_FEEDBACK_URL`. Re-paste the script after a calcofi4r change (1.14.1 added the inline
+screenshot in the mail). Usage analytics go through the fleet's GA4 snippet in `index.html`
+(`calcofi4r::cc_ga_html("public/ga.html", "explore")`); an automated browser is never counted.
 
-Figures and feedback (UI plan D17 · D19): every panel header has ⬇ PNG · SVG · CSV (`src/export.ts`, the
-selection · release · URL stamped in a footer); Share ▾ copies the link, copies or downloads the whole view
-as a PNG (`src/capture.ts`: one `html-to-image` composite of the app — MapLibre runs with
-`preserveDrawingBuffer`); 💬 captures the view, lets you mark it up (`src/annotate.tsx`) and posts it with
-the text, URL, release, viewport and theme to the endpoint `calcofi4r::cc_feedback_script()` generates
-(`src/feedback.tsx`). The endpoint is `VITE_FEEDBACK_URL` at build time — a repository variable in
-`pages.yml`; unset, the dialog offers the prefilled public GitHub issue only. Setup, once: a Sheet with
-`feedback` (header = `calcofi4r::cc_feedback_header()`) and `recipients` tabs, the script deployed as a web
-app ("execute as me", "anyone"), `GITHUB_TOKEN` (contents + issues on this repo) as a script property for
-the public issue, the `/exec` URL in the variable. Usage events go through the fleet's GA4 snippet in
-`index.html` (`calcofi4r::cc_ga_html("public/ga.html", "explore")`); a webdriver browser is never counted.
+## How it is built
 
-The URL is the whole view, the map's extent included: `map=lon,lat,zoom` is written on every settled pan or
-zoom (absent at the grid's home view), so Share → Copy link, a feedback report and a bookmark all reopen at
-the same place. The map has its own ⬇ beside the status chip — PNG (the map and its legend at 2×, stamped,
-without the floating cards) and CSV (the table the lens draws: the station / hexagon / region summary, the
-samples along a cruise track); WebGL has no SVG. The select rail opens as LENS and DATA: FILTERS and EXPORT
-are disclosures that start folded (a folded FILTERS still shows what is in force), and the denominator is one
-line — which is in force, for whom, how many excluded — that opens to the three radios with their formulas
-(`state.ts` `DEN_HOW`: per 10 m² is count × standard haul factor ÷ proportion sorted; per 1000 m³ is
-count ÷ proportion sorted ÷ volume strained × 1000) and a note on the standard haul factor, the per-tow
-multiplier SWFSC carries as `obs_bio.std_haul_factor`. The annotator's colours are yellow, blue and hot pink;
-the text tool places on click and commits on Enter, blur or the next placement.
+- **Stack:** Vite + React 18 + TypeScript · MapLibre GL (keyless CARTO basemap, swapped on the brand's
+  `cc:theme` event) · deck.gl `MapboxOverlay` (`ScatterplotLayer` carries the station dots between
+  lenses, `H3HexagonLayer`, `GeoJsonLayer`, `TripsLayer`) · DuckDB-WASM self-hosted in a Web Worker,
+  no extensions, objects fetched whole and registered as buffers · Plotly for the depth strip, year
+  strip, section and cruise series · `h3-js` · brand v1 from `calcofi.io/brand/v1/` (dark default).
+- **Data:** the release's browser-shaped objects — `obs_bio`, one `obs_env` partition per variable,
+  `sample_root`, `sample_spatial`, `taxon`, `dataset`, `measurement_type`, `cruise` — cut by
+  `calcofi4db::build_*` at release time, resolved through the catalog by `src/release.ts` (a port of
+  `calcofi4r::cc_release_sources()`). The category tree comes from `coverage.json` (`taxa[]` and
+  `variables[].category`, calcofi4db ≥ 3.25.0; `src/categories.ts` keeps a keyword fallback for an
+  older release); the categories themselves are `workflows/metadata/category.csv` and the icons
+  `calcofi.io/brand/v1/icons/` (`scripts/build_icons.mjs` regenerates that sprite from
+  `src/icon-paths.ts`, and the app renders the same paths inline).
+- **Code map:** `sql/*.sql` are the lens queries the browser runs (`{{named}}` params, the shared
+  filter in `_filters.sql`; `density.sql` is the denominator fixture shared with calcofi4r /
+  calcofi4py) · `src/engine.ts` renders and times them · `src/state.ts` is the URL selection model
+  (`fromUrl` / `toUrl`), the stage/denominator defaults and the denominator formulas · `src/App.tsx` the
+  shell · `src/map.tsx` the layers and the lens-to-lens morph · `src/charts.tsx` the Plotly panels ·
+  `src/picker.tsx` the organism / variable / cruise picker (tree + flat list) · `src/panels.tsx` the
+  rails, floating cards and phone sheet · `src/export.ts` per-panel PNG/SVG/CSV and the footer stamp ·
+  `src/capture.ts` the whole-view figure (one `html-to-image` composite; MapLibre runs with
+  `preserveDrawingBuffer` so its canvas can be read) · `src/annotate.tsx` + `src/feedback.tsx` the
+  feedback dialog · `src/bundle.ts` the download · `src/tour.ts` the guided tour over `data-tour`
+  anchors · `src/help.tsx` the welcome and About dialogs.
+- **Layout rule:** nothing re-lays out on a selection change — only a fold, maximize, drag, lens change
+  or breakpoint moves panels. Card positions and the rail width live in `localStorage`; folds and
+  maximize live in the URL.
+- **Escape hatches:** `?native=1` swaps the pickers for plain `<select>`s; *SQL & timing* (in Export)
+  opens a card with every timing mark and the last SQL (`window.__marks` is the same list).
