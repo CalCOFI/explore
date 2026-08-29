@@ -56,3 +56,15 @@ drag; position in `localStorage`); under 900 px the select rail is a bottom shee
 the strips are pills on the map's edge. Nothing re-lays out on a selection change.
 `scripts/verify.mjs --only=<regex>` screenshots every state at 1280 × 800 and 390 × 844 and asserts no
 overflow and every control in view; `--timing` adds the cold/warm lens runs.
+
+Figures and feedback (UI plan D17 · D19): every panel header has ⬇ PNG · SVG · CSV (`src/export.ts`, the
+selection · release · URL stamped in a footer); Share ▾ copies the link, copies or downloads the whole view
+as a PNG (`src/capture.ts`: one `html-to-image` composite of the app — MapLibre runs with
+`preserveDrawingBuffer`); 💬 captures the view, lets you mark it up (`src/annotate.tsx`) and posts it with
+the text, URL, release, viewport and theme to the endpoint `calcofi4r::cc_feedback_script()` generates
+(`src/feedback.tsx`). The endpoint is `VITE_FEEDBACK_URL` at build time — a repository variable in
+`pages.yml`; unset, the dialog offers the prefilled public GitHub issue only. Setup, once: a Sheet with
+`feedback` (header = `calcofi4r::cc_feedback_header()`) and `recipients` tabs, the script deployed as a web
+app ("execute as me", "anyone"), `GITHUB_TOKEN` (contents + issues on this repo) as a script property for
+the public issue, the `/exec` URL in the variable. Usage events go through the fleet's GA4 snippet in
+`index.html` (`calcofi4r::cc_ga_html("public/ga.html", "explore")`); a webdriver browser is never counted.

@@ -14,7 +14,8 @@ import { Picker, type PickerItem, type GroupOpt } from "./picker";
 import { Menu, Group } from "./ui";
 import { Rail, FloatCard, PillRow, MaxPanel, Sheet, Sparkline, FOLDED_PX, SHEET_PEEK, type CardId, type CardBox, type Detent } from "./panels";
 import type { IconName } from "./icons";
-import { Welcome, About, FeedbackStub, seenWelcome, markWelcome } from "./help";
+import { Welcome, About, seenWelcome, markWelcome } from "./help";
+import { FeedbackDialog } from "./feedback";
 import { startTour, type TourActions } from "./tour";
 import { IconButton, type MenuItem } from "./ui";
 import { figureName, plotPng, plotSvg, csvBlob, copyImage, type Stamp } from "./export";
@@ -803,7 +804,7 @@ export function App() {
       </div>
       {modal === "welcome" && <Welcome release={rel} onTour={tour} onClose={closeModal} />}
       {modal === "about" && <About release={rel} nTables={catalog?.tables.length} datasets={datasets} cov={cov} short={short} onClose={closeModal} onTour={tour} onFeedback={() => setModal("feedback")} />}
-      {modal === "feedback" && <FeedbackStub url={location.href} release={rel} onClose={() => { closeModal(); }} />}
+      {modal === "feedback" && <FeedbackDialog url={location.href} release={rel} onClose={closeModal} capture={() => captureView({ stamp: viewStamp() })} />}
     </div>
   );
 }

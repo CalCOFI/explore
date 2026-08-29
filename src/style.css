@@ -291,3 +291,21 @@ button.chip { cursor: pointer; }
 
 .panel-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .sheet .panel-body .plot.fill { min-height: 38vh; }
+
+/* ── U4b: the feedback dialog and the annotator (plan D17) ───────────────────────────────────────── */
+.modal-body textarea { width: 100%; box-sizing: border-box; font: inherit; color: var(--fg); background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; resize: vertical; }
+.modal-body label.f { margin-bottom: 8px; }
+.modal-body label.f input[type=email] { width: 100%; box-sizing: border-box; font: inherit; color: var(--fg); background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; }
+.feedback-row { position: relative; }
+.feedback-shot { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 10px; }
+.feedback-shot img { max-width: 100%; max-height: 300px; border: 1px solid var(--border); border-radius: 4px; align-self: flex-start; }
+.feedback-shot img.off { opacity: 0.3; }
+.feedback-shot .pad { padding: 20px; }
+.hint.warn { color: var(--warn); }
+.annotator { display: flex; flex-direction: column; gap: 6px; }
+.annot-tools .seg button { display: inline-flex; align-items: center; gap: 4px; padding: 4px 7px; }
+.annot-tools .spacer { flex: 1; }
+.annot-stage { position: relative; max-height: 70vh; overflow: auto; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); }
+.annot-stage canvas { display: block; width: 100%; height: auto; }
+.annot-text { position: absolute; font: 600 14px system-ui, sans-serif; background: rgba(0,0,0,0.6); border: 1px dashed var(--warn); border-radius: 3px; padding: 2px 6px; min-width: 120px; transform: translateY(-2px); }
+.modal.wide.modal-feedback { max-width: 900px; }

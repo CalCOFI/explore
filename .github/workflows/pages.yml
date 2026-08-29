@@ -23,6 +23,9 @@ jobs:
           VITE_DATA_URL: https://storage.googleapis.com/calcofi-db/explore-dev-root/
           VITE_RELEASE_PREFIX: explore-dev/releases
           VITE_BASE: /explore/
+          # the feedback endpoint (calcofi4r::cc_feedback_script() deployed as a web app): a repository variable, so
+          # setting it needs no code change; empty = the dialog offers the prefilled GitHub issue only
+          VITE_FEEDBACK_URL: ${{ vars.VITE_FEEDBACK_URL }}
       - uses: actions/upload-pages-artifact@v3
         with: { path: dist }
   deploy:

@@ -188,6 +188,29 @@ const STATES = [
   { name: "u4_figure_max", url: "?tour=off&max=years", steps: async () => { await sleep(800); }, assert: async () => {
       const r = await page.evaluate(() => window.__figure("years", "png")); console.log(`  maximized years.png ${r.w}×${r.h}`); if (r.w < 2000) fail(`u4_figure_max: ${r.w}px wide — not the maximized size`); } },
   { name: "p4_share", url: "?tour=off", viewport: PHONE, steps: async () => { await click(".sheet-summary"); await sleep(400); await page.evaluate(() => document.querySelector(".sheet-body").scrollTo(0, 9999)); await sleep(200); await clickText(".menu-btn", "Share"); await sleep(400); } },
+  // U4b — feedback: the dialog captures the view, the annotator draws, Send posts to the endpoint (mocked here) and thanks with the issue link
+  { name: "u4b_feedback_open", url: "?tour=off", steps: async () => { await click('[data-tour="feedback"]'); await page.waitForSelector(".feedback-shot img", { timeout: 20000 }); await sleep(300); },
+    assert: async () => { const src = await page.$eval(".feedback-shot img", (i) => i.src); if (!src.startsWith("data:image/jpeg")) fail("u4b_feedback_open: no thumbnail"); const dis = await page.$eval('[data-tour="feedback-send"]', (b) => b.disabled); if (!dis) fail("u4b_feedback_open: Send enabled with no text / no endpoint"); if (!(await page.$(".hint.warn"))) fail("u4b_feedback_open: no 'no endpoint' note"); } },
+  { name: "u4b_annotate", url: "?tour=off", steps: async () => { await click('[data-tour="feedback"]'); await page.waitForSelector(".feedback-shot img", { timeout: 20000 }); await sleep(200); await click('[data-tour="feedback-edit"]'); await page.waitForSelector(".annot-stage canvas"); await sleep(300);
+      const b = await (await page.$(".annot-stage canvas")).boundingBox(); await page.mouse.move(b.x + b.width * 0.3, b.y + b.height * 0.3); await page.mouse.down(); await page.mouse.move(b.x + b.width * 0.6, b.y + b.height * 0.5, { steps: 8 }); await page.mouse.up(); await sleep(200);
+      await click(".annot-tools .seg button[aria-label=circle]"); await page.mouse.move(b.x + b.width * 0.65, b.y + b.height * 0.55); await page.mouse.down(); await page.mouse.move(b.x + b.width * 0.8, b.y + b.height * 0.75, { steps: 6 }); await page.mouse.up(); await sleep(200); },
+    assert: async () => { const t = await page.$eval(".annotator .hint", (el) => el.textContent); if (!/2 marks/.test(t)) fail(`u4b_annotate: ${t}`); } },
+  { name: "u4b_send_mock", url: "?tour=off", steps: async () => {
+      await page.evaluate(() => localStorage.setItem("explore.feedback_url", "https://feedback.test/exec"));
+      await page.setRequestInterception(true);
+      page.__posted = null;
+      page.__onreq = (req) => { if (req.url().startsWith("https://feedback.test/")) { page.__posted = req.postData(); req.respond({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify({ ok: true, id: "abc123", issue_url: "https://github.com/CalCOFI/explore/issues/999" }) }); } else req.continue(); };
+      page.on("request", page.__onreq);
+      await click('[data-tour="feedback"]'); await page.waitForSelector(".feedback-shot img", { timeout: 20000 }); await sleep(200);
+      await click('[data-tour="feedback-edit"]'); await page.waitForSelector(".annot-stage canvas"); const b = await (await page.$(".annot-stage canvas")).boundingBox(); await page.mouse.move(b.x + b.width * 0.4, b.y + b.height * 0.4); await page.mouse.down(); await page.mouse.move(b.x + b.width * 0.7, b.y + b.height * 0.6, { steps: 6 }); await page.mouse.up(); await sleep(100); await clickText(".annot-tools .btn", "Done"); await sleep(300);
+      await page.type('[data-tour="feedback-text"]', "that spike is weird"); await sleep(200); await click('[data-tour="feedback-send"]'); await page.waitForSelector(".modal-feedback a[href*='issues/999']", { timeout: 15000 }); await sleep(300); },
+    assert: async () => {
+      const j = JSON.parse(page.__posted ?? "{}"); page.off("request", page.__onreq); await page.setRequestInterception(false);
+      console.log(`  posted: app=${j.app} text=${JSON.stringify(j.text)} release=${j.release} viewport=${j.viewport} theme=${j.theme} image=${j.image ? (j.image.length / 1e3).toFixed(0) + " KB" : "none"} website=${JSON.stringify(j.website)}`);
+      if (j.app !== "explore" || j.text !== "that spike is weird" || !/^v\d{4}/.test(j.release) || !/^data:image\/png/.test(j.image ?? "") || j.website !== "" || !/lens=/.test(j.url)) fail("u4b_send_mock: payload wrong");
+      if (j.image && j.image.length > 4.2e6) fail(`u4b_send_mock: image ${j.image.length} chars > 3 MB after fitBytes`);
+      const t = await page.$eval(".modal-feedback .modal-body", (el) => el.textContent); if (!/public issue/.test(t)) fail(`u4b_send_mock: thanks reads ${t.slice(0, 80)}`); } },
+  { name: "p4b_feedback", url: "?tour=off", viewport: PHONE, steps: async () => { await click('[data-tour="more"] button'); await sleep(200); await clickText(".menu-item", "Feedback"); await page.waitForSelector(".feedback-shot img", { timeout: 20000 }); await sleep(300); } },
 ];
 // every tour step: its anchor resolves and is on screen in the state its before() produced; one screenshot per step
 async function walkTour(name) {

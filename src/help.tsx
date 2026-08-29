@@ -82,19 +82,3 @@ export function About(p: { release: string; nTables?: number; datasets: Row[]; c
     </Modal>
   );
 }
-
-/** until U4b: the view URL into a public issue (the "open as GitHub issue myself" half of D17) */
-export function FeedbackStub(p: { url: string; release: string; onClose: () => void }) {
-  const body = `**View:** ${p.url}\n**Release:** ${p.release} · ${innerWidth}×${innerHeight} · ${document.documentElement.dataset.theme}\n\n_What happened / what did you expect?_\n\n`;
-  const issue = `https://github.com/CalCOFI/explore/issues/new?labels=feedback&body=${encodeURIComponent(body)}`;
-  const copy = async () => { try { await navigator.clipboard.writeText(p.url); } catch { /* blocked */ } };
-  return (
-    <Modal id="feedback" title="Feedback" icon="ui-feedback" onClose={p.onClose}
-      actions={<><button type="button" className="btn" onClick={copy}><Icon name="ui-link" /> Copy this view's link</button><a className="btn primary" href={issue} target="_blank" rel="noopener"><Icon name="ui-github" /> Open a GitHub issue</a></>}>
-      <p>Tell us what you saw and what you expected. The issue opens <b>public</b> in <code>CalCOFI/explore</code> with this view's URL and the release already in it —
-        so "that spike is weird" is reproducible by anyone who opens the link. Paste a screenshot into the issue if it helps.</p>
-      <p className="hint">Coming next: a dialog that captures the view, lets you circle the spike, and sends it to the team without a GitHub account.</p>
-      <pre className="hint" style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{p.url}</pre>
-    </Modal>
-  );
-}
