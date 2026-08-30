@@ -494,7 +494,7 @@ export function App() {
     };
     document.addEventListener("keydown", key); return () => document.removeEventListener("keydown", key);
   }, [modal, phone]);
-  // D20: month bins once the strip is zoomed to <= 15 years; the cruise Gantt's rows (every lens) + the ship reference
+  // D20: month bins once the strip is zoomed to <= 15 years; the cruise calendar's rows (every lens) + the ship reference
   useEffect(() => {
     if (!needMonths || !sliceKey) { setMonthRows(null); return; }
     let live = true;
@@ -511,13 +511,10 @@ export function App() {
   const gantt = useMemo(() => {
     if (seriesMode !== "cruises") return null;
     const rows = (sel.lens === "cruise" && cruiseRows.length ? cruiseRows : ganttRows).filter((c) => c.t0 && c.t1);
-    // lanes are ships, in the fleet's order of first appearance; a key with no reference row lanes by its NODC code
+    // the ship from the cruise reference (title case), for the hover; a key with no reference row shows its NODC code
     const shipOf = (k: string) => { const ref = cruiseRef?.get(k); const nodc = k.split("-")[2] ?? k; return ref?.ship ? ref.ship.replace(/\b\w+/g, (w) => w[0] + w.slice(1).toLowerCase()) : nodc; };
-    const first = new Map<string, number>();
-    for (const c of rows.slice().sort((a, b) => a.t0 - b.t0)) { const s = shipOf(c.cruise_key); if (!first.has(s)) first.set(s, c.t0); }
-    const lanes = [...first.keys()];
-    const gr: GanttRow[] = rows.map((c) => { const ship = shipOf(c.cruise_key); return { ...c, ship, lane: lanes.indexOf(ship) }; });
-    return { rows: gr, lanes, selected: sel.cruise, onPick: (k: string) => setSel({ cruise: k }) };
+    const gr: GanttRow[] = rows.map((c) => ({ ...c, ship: shipOf(c.cruise_key) }));
+    return { rows: gr, selected: sel.cruise, onPick: (k: string) => setSel({ cruise: k }) };
   }, [seriesMode, cruiseRows, ganttRows, cruiseRef, sel.lens, sel.cruise]);
   const yearsSpark = useMemo(() => { const m = new Map(yearRows.map((r) => [r.year, r.n])); const out: number[] = []; for (let y = 1949; y <= yearMax; y++) out.push(m.get(y) ?? 0); return out; }, [yearRows, yearMax]);
   const unitLabel = sel.realm === "bio" ? (sel.den === "raw" ? "count" : sel.den === "per_10m2" ? "per 10 m²" : "per 1000 m³") : (picker[0]?.units ?? sel.var);
@@ -594,7 +591,7 @@ export function App() {
   const selectSummary = sel.realm === "bio" ? `${organism?.label ?? sel.taxon} · ${sel.stage ?? "all stages"} · ${unitLabel}` : `${envVar?.label ?? sel.var} · ${sel.depth[0]}–${sel.depth[1]} m`;
   const depthSummary = sliceKey && !depthRows.length ? "Depth · integrated tows" : `Depth ${sel.depth[0]}–${sel.depth[1]} m`;
   const depthEmpty = "depth-integrated net tows —<br>no water-column profile for this selection;<br>the tow span will draw here<br>once the release carries it";
-  const seriesToggle = <span className="seg" role="group" aria-label="year strip mode" data-tour="strip-mode"><button className={seriesMode === "n" ? "on" : ""} onClick={() => setSeriesMode("n")}>observations</button><button className={seriesMode === "mean" ? "on" : ""} onClick={() => setSeriesMode("mean")}>mean ± se</button><button className={seriesMode === "cruises" ? "on" : ""} onClick={() => setSeriesMode("cruises")} title="one bar per cruise in lanes by ship; zoom in for the codes; click a bar to pick the cruise"><Icon name="ui-gantt" />cruises</button></span>;
+  const seriesToggle = <span className="seg" role="group" aria-label="year strip mode" data-tour="strip-mode"><button className={seriesMode === "n" ? "on" : ""} onClick={() => setSeriesMode("n")}>observations</button><button className={seriesMode === "mean" ? "on" : ""} onClick={() => setSeriesMode("mean")}>mean ± se</button><button className={seriesMode === "cruises" ? "on" : ""} onClick={() => setSeriesMode("cruises")} title="a year × month calendar, one cell per cruise coloured by the summary stat; zoom in for the dates and codes; click a cell to pick the cruise"><Icon name="ui-gantt" />cruises</button></span>;
   const Q_LABEL = ["Jan–Mar", "Apr–Jun", "Jul–Sep", "Oct–Dec"];
   const seasonLabel = sel.q?.length && sel.q.length < 4 ? sel.q.map((x) => `Q${x}`).join(" ") : "all";
   // the filters in force, in words — the folded FILTERS heading and an empty result's legend say them

@@ -82,25 +82,27 @@ export function DepthStrip(p: { rows: DepthRow[]; band: [number, number]; theme:
 }
 
 export interface YearRow { year: number; n: number; n_samples: number; mean: number | null; se?: number | null }
-export interface GanttRow extends CruiseRow { ship: string; lane: number }
+export interface GanttRow extends CruiseRow { ship: string }
+interface CalCell { key: string; x0: number; x1: number; y0: number; h: number; ym: number; rgba: [number, number, number, number]; lum: number }
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 export type StripMode = "n" | "mean" | "cruises";
 export const MONTH_LOD_YEARS = 15; // bins are months when the zoom window is at most this many years (D20)
-// fractional years <-> dates (the Gantt's x axis is a date axis; the zoom window is kept in fractional years for every mode)
+// fractional years <-> dates (the zoom window is kept in fractional years for every mode; the calendar places a cruise's dates on it)
 export const fyToDate = (fy: number) => { const y = Math.floor(fy), a = Date.UTC(y, 0, 1), z = Date.UTC(y + 1, 0, 1); return new Date(a + (fy - y) * (z - a)); };
 export const dateToFy = (d: Date) => { const y = d.getUTCFullYear(), a = Date.UTC(y, 0, 1), z = Date.UTC(y + 1, 0, 1); return y + (d.getTime() - a) / (z - a); };
-const plotlyDate = (v: any) => (v instanceof Date ? v : new Date(String(v).replace(" ", "T") + (String(v).length <= 10 ? "T00:00:00Z" : "Z")));
 const yearsToFy = (y: [number, number], m: [number, number] | null): [number, number] => [y[0] + (m ? (m[0] - 1) / 12 : 0), y[1] + (m ? m[1] / 12 : 1)];
 
 // the year strip (D20): brush = filter (years=, month-resolved when zoomed in), wheel / pinch = zoom (yview=),
 // double-click = reset, ⤢ on the brush = zoom to the selection, a context bar to pan when zoomed; bins are years
-// over > 15 years and months at <= 15; modes: observations · mean ± se · cruises (a Gantt in lanes by ship — no
-// two cruises of one ship overlap — coloured by the summary stat, labelled once a bar is >= 40 px, click = pick)
+// over > 15 years and months at <= 15; modes: observations · mean ± se · cruises (a year × month calendar, one
+// cell per cruise coloured by the summary stat, the true date spans at <= 15 years, codes once a cell is >= 40 px,
+// click = pick; the ship is in the hover)
 export function YearStrip(p: {
   rows: YearRow[]; monthRows: YearRow[] | null; onNeedMonths?: (need: boolean) => void;
   years: [number, number]; months: [number, number] | null; yearMax: number; theme: string; mode: StripMode; unit: string; stat: "mean" | "med" | "n";
   view: [number, number] | null; onView: (v: [number, number] | null) => void;
   onYears: (y: [number, number] | null, months?: [number, number] | null) => void;
-  gantt?: { rows: GanttRow[]; lanes: string[]; selected: string | null; onPick: (k: string) => void } | null;
+  gantt?: { rows: GanttRow[]; selected: string | null; onPick: (k: string) => void } | null;
 }) {
   const [handle, setHandle] = useState<number | null>(null);
   const full: [number, number] = [1948, p.yearMax + 1];
@@ -109,10 +111,9 @@ export function YearStrip(p: {
   const wantMonths = p.mode !== "cruises" && span <= MONTH_LOD_YEARS;
   useEffect(() => { p.onNeedMonths?.(wantMonths); }, [wantMonths]);
   const monthly = wantMonths && !!p.monthRows?.length;
-  const isDate = p.mode === "cruises";
+  const monthRes = monthly || (p.mode === "cruises" && span <= MONTH_LOD_YEARS); // the brush snaps to months
   const yearsSet = p.years[0] > 1949 || p.years[1] < p.yearMax || !!p.months;
   const fy = yearsToFy(p.years, p.months);
-  const toX = (v: number) => (isDate ? fyToDate(v) : v);
   const ref = usePlot([p.rows, p.monthRows, p.years, p.months, p.yearMax, p.theme, p.mode, p.unit, p.stat, p.view, p.gantt, monthly], (div, Plotly) => {
     const b = base(p.theme);
     const r = monthly ? p.monthRows! : p.rows;
@@ -120,57 +121,94 @@ export function YearStrip(p: {
     const gap = monthly ? 1 / 12 + 1e-6 : 1;
     let data: any[] = [];
     let layout: any = {};
+    let cal: CalCell[] = [];
     if (p.mode === "n") {
       data = [{ x: r.map((d) => d.year), y: r.map((d) => d.n), type: "bar", width: bw, marker: { color: b.accent },
         customdata: r.map((d) => d.n_samples), hovertemplate: (monthly ? "%{x:.2f}" : "%{x}") + ": %{y} observations, %{customdata} samples<extra></extra>" }];
     } else if (p.mode === "mean") {
-      const xs: (number | null)[] = [], ys: (number | null)[] = [], lo: (number | null)[] = [], hi: (number | null)[] = [];
+      // the line breaks at a gap (a bin with no rows: a null at the missing x) and the band is one closed polygon
+      // per contiguous run — plotly joins the segments of a `tonexty` fill with a straight line, so a band with
+      // gaps drew a sliver across every one of them. a bin of n = 1 has no se: the band passes through it at zero
+      // width instead of breaking. customdata is built beside xs so the hover's n stays aligned past a gap
+      const xs: (number | null)[] = [], ys: (number | null)[] = [], ns: (number | null)[] = [], bx: (number | null)[] = [], by: (number | null)[] = [];
+      let run: YearRow[] = [];
+      const flush = () => {
+        if (!run.length) return;
+        if (bx.length) { bx.push(null); by.push(null); }
+        for (const d of run) { bx.push(d.year); by.push(d.mean! + (d.se ?? 0)); }
+        for (let j = run.length - 1; j >= 0; j--) { bx.push(run[j].year); by.push(run[j].mean! - (run[j].se ?? 0)); }
+        run = [];
+      };
       for (let i = 0; i < r.length; i++) {
-        if (i > 0 && r[i].year - r[i - 1].year > gap) { xs.push(r[i].year - gap); ys.push(null); lo.push(null); hi.push(null); }
-        xs.push(r[i].year); ys.push(r[i].mean); lo.push(r[i].mean != null && r[i].se != null ? r[i].mean! - r[i].se! : null); hi.push(r[i].mean != null && r[i].se != null ? r[i].mean! + r[i].se! : null);
+        if (i > 0 && r[i].year - r[i - 1].year > gap) { xs.push(r[i].year - gap); ys.push(null); ns.push(null); flush(); }
+        xs.push(r[i].year); ys.push(r[i].mean); ns.push(r[i].n);
+        if (r[i].mean != null) run.push(r[i]); else flush();
       }
+      flush();
       data = [
-        { x: xs, y: lo, type: "scatter", mode: "lines", line: { width: 0 }, hoverinfo: "skip", connectgaps: false, showlegend: false },
-        { x: xs, y: hi, type: "scatter", mode: "lines", fill: "tonexty", fillcolor: "rgba(77,171,247,0.22)", line: { width: 0 }, hoverinfo: "skip", connectgaps: false, showlegend: false },
+        { x: bx, y: by, type: "scatter", mode: "lines", fill: "toself", fillcolor: "rgba(77,171,247,0.22)", line: { width: 0 }, hoverinfo: "skip", showlegend: false },
         { x: xs, y: ys, type: "scatter", mode: "lines+markers", line: { color: b.accent, width: 2 }, marker: { size: monthly ? 3 : 4 }, connectgaps: false,
-          customdata: r.map((d) => d.n), hovertemplate: (monthly ? "%{x:.2f}" : "%{x}") + ": mean %{y:.3g} ± se<br>n %{customdata}<extra></extra>" },
+          customdata: ns, hovertemplate: (monthly ? "%{x:.2f}" : "%{x}") + ": mean %{y:.3g} ± se<br>n %{customdata}<extra></extra>" },
       ];
     } else if (p.gantt) {
+      // the cruise calendar: one cell per cruise at (year, month of its first sample), spanning the months it ran,
+      // the cruises starting in one month sharing the year's column; zoomed to <= 15 years the cell becomes the
+      // cruise's actual date span on the same month row. colour = the summary stat on a log ramp between its
+      // 5–95 % quantiles (densities are heavy-tailed) with a floor, so the low end never sinks into the background
       const g = p.gantt.rows;
-      const vals = g.map((d) => (p.stat === "n" ? d.n : d[p.stat]) as number);
-      const dom = quantileDomain(vals, p.stat), col = colorScale(dom, 255);
-      const nmax = Math.max(1, ...g.map((d) => d.n));
+      const statOf = (d: GanttRow) => (p.stat === "n" ? d.n : d[p.stat]) as number | null;
+      const lg = (v: number) => Math.log10(1 + Math.max(0, v));
+      const dom = quantileDomain(g.map((d) => lg(statOf(d) ?? NaN)), p.stat), col = colorScale(dom, 255);
+      const ramp = (v: number | null) => { if (v == null || !Number.isFinite(v)) return col(null); const t = dom[1] > dom[0] ? Math.min(1, Math.max(0, (lg(v) - dom[0]) / (dom[1] - dom[0]))) : 0.5; return col(dom[0] + (0.15 + 0.85 * t) * (dom[1] - dom[0])); };
+      const zoomedIn = span <= MONTH_LOD_YEARS;
+      const plotW = Math.max(100, div.clientWidth - 52), minW = (2.5 * span) / plotW; // a span narrower than 2.5 px draws at 2.5 px
+      const month = (t: number) => new Date(t * 1000).getUTCMonth() + 1, yearOf = (t: number) => new Date(t * 1000).getUTCFullYear();
+      const slot = new Map<string, GanttRow[]>();
+      for (const c of g.slice().sort((a, b) => a.t0 - b.t0)) { const k = `${yearOf(c.t0)}-${month(c.t0)}`; (slot.get(k) ?? slot.set(k, []).get(k)!).push(c); }
+      cal = g.map((c) => {
+        const m0 = month(c.t0), y0 = yearOf(c.t0), months = Math.min(12 - m0 + 1, Math.max(1, (yearOf(c.t1) - y0) * 12 + month(c.t1) - m0 + 1));
+        let x0: number, x1: number;
+        if (zoomedIn) { x0 = dateToFy(new Date(c.t0 * 1000)); x1 = Math.max(x0 + minW, dateToFy(new Date(c.t1 * 1000))); }
+        else { const s = slot.get(`${y0}-${m0}`)!, k = s.indexOf(c), K = s.length, gx = 0.06; x0 = y0 - 0.5 + k / K + gx / 2; x1 = y0 - 0.5 + (k + 1) / K - gx / 2; }
+        const rgba = ramp(statOf(c)), lum = 0.299 * rgba[0] + 0.587 * rgba[1] + 0.114 * rgba[2];
+        return { key: c.cruise_key, x0, x1, y0: m0 - 0.5 + 0.05, h: months - 0.1, ym: m0 - 0.5 + months / 2, rgba, lum };
+      });
       data = [{
-        type: "bar", orientation: "h", y: g.map((d) => d.lane), base: g.map((d) => new Date(d.t0 * 1000).toISOString()), x: g.map((d) => Math.max(86400e3, (d.t1 - d.t0) * 1000)),
-        marker: { color: g.map((d) => { const c = col(p.stat === "n" ? d.n : d[p.stat]); return `rgba(${c[0]},${c[1]},${c[2]},${(0.45 + 0.55 * Math.sqrt(d.n / nmax)).toFixed(2)})`; }), line: { width: g.map((d) => (d.cruise_key === p.gantt!.selected ? 2 : 0.5)), color: g.map((d) => (d.cruise_key === p.gantt!.selected ? b.pick : "rgba(0,0,0,0.5)")) } },
-        width: 0.8, customdata: g.map((d) => [d.cruise_key, new Date(d.t0 * 1000).toISOString().slice(0, 10), new Date(d.t1 * 1000).toISOString().slice(0, 10), d.n_sta, d.n, fmtStat(p.stat === "n" ? d.n : d[p.stat]), d.ship]),
+        type: "bar", x: cal.map((c) => (c.x0 + c.x1) / 2), width: cal.map((c) => c.x1 - c.x0), base: cal.map((c) => c.y0), y: cal.map((c) => c.h),
+        marker: { color: cal.map((c) => `rgb(${c.rgba[0]},${c.rgba[1]},${c.rgba[2]})`), line: { width: g.map((d) => (d.cruise_key === p.gantt!.selected ? 2 : 0)), color: b.pick } },
+        customdata: g.map((d) => [d.cruise_key, new Date(d.t0 * 1000).toISOString().slice(0, 10), new Date(d.t1 * 1000).toISOString().slice(0, 10), d.n_sta, d.n, fmtStat(statOf(d)), d.ship]),
         hovertemplate: "<b>%{customdata[0]}</b> · %{customdata[6]}<br>%{customdata[1]} → %{customdata[2]} · %{customdata[3]} stations · %{customdata[4]} observations · " + p.stat + " %{customdata[5]}<extra></extra>",
       }];
-      // lane labels only when a lane is >= 9 px tall (the maximized strip); folded into the hover otherwise
-      const laneH = (div.clientHeight - 28) / Math.max(1, p.gantt.lanes.length);
-      layout = { yaxis: { ...b.yaxis, tickvals: p.gantt.lanes.map((_, i) => i), ticktext: p.gantt.lanes, autorange: "reversed", fixedrange: true, tickfont: { size: 9 }, showgrid: false, showticklabels: laneH >= 9, title: { text: laneH >= 9 ? "" : `${p.gantt.lanes.length} ships`, standoff: 2 } }, bargap: 0.1 };
+      // month labels: every month when a row is >= 11 px, the quarters otherwise (the folded strip)
+      const rowH = (div.clientHeight - 28) / 12;
+      const tv = rowH >= 11 ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] : [1, 4, 7, 10];
+      layout = { yaxis: { ...b.yaxis, tickvals: tv, ticktext: tv.map((m) => MONTHS[m - 1]), range: [12.6, 0.4], fixedrange: true, tickfont: { size: 9 }, showgrid: false, title: { text: "", standoff: 2 } }, bargap: 0, barmode: "overlay" };
     }
-    const brush = yearsSet ? [{ type: "rect", yref: "paper", y0: 0, y1: 1, x0: toX(fy[0]), x1: toX(fy[1]), fillcolor: "rgba(255,214,10,0.10)", line: { color: "rgba(255,214,10,0.6)", width: 1 } }] : [];
+    // month-resolved ticks: whole years only (a fractional tick rounded to "%.0f" repeats its neighbour), month starts under 2.5 years
+    let xticks: any = {};
+    if (monthRes && span <= 2.5) { const tv: number[] = [], tt: string[] = []; for (let m = Math.ceil(view[0] * 12); m <= Math.floor(view[1] * 12); m++) { tv.push(m / 12); tt.push(`${MONTHS[m % 12]} ${Math.floor(m / 12)}`); } xticks = { tickvals: tv, ticktext: tt }; }
+    else if (monthRes) xticks = { tick0: 0, dtick: 1 };
+    const brush = yearsSet ? [{ type: "rect", yref: "paper", y0: 0, y1: 1, x0: fy[0], x1: fy[1], fillcolor: "rgba(255,214,10,0.10)", line: { color: "rgba(255,214,10,0.6)", width: 1 } }] : [];
     Plotly.react(div, data, {
       ...b, showlegend: false, dragmode: "select", selectdirection: "h", bargap: 0.15,
-      xaxis: { ...b.xaxis, type: isDate ? "date" : "linear", range: [toX(view[0]), toX(view[1])], fixedrange: false, tickformat: isDate ? undefined : monthly ? ".0f" : undefined },
+      xaxis: { ...b.xaxis, type: "linear", range: [view[0], view[1]], fixedrange: false, ...xticks },
       yaxis: { ...b.yaxis, title: { text: p.mode === "n" ? "observations" : p.mode === "mean" ? `mean ${p.unit}` : "", standoff: 2 }, fixedrange: true },
-      margin: { l: p.mode === "cruises" ? (layout.yaxis?.showticklabels ? 96 : 44) : 44, r: 8, t: 6, b: 22 }, shapes: brush, annotations: [], ...layout,
+      margin: { l: 44, r: 8, t: 6, b: 22 }, shapes: brush, annotations: [], ...layout,
     }, { ...CFG, scrollZoom: true, doubleClick: false as any });
     const d = div as any;
     const xaxis = () => d._fullLayout?.xaxis;
-    const px = (v: number) => { const ax = xaxis(); if (!ax) return null; const x = isDate ? fyToDate(v).getTime() : v; return ax._offset + ax.d2p(x); };
+    const px = (v: number) => { const ax = xaxis(); if (!ax) return null; return ax._offset + ax.d2p(v); };
     const place = () => { const x = yearsSet ? px(fy[1]) : null; setHandle(x != null && Number.isFinite(x) ? x : null); };
     // cruise codes appear only where a bar is >= 40 px wide (zoom in for more); recomputed on every relayout
     let labelSig = "";
     const label = () => {
       if (p.mode !== "cruises" || !p.gantt) return;
       const ax = xaxis(); if (!ax) return;
-      const [r0, r1] = (ax.range ?? []).map((v: any) => plotlyDate(v).getTime());
-      const vis = p.gantt.rows.filter((c) => Math.abs(ax.d2p(c.t1 * 1000) - ax.d2p(c.t0 * 1000)) >= 40 && (r1 == null || c.t0 * 1000 <= r1) && (r0 == null || c.t1 * 1000 >= r0));
-      const sig = vis.map((c) => c.cruise_key).join(",");
+      const [r0, r1] = (ax.range ?? []).map(Number);
+      const vis = cal.filter((c) => Math.abs(ax.d2p(c.x1) - ax.d2p(c.x0)) >= 40 && (isNaN(r1) || c.x0 <= r1) && (isNaN(r0) || c.x1 >= r0));
+      const sig = vis.map((c) => c.key).join(",");
       if (sig === labelSig) return; labelSig = sig; // a relayout of annotations fires plotly_relayout again: write only a changed set
-      Plotly.relayout(div, { annotations: vis.map((c) => ({ x: new Date((c.t0 + c.t1) / 2 * 1000).toISOString(), y: c.lane, text: c.cruise_key, showarrow: false, font: { size: 9, color: "#fff" }, xanchor: "center", yanchor: "middle" })) });
+      Plotly.relayout(div, { annotations: vis.map((c) => ({ x: (c.x0 + c.x1) / 2, y: c.ym, text: c.key, showarrow: false, font: { size: 9, color: c.lum > 150 ? "#000" : "#fff" }, xanchor: "center", yanchor: "middle" })) });
     };
     place(); label();
     d.removeAllListeners?.("plotly_selected"); d.removeAllListeners?.("plotly_deselect"); d.removeAllListeners?.("plotly_relayout"); d.removeAllListeners?.("plotly_click"); d.removeAllListeners?.("plotly_doubleclick");
@@ -178,8 +216,8 @@ export function YearStrip(p: {
     d.__ccOnDbl = () => p.onView(null);
     d.on("plotly_selected", (ev: any) => {
       if (!ev?.range?.x) return;
-      const [a, c] = (ev.range.x as any[]).map((v) => (isDate ? dateToFy(plotlyDate(v)) : +v)).sort((x, y) => x - y);
-      if (monthly || isDate) { // month resolution: the brush edges snap to month bounds
+      const [a, c] = (ev.range.x as any[]).map(Number).sort((x, y) => x - y);
+      if (monthRes) { // month resolution: the brush edges snap to month bounds
         const y0 = Math.floor(a), m0 = Math.min(12, Math.floor((a - y0) * 12) + 1), y1 = Math.floor(c), m1 = Math.min(12, Math.floor((c - y1) * 12) + 1);
         const whole = m0 === 1 && m1 === 12;
         p.onYears([y0, Math.max(y0, y1)], whole ? null : [m0, m1]);
@@ -192,7 +230,7 @@ export function YearStrip(p: {
       if (ev["xaxis.autorange"]) p.onView(null);
       else if (ev["xaxis.range[0]"] != null || ev["xaxis.range"]) {
         const r0 = ev["xaxis.range"]?.[0] ?? ev["xaxis.range[0]"], r1 = ev["xaxis.range"]?.[1] ?? ev["xaxis.range[1]"];
-        const v: [number, number] = [isDate ? dateToFy(plotlyDate(r0)) : +r0, isDate ? dateToFy(plotlyDate(r1)) : +r1];
+        const v: [number, number] = [+r0, +r1];
         const clamped: [number, number] = [Math.max(full[0], v[0]), Math.min(full[1], v[1])];
         if (clamped[1] - clamped[0] >= full[1] - full[0] - 0.01) p.onView(null); else p.onView([+clamped[0].toFixed(3), +clamped[1].toFixed(3)]);
       }
