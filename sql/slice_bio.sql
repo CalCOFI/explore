@@ -5,7 +5,8 @@
 -- dataset sampled (a root sample with >= 1 row of any taxon; the effort it can standardize by is what its
 -- rows carry) gets a zero row per life stage the dataset records this taxon at, unless it has a row already.
 -- a dataset that ships its own zeros (cufes, zooscan, zoodb, phyllosoma) is left as it is. zero rows have
--- obs_id NULL and qual_ok TRUE.
+-- obs_id NULL and qual_ok TRUE; every template counts n = count(obs_id) (records) and n_samples = tows, so the
+-- counts shown stay the records and only the statistics (mean, se, median) see the zeros.
 CREATE OR REPLACE TABLE slice AS
 WITH pos AS (
   SELECT obs_id, dataset_key, root_id, grid_key,
