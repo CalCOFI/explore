@@ -120,7 +120,7 @@ export async function buildBundle(ctx: BundleCtx): Promise<{ blob: Blob; name: s
   zip.file("CITATION.md", `# Citations\n\nEvery row in \`data/observations\` carries \`dataset_key\`; cite each dataset it came from, and the CalCOFI integrated database release **${version}** (https://calcofi.io/db-schema/#erd?v=${version}).\n\n${cite}`);
   const filt = [
     `release: ${version} (release_date ${catalog.release_date ?? "—"}; every object read, with bytes / sha256 / content_hash, is in query/objects.json)`,
-    sel.realm === "bio" ? `taxon: ${sel.taxon} · life stage: ${sel.stage ?? "all"} · denominator: ${sel.den} (${ctx.unit})` : `variable: ${sel.var} = ${members(sel.var).join(" + ")} (${ctx.unit})`,
+    sel.realm === "bio" ? `taxon: ${sel.taxon} · life stage: ${sel.stage ?? "all"} · denominator: ${sel.den} (${ctx.unit}) · zeros: ${sel.zeros ? "a sampled tow with no catch counts as 0" : "positive tows only (zeros=0)"}` : `variable: ${sel.var} = ${members(sel.var).join(" + ")} (${ctx.unit})`,
     ...(sel.datasets ? [`datasets: ${sel.datasets.join(", ")} (pill filter)`] : []),
     `quality: qual_ok (calcofi4r::cc_qual_ok_sql) · years ${sel.months ? `${sel.years[0]}-${String(sel.months[0]).padStart(2, "0")} to ${sel.years[1]}-${String(sel.months[1]).padStart(2, "0")} (month-resolved)` : `${sel.years[0]}–${sel.years[1]}`}${sel.q?.length && sel.q.length < 4 ? ` · quarters ${sel.q.join(", ")}` : ""} · depth band ${sel.depth[0]}–${sel.depth[1]} m`,
     `lens: ${sel.lens}${sel.lens === "hex" ? ` (H3 res ${ctx.hexRes})` : ""}${sel.lens === "region" ? ` (layer ${sel.layer}; membership = sample_spatial, exact per root sample)` : ""}${sel.cruise ? ` · cruise ${sel.cruise}` : ""}${sel.lens === "section" ? ` · line ${sel.line}` : ""}`,

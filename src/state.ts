@@ -13,6 +13,7 @@ export interface Sel {
   var: string;                 // env: temperature | oxygen_ml_l
   stage: string | null;        // bio life stage; null = "let the picker default it" (D8 rule 4)
   den: Den | null;             // bio denominator; null = default per rule 4
+  zeros: boolean;              // bio: a tow a positive-only dataset sampled with no catch counts as 0 (default); zeros=0 = positive tows only
   years: [number, number];
   months: [number, number] | null;  // month-level filter (D20): years=2015-04:2016-10; null = whole years
   q: number[] | null;          // season: quarters kept (q=1,2); null = all
@@ -81,7 +82,7 @@ export const YEAR_OPEN = 9999; // "through the latest year in the release" until
 
 export const DEFAULTS: Sel = {
   lens: "station", res: 5, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature",
-  stage: null, den: null, years: [1949, YEAR_OPEN], months: null, q: null, yview: null, depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
+  stage: null, den: null, zeros: true, years: [1949, YEAR_OPEN], months: null, q: null, yview: null, depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
   line: 90, cruise: null, stat: "mean", anom: false, tour: true, tourOn: false, theme: null, release: null, station: null, datasets: null,
   hide: DEFAULT_HIDE, max: null, map: null,
 };
@@ -129,6 +130,7 @@ export function fromUrl(): Sel {
     var: v ?? DEFAULTS.var,
     stage: p.get("stage"),
     den: den && (den in VAL_COL) ? (den as Den) : null,
+    zeros: p.get("zeros") !== "0",
     ...parseYears(p.get("years")),
     q: p.get("q") ? [...new Set(p.get("q")!.split(",").map(Number).filter((x) => x >= 1 && x <= 4))].sort() : null,
     yview: p.get("yview") ? pair(p.get("yview"), [0, 0]) : null,
@@ -160,6 +162,7 @@ export function toUrl(s: Sel) {
     p.set("taxon", s.taxon);
     if (s.stage) p.set("stage", s.stage);
     if (s.den) p.set("den", s.den);
+    if (!s.zeros) p.set("zeros", "0");
   }
   if (s.years[0] !== 1949 || s.years[1] !== YEAR_OPEN || s.months) p.set("years", fmtYears(s.years, s.months));
   if (s.q?.length && s.q.length < 4) p.set("q", s.q.join(","));
@@ -184,7 +187,7 @@ export function toUrl(s: Sel) {
 // the picker's rule-4 defaults, from picker.sql rows
 export interface PickerRow {
   dataset_key: string; life_stage: string | null; effort_class: string; tow_type: string | null; units: string;
-  n: number; n_10m2: number; n_1000m3: number; n_flagged: number;
+  n: number; n_10m2: number; n_1000m3: number; n_flagged: number; n_filled?: number;
 }
 export function defaultStage(rows: PickerRow[]): string | null {
   // the stage with the most rows carrying effort, tie -> most rows; eggs and larvae are never merged

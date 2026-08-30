@@ -54,6 +54,15 @@ label.f select, label.f input { font: inherit; color: var(--fg); background: var
 .den label .ds { padding-left: 20px; }
 .den .shf { padding-left: 2px; font-style: italic; }
 .den input { margin-right: 4px; }
+.den .zeros { display: flex; align-items: center; gap: 6px; padding: 3px 0 0; font-size: var(--fs-sm, 11px); }
+.den .zeros .chip { padding: 0 6px 0 8px; cursor: pointer; }
+.den .zeros .sw { display: inline-block; width: 18px; height: 10px; border-radius: 999px; background: var(--border); position: relative; transition: background .15s; }
+.den .zeros .sw::after { content: ""; position: absolute; top: 1px; left: 1px; width: 8px; height: 8px; border-radius: 50%; background: var(--panel); transition: left .15s; }
+.den .zeros .sw.on { background: var(--accent); }
+.den .zeros .sw.on::after { left: 9px; background: var(--on-accent); }
+.den .zeros .hint { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.den .zeros .info { color: var(--muted); display: inline-flex; cursor: help; }
+.den .zeros .info:hover { color: var(--fg); }
 .legend .bar { height: 8px; border-radius: 3px; margin: 3px 0; }
 .legend .ticks { display: flex; justify-content: space-between; color: var(--muted); font-variant-numeric: tabular-nums; }
 .legend .ttl { font-weight: 600; }

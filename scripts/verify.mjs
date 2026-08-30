@@ -162,6 +162,8 @@ const STATES = [
     assert: async () => { const u = await page.evaluate(() => location.search); if (!/yview=19(8|9)\d/.test(u)) fail(`u6_zoom_to_selection: yview= not on the selection (${u})`); if (!/years=1990-2005/.test(u)) fail(`u6_zoom_to_selection: the filter moved (${u})`); } },
   { name: "u6_month_brush", url: "?tour=off&yview=2008-2013", steps: async () => { await sleep(1500); const b = await (await page.$(".rail-years .plot")).boundingBox(); const y = b.y + b.height * 0.45; await page.mouse.move(b.x + b.width * 0.4, y); await page.mouse.down(); await page.mouse.move(b.x + b.width * 0.6, y, { steps: 6 }); await page.mouse.up(); await sleep(900); },
     assert: async () => { const u = await page.evaluate(() => location.search); if (!/years=\d{4}-\d{2}%3A\d{4}-\d{2}|years=\d{4}-\d{2}:\d{4}-\d{2}/.test(u)) fail(`u6_month_brush: no month-resolved years= (${u})`); } },
+  { name: "u6_positive_only", url: "?tour=off&zeros=0", steps: async () => { await sleep(600); },
+    assert: async () => { if (!(await page.$(".den .zeros .chip.on"))) fail("u6_positive_only: the chip is not on for zeros=0"); await click(".den .zeros .chip"); await sleep(400); const u = await page.evaluate(() => location.search); if (/zeros=/.test(u)) fail(`u6_positive_only: zeros= survived the toggle (${u})`); } },
   { name: "u6_season", url: "?tour=off&q=2,3", steps: async () => { await expandGroup("filters"); await click(".chip::-p-text(season)"); await sleep(300); },
     assert: async () => { const t = await page.$eval(".chip::-p-text(season)", (el) => el.textContent); if (!/Q2 Q3/.test(t)) fail(`u6_season: chip reads ${t}`); } },
   { name: "u6_cruises", url: "?tour=off", steps: async () => { await clickText(".rail-years .seg button", "cruises"); await sleep(1800); },

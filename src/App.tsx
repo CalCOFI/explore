@@ -50,6 +50,9 @@ const phoneQuery = matchMedia("(max-width: 899px)");
 // registered buffer names: the SQL templates read these (`{{src}}` etc.), never a URL
 const REG = { obs_bio: "obs_bio.parquet", sample_root: "sample_root.parquet", sample_spatial: "sample_spatial.parquet", taxon: "taxon.parquet", measurement_type: "measurement_type.parquet", dataset: "dataset.parquet", cruise: "cruise.parquet" } as const;
 const envReg = (v: string) => `obs_env_${v}.parquet`;
+const ZEROS_TIP = `Datasets such as ichthyo record a tow only when it caught the taxon, so a mean over their records alone is a mean over positive tows — biased high, and a surveyed year with no catch looks like a year with no survey.
+By default every tow such a dataset sampled counts as 0 for this taxon (a "zero-filled tow": obs_id NULL in the export; never counted as an observation).
+positive-only turns that off: mean, median and se run over the tows with a catch, as the raw records do. Datasets that record their own zeros (CUFES, ZooScan, ZooDB, phyllosoma) read the same either way.`;
 // an env variable's source: the union of its member objects, each stamped with its measurement_type (the hive key)
 const envSrc = (key: string) => `(${members(key).map((m) => `SELECT *, '${m}' AS measurement_type FROM '${envReg(m)}'`).join(" UNION ALL ")})`;
 const q = (name: string) => `'${name}'`;
@@ -250,8 +253,8 @@ export function App() {
     val, y0: years[0], y1: years[1], ym0: years[0] * 100 + (sel.months?.[0] ?? 1), ym1: years[1] * 100 + (sel.months?.[1] ?? 12),
     quarter_filter: sel.q?.length && sel.q.length < 4 ? `quarter IN (${sel.q.join(", ")})` : "TRUE", bin: "year",
     d0: sel.depth[0], d1: sel.depth[1], stage: sel.realm === "bio" ? sel.stage : null,
-    dataset_filter: datasetFilterSql(sel.datasets),
-  }), [val, years[0], years[1], sel.months, sel.q, sel.depth, sel.stage, sel.realm, sel.datasets]);
+    dataset_filter: datasetFilterSql(sel.datasets), zeros: sel.realm !== "bio" || sel.zeros,
+  }), [val, years[0], years[1], sel.months, sel.q, sel.depth, sel.stage, sel.realm, sel.datasets, sel.zeros]);
   const dsOn = (dk: string) => !sel.datasets || sel.datasets.includes(dk);
   const toggleDataset = (dk: string) => {
     const all = [...new Set(picker.map((r) => r.dataset_key))];
@@ -517,10 +520,12 @@ export function App() {
     return { rows: gr, selected: sel.cruise, onPick: (k: string) => setSel({ cruise: k }) };
   }, [seriesMode, cruiseRows, ganttRows, cruiseRef, sel.lens, sel.cruise]);
   const yearsSpark = useMemo(() => { const m = new Map(yearRows.map((r) => [r.year, r.n])); const out: number[] = []; for (let y = 1949; y <= yearMax; y++) out.push(m.get(y) ?? 0); return out; }, [yearRows, yearMax]);
+  const nFilled = useMemo(() => picker.filter((r) => r.life_stage === sel.stage && dsOn(r.dataset_key)).reduce((a, r) => a + (r.n_filled ?? 0), 0), [picker, sel.stage, sel.datasets]);
+  const zerosNote = sel.realm === "bio" && !sel.zeros ? " · positive tows only" : "";
   const unitLabel = sel.realm === "bio" ? (sel.den === "raw" ? "count" : sel.den === "per_10m2" ? "per 10 m²" : "per 1000 m³") : (picker[0]?.units ?? sel.var);
   const taxonRow = taxa.find((t) => t.taxon_key === sel.taxon);
   const legendTitle = preSlice ? "root samples · all datasets (coverage.json, before the engine is warm)" : sel.realm === "bio"
-    ? `${STAT_LABEL[stat]} · ${taxonRow?.common_name ?? taxonRow?.scientific_name ?? sel.taxon} · ${sel.stage ?? "all stages"} · ${unitLabel}`
+    ? `${STAT_LABEL[stat]} · ${taxonRow?.common_name ?? taxonRow?.scientific_name ?? sel.taxon} · ${sel.stage ?? "all stages"} · ${unitLabel}${zerosNote}`
     : `${STAT_LABEL[stat]} · ${envVar ? `${envVar.label}${envVar.sub ? ` (${envVar.sub})` : ""}` : sel.var} · ${sel.depth[0]}–${sel.depth[1]} m`;
   const lines = useMemo(() => [...new Set(grid.map((c) => c.line))].sort((a, b) => a - b), [grid]);
   const stationCard = useMemo(() => {
@@ -588,7 +593,7 @@ export function App() {
   // ── panels (D11 · D18): folds + maximize live in the URL; card minimize, rail width and the phone sheet in memory ─
   const tracks = { "--l": phone ? "0px" : folded("select") ? `${FOLDED_PX}px` : `${railW}px`, "--r": folded("depth") ? `${FOLDED_PX}px` : "210px", "--b": folded("years") ? `${FOLDED_PX}px` : "140px" } as React.CSSProperties;
   const organism = organismItems.find((i) => i.key === sel.taxon);
-  const selectSummary = sel.realm === "bio" ? `${organism?.label ?? sel.taxon} · ${sel.stage ?? "all stages"} · ${unitLabel}` : `${envVar?.label ?? sel.var} · ${sel.depth[0]}–${sel.depth[1]} m`;
+  const selectSummary = sel.realm === "bio" ? `${organism?.label ?? sel.taxon} · ${sel.stage ?? "all stages"} · ${unitLabel}${zerosNote}` : `${envVar?.label ?? sel.var} · ${sel.depth[0]}–${sel.depth[1]} m`;
   const depthSummary = sliceKey && !depthRows.length ? "Depth · integrated tows" : `Depth ${sel.depth[0]}–${sel.depth[1]} m`;
   const depthEmpty = "depth-integrated net tows —<br>no water-column profile for this selection;<br>the tow span will draw here<br>once the release carries it";
   const seriesToggle = <span className="seg" role="group" aria-label="year strip mode" data-tour="strip-mode"><button className={seriesMode === "n" ? "on" : ""} onClick={() => setSeriesMode("n")}>observations</button><button className={seriesMode === "mean" ? "on" : ""} onClick={() => setSeriesMode("mean")}>mean ± se</button><button className={seriesMode === "cruises" ? "on" : ""} onClick={() => setSeriesMode("cruises")} title="a year × month calendar, one cell per cruise coloured by the summary stat; zoom in for the dates and codes; click a cell to pick the cruise"><Icon name="ui-gantt" />cruises</button></span>;
@@ -650,6 +655,14 @@ export function App() {
               </label>); })}
             <div className="hint shf">{SHF_NOTE}</div>
           </div>}
+          {/* the zeros: a tow a positive-only dataset sampled with no catch counts as 0 unless positive-only is on (zeros=0) */}
+          <div className="zeros">
+            <button type="button" className={`chip${sel.zeros ? "" : " on"}`} aria-pressed={!sel.zeros} onClick={() => setSel({ zeros: !sel.zeros })} title={sel.zeros ? "statistics over every sampled tow (a tow with no catch counts as 0) — click for positive tows only" : "statistics over tows with a catch only — click to count sampled tows with no catch as 0"}>
+              positive-only<i className={`sw${sel.zeros ? "" : " on"}`} />
+            </button>
+            <span className="hint">{sel.zeros ? (nFilled ? `${fmtN(nFilled)} sampled tows with no catch count as 0` : "no zero-filled tows in this slice") : "mean, median and se over tows with a catch only"}</span>
+            <span className="info" tabIndex={0} title={ZEROS_TIP}><Icon name="ui-about" size="0.95rem" /></span>
+          </div>
         </div>
         <div className="pills">
           {picker.length === 0 && <span className="pill off">{status}</span>}
