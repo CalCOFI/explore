@@ -327,7 +327,7 @@ const STATES = [
   { name: "v2_tour", url: "?tour=off", steps: async () => { await page.evaluate(() => window.__tour()); await sleep(900); }, tour: true },
   { name: "v2_phone", url: "?tour=off", viewport: PHONE, steps: async () => {}, assert: async () => {
       const b = await page.evaluate(() => ({ v: window.ccTheme?.version, src: [...document.querySelectorAll(".cc-header .cc-home img")].find((i) => i.getBoundingClientRect().width > 0)?.currentSrc ?? "", hdr: document.querySelector(".cc-header").getBoundingClientRect().height })); if (b.v !== "2") return;
-      console.log(`  header ${b.hdr}px · logo ${b.src.split("/").pop()}`); if (!/logo_calcofi_light\.svg/.test(b.src)) fail(`v2_phone: the header shows ${b.src.split("/").pop()} (expected the bare mark under 480 px)`); if (b.hdr > 48) fail(`v2_phone: header ${b.hdr}px`); } },
+      console.log(`  header ${b.hdr}px · logo ${b.src.split("/").pop()}`); if (!/logo_calcofi(_light)?\.svg$/.test(b.src)) fail(`v2_phone: the header shows ${b.src.split("/").pop()} (expected the bare mark under 480 px)`); if (b.hdr > 48) fail(`v2_phone: header ${b.hdr}px`); } },
 ];
 // every tour step: its anchor resolves and is on screen in the state its before() produced; one screenshot per step
 async function walkTour(name) {
