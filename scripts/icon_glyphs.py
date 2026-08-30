@@ -59,19 +59,27 @@ d += poly([(14.6, 2.2), (15.4, 2.2), (15.4, 5.9), (14.6, 5.9)])                 
 d += stroke([(4.2, 13), (3.3, 5.2), (8.3, 13)], 1.7)                                    # A-frame over the stern
 d += seg((3.9, 10.2), (7.2, 10.2), 1.3)                                                 # its brace
 ICON['lens-cruises'] = d
-# lens-regions: an abstract polygon, thin edges, small vertices
+# lens-regions: an abstract polygon, thin edges, OPEN ring vertices (closed dots are lens-sections' bottles);
+# each edge stops at the ring so the hole is not refilled by the stroke
 V = [(3.5, 9), (12, 3.5), (21, 7.5), (17.5, 20), (7, 17.5)]
-ICON['lens-regions'] = stroke(V, 1.6, closed=True) + ''.join(circle(x, y, 2.2) for x, y in V)
-# cat-whale: a whale in profile — head left, the peduncle curving up to raised flukes at the right, an eye, a pectoral fin
+RO, RI, EW = 2.7, 1.3, 1.5
+d = ''
+for i in range(len(V)):
+    a_, b_ = V[i], V[(i + 1) % len(V)]
+    dx, dy = b_[0] - a_[0], b_[1] - a_[1]; L = math.hypot(dx, dy); ux, uy = dx / L, dy / L
+    d += seg((a_[0] + ux * RO, a_[1] + uy * RO), (b_[0] - ux * RO, b_[1] - uy * RO), EW)
+for x, y in V: d += circle(x, y, RO) + circle(x, y, RI, hole=True)
+ICON['lens-regions'] = d
+# cat-whale: a whale in profile — head left, the peduncle rising to broad raised flukes (two lobes, a notch), an eye, a pectoral fin
 body = []
 body += curve((1.5, 12.8), (1.5, 10), (3.8, 8.8), (7.5, 8.8))
-body += curve((7.5, 8.8), (11.5, 8.8), (13.8, 9.4), (15.8, 8.6))[1:]
-body += curve((15.8, 8.6), (17.2, 8), (18, 7), (18.6, 5.8))[1:]
-body += [(22.4, 1.6), (23.8, 2.8), (21.2, 6.4), (23.9, 9.4), (22.9, 10.9), (19.9, 8.3)]
-body += curve((19.9, 8.3), (19, 9.9), (18.2, 11.2), (16.8, 12.6))[1:]
-body += curve((16.8, 12.6), (14.8, 14.8), (12, 16.8), (8, 16.8))[1:]
-body += curve((8, 16.8), (5, 16.8), (2.5, 15.9), (1.5, 12.8))[1:]
-ICON['cat-whale'] = poly(body) + poly([(7.6, 16.2), (9.2, 19.9), (11.8, 16.5)]) + circle(4.6, 11.7, 1, hole=True)
+body += curve((7.5, 8.8), (11.5, 8.8), (14, 9.3), (16, 8.5))[1:]
+body += curve((16, 8.5), (17.2, 8), (17.5, 7.3), (17.6, 6.2))[1:]
+body += [(13.9, 3.9), (14.3, 1.8), (19.2, 3.9), (23.2, 1.3), (23.9, 3.2), (20.9, 6.6)]
+body += curve((20.7, 6.5), (20.5, 8.5), (19.2, 10.6), (17, 12.4))[1:]
+body += curve((17, 12.4), (15, 14.6), (12, 16.6), (8, 16.6))[1:]
+body += curve((8, 16.6), (5, 16.6), (2.5, 15.8), (1.5, 12.8))[1:]
+ICON['cat-whale'] = poly(body) + poly([(7.6, 16), (9.2, 19.7), (11.8, 16.3)]) + circle(4.6, 11.7, 1, hole=True)
 # cat-zooplankton: a copepod — the egg-shaped prosome, the first antennae sweeping out sideways, the segmented urosome and the forked tail
 d = poly(curve((12, 3), (15.3, 3), (16.2, 7.5), (14.8, 11.5)) + curve((14.8, 11.5), (14, 13.4), (10, 13.4), (9.2, 11.5))[1:] + curve((9.2, 11.5), (7.8, 7.5), (8.7, 3), (12, 3))[1:])
 d += stroke(curve((10.2, 6), (7, 5.5), (4, 6.5), (1.5, 9.5), 5), 1.5) + stroke(curve((13.8, 6), (17, 5.5), (20, 6.5), (22.5, 9.5), 5), 1.5)
