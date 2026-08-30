@@ -26,6 +26,15 @@ jobs:
           # the feedback endpoint (calcofi4r::cc_feedback_script() deployed as a web app): a repository variable, so
           # setting it needs no code change; empty = the dialog offers the prefilled GitHub issue only
           VITE_FEEDBACK_URL: ${{ vars.VITE_FEEDBACK_URL }}
+      # the brand v2 preview at calcofi.io/explore/v2/ (plan 2026-08-30, Phase 2): the same app on VITE_BRAND=v2, until the
+      # 9/8 decision. The flip is VITE_BRAND=v2 on the build above and deleting this step.
+      - run: npx vite build --outDir dist/v2
+        env:
+          VITE_DATA_URL: https://storage.googleapis.com/calcofi-db/explore-dev-root/
+          VITE_RELEASE_PREFIX: explore-dev/releases
+          VITE_BASE: /explore/v2/
+          VITE_BRAND: v2
+          VITE_FEEDBACK_URL: ${{ vars.VITE_FEEDBACK_URL }}
       - uses: actions/upload-pages-artifact@v3
         with: { path: dist }
   deploy:

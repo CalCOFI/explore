@@ -21,6 +21,7 @@ import { IconButton, type MenuItem } from "./ui";
 import { figureName, plotPng, plotSvg, csvBlob, copyImage, type Stamp } from "./export";
 import { captureView, canvasBlob, luminanceStats, blobStats } from "./capture";
 import { track as trackEvent } from "./track";
+import { BRAND, LOGO, DEFAULT_THEME, fontEmbedCss } from "./brand";
 import { categoryRank, categoryIcon, envCategory, DATASET_CATEGORY_FALLBACK } from "./categories";
 import {
   fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LENS_ICON, RES_KM, LAYERS, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, DEN_HOW, SHF_NOTE, STAT_LABEL, YEAR_OPEN, MAP_HOME,
@@ -77,7 +78,7 @@ function polyCentroid(f: any): [number, number] {
 export function App() {
   const [sel, setSelRaw] = useState<Sel>(() => fromUrl());
   const [displayLens, setDisplayLens] = useState<Lens>("station");
-  const [theme, setTheme] = useState<"dark" | "light">(document.documentElement.dataset.theme === "light" ? "light" : "dark");
+  const [theme, setTheme] = useState<"dark" | "light">(document.documentElement.dataset.theme === "light" ? "light" : document.documentElement.dataset.theme === "dark" ? "dark" : DEFAULT_THEME);
   const [version, setVersion] = useState<string | null>(null);
   const [versions, setVersions] = useState<string[]>([]);
   const [catalog, setCatalog] = useState<Catalog | null>(null);
@@ -773,6 +774,7 @@ export function App() {
     } catch (e: any) { setStatus(`capture failed: ${e.message}`); }
   };
   (window as any).__figure = async (id: FigureId, kind: "png" | "svg" | "csv") => { const f = await figure(id, kind); const out: any = { name: f.name, bytes: f.blob.size, type: f.blob.type }; if (kind === "png") { Object.assign(out, await blobStats(f.blob)); out.dataUrl = await new Promise<string>((ok) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.readAsDataURL(f.blob); }); } else { const t = await f.blob.text(); out.text = t.slice(0, 300); out.stamped = /release /.test(t); out.lines = t.split("\n").length; } return out; };
+  (window as any).__fontEmbedCss = fontEmbedCss;   // verify.mjs: the v2 capture embeds the brand fonts
   (window as any).__captureView = async () => { const c = await captureView({ stamp: viewStamp() }); return { w: c.width, h: c.height, ...luminanceStats(c), dataUrl: c.toDataURL("image/png") }; };
   const cardOpen: Record<CardId, boolean> = { section: displayLens === "section", cruise: displayLens === "cruise", station: !!stationCard, timing: advanced };
   const maxId: PanelId | null = sel.max && !phone && (sel.max === "select" || sel.max === "depth" || sel.max === "years" || cardOpen[sel.max as CardId]) ? sel.max : null;
@@ -794,10 +796,20 @@ export function App() {
     <div className="app">
       <header className="cc-header">
         <a className="cc-home" href="https://calcofi.io" aria-label="CalCOFI.io home">
-          <img className="cc-logo-dark" src="https://calcofi.io/brand/v1/logo_calcofi.svg" alt="CalCOFI" width="32" height="32" />
-          <img className="cc-logo-light" src="https://calcofi.io/brand/v1/logo_calcofi_light.svg" alt="CalCOFI" width="32" height="32" />
+          {/* v2: the horizontal lockup at the app scale's 28 px, the bare mark under 480 px — four <img>s and a media query
+              (style.css), not <picture>: html-to-image's clone loses the image inside a <picture>, and the feedback capture
+              is set from this header; v1: the 32 px mark (src/brand.ts) */}
+          {BRAND === "v2" ? <>
+            <img className="cc-logo-dark cc-logo-lockup" src={LOGO.dark} alt="CalCOFI" height={LOGO.height} />
+            <img className="cc-logo-light cc-logo-lockup" src={LOGO.light} alt="CalCOFI" height={LOGO.height} />
+            <img className="cc-logo-dark cc-logo-mark" src={LOGO.markDark} alt="CalCOFI" height={LOGO.height} loading="lazy" />
+            <img className="cc-logo-light cc-logo-mark" src={LOGO.markLight} alt="CalCOFI" height={LOGO.height} loading="lazy" />
+          </> : <>
+            <img className="cc-logo-dark" src={LOGO.dark} alt="CalCOFI" width="32" height="32" />
+            <img className="cc-logo-light" src={LOGO.light} alt="CalCOFI" width="32" height="32" />
+          </>}
         </a>
-        <a className="cc-title" href="./"><span className="cc-title-org">CalCOFI </span>Explorer<small><Icon name={LENS_ICON[sel.lens]} /> {LENS_TITLE[sel.lens]}</small></a>
+        <a className="cc-title" href="./">{BRAND === "v1" && <span className="cc-title-org">CalCOFI </span>}Explorer<small><Icon name={LENS_ICON[sel.lens]} /> {LENS_TITLE[sel.lens]}</small></a>
         <span className="cc-spacer" />
         {/* the release chip sits at the right with the tools; the query / schema / docs links live in About (they were header clutter) */}
         <a className="cc-release" data-tour="release" href={`https://calcofi.io/db-schema/#erd?v=${rel}`} title="CalCOFI integrated database release — every value shown comes from this frozen release; schema and release notes"><span className="cc-release-word">release</span> <b>{rel}</b></a>

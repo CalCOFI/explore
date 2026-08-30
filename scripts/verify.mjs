@@ -44,6 +44,8 @@ const waitMark = async (re, timeout = 90000) => {
 const results = { states: {}, timing: {}, errors };
 let fails = 0;
 const fail = (msg) => { fails++; console.log("  FAIL", msg); };
+// brand v2 (plan 2026-08-30 Phase 2): style.css draws its shadows and on-accent text from the tokens, never black or #fff
+{ const css = fs.readFileSync(new URL("../src/style.css", import.meta.url), "utf8"); for (const bad of ["#fff", "rgba(0,0,0", "rgba(0, 0, 0"]) if (css.includes(bad)) fail(`style.css still has ${bad}`); }
 
 // ── layout assertions ────────────────────────────────────────────────────────
 async function assertLayout(name) {
@@ -299,6 +301,33 @@ const STATES = [
   { name: "u2_variable_browse", url: "?var=temperature&tour=off", steps: async () => { await click("#variable-btn"); await sleep(300); await click('[data-tour="browse"]'); await sleep(300); await clickText(".browse-row .lab", "Nutrients"); await sleep(300); },
     assert: async () => { const g = await page.$$eval(".browse-group", (r) => r.map((x) => x.querySelector(".lab").firstChild.textContent)); console.log(`  categories: ${g.join(" · ")}`); if (!g.includes("Nutrients & Chemistry") || !g.includes("Carbonate System")) fail("u2_variable_browse: the registry's categories are missing"); } },
   { name: "p2_browse", url: "?tour=off", viewport: PHONE, steps: async () => { await click(".sheet-summary"); await sleep(400); await click("#organism-btn"); await sleep(400); await click('[data-tour="browse"]'); await sleep(300); } },
+  // brand v2 preview (plan 2026-08-30 Phase 2) — meaningful on a VITE_BRAND=v2 build (the dev server: VITE_BRAND=v2 npm run dev); on v1 they report and skip
+  { name: "v2_default_light", url: "?tour=off", steps: async () => {
+      // a FRESH context: an earlier state's ?theme= link persisted (as it should), so drop the cookies and storage and reopen
+      await page.evaluate(() => { localStorage.clear(); }); const cdp = await page.createCDPSession(); await cdp.send("Network.clearBrowserCookies"); await cdp.detach();
+      await page.goto(base + "?tour=off", { waitUntil: "domcontentloaded" }); await waitMark(/^first_lens_ready$/); await sleep(1200); }, assert: async () => {
+      const b = await page.evaluate(() => ({ v: window.ccTheme?.version, t: document.documentElement.dataset.theme, s: document.documentElement.getAttribute("data-cc-scale"), ss: document.fonts.check('16px "Source Sans 3"'), lockup: !!document.querySelector('.cc-header .cc-home img[src*="logo_calcofi_h"]'), org: !!document.querySelector(".cc-title-org"), cookie: document.cookie, hdr: document.querySelector(".cc-header").getBoundingClientRect().height, fs: getComputedStyle(document.querySelector(".group-title")).fontSize }));
+      console.log(`  ccTheme.version ${b.v} · theme ${b.t} · scale ${b.s} · Source Sans 3 ${b.ss} · lockup ${b.lockup} · header ${b.hdr}px · group title ${b.fs}`);
+      if (b.v !== "2") { console.log("  (a v1 build — the v2 checks are skipped)"); return; }
+      if (b.t !== "light") fail(`v2_default_light: a fresh context opened ${b.t}`); if (b.s !== "app") fail("v2_default_light: data-cc-scale is not app"); if (!b.ss) fail("v2_default_light: Source Sans 3 not loaded");
+      if (!b.lockup) fail("v2_default_light: no lockup in the header"); if (b.org) fail("v2_default_light: the cc-title-org span is still there"); if (/cc_theme=/.test(b.cookie)) fail(`v2_default_light: the default was persisted (${b.cookie})`); if (b.hdr > 46) fail(`v2_default_light: header ${b.hdr}px (app scale is 44)`); } },
+  { name: "v2_dark", url: "?tour=off&theme=dark", steps: async () => {}, assert: async () => {
+      const b = await page.evaluate(() => ({ v: window.ccTheme?.version, t: document.documentElement.dataset.theme, cookie: document.cookie, bg: getComputedStyle(document.documentElement).getPropertyValue("--bg").trim() })); if (b.v !== "2") return;
+      if (b.t !== "dark" || b.bg !== "#0f1a2e") fail(`v2_dark: theme ${b.t} bg ${b.bg}`); if (!/cc_theme_src=user/.test(b.cookie)) fail(`v2_dark: ?theme= did not persist with the marker (${b.cookie})`); } },
+  { name: "v2_capture_fonts", url: "?tour=off", steps: async () => {}, assert: async () => {
+      if ((await page.evaluate(() => window.ccTheme?.version)) !== "2") return;
+      const n = await page.evaluate(() => window.__fontEmbedCss().then((s) => s.length)); console.log(`  font-embed css ${(n / 1e3).toFixed(0)} KB`); if (n < 50000) fail(`v2_capture_fonts: font-embed css is ${n} chars (expected the woff2 files inlined)`);
+      const r = await page.evaluate(() => window.__captureView()); fs.writeFileSync(path.join(out, "v2_capture_light.png"), Buffer.from(r.dataUrl.split(",")[1], "base64")); console.log(`  capture ${r.w}×${r.h} · mean ${r.mean.toFixed(1)} sd ${r.sd.toFixed(1)} non-bg ${(r.nonBg * 100).toFixed(0)} %`); if (r.sd < 15 || r.nonBg < 0.15) fail("v2_capture_fonts: looks blank");
+      // the lockup drew: the mark's yellow in the capture's top-left corner (a <picture> wrapper lost it silently)
+      const y = await page.evaluate(async (du) => { const img = new Image(); await new Promise((ok) => { img.onload = ok; img.src = du; }); const c = document.createElement("canvas"); c.width = 300; c.height = 50; const ctx = c.getContext("2d"); ctx.drawImage(img, 0, 0, 300, 50, 0, 0, 300, 50); const d = ctx.getImageData(0, 0, 300, 50).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] > 200 && d[i + 1] > 180 && d[i + 2] < 120) n++; return n; }, r.dataUrl);
+      console.log(`  lockup yellow px in the corner: ${y}`); if (y < 10) fail(`v2_capture_fonts: the header lockup is missing from the capture (${y} yellow px)`); } },
+  { name: "v2_capture_dark", url: "?lens=section&var=temperature&line=90&tour=off&theme=dark", steps: async () => {}, assert: async () => {
+      if ((await page.evaluate(() => window.ccTheme?.version)) !== "2") return;
+      const r = await page.evaluate(() => window.__captureView()); fs.writeFileSync(path.join(out, "v2_capture_dark.png"), Buffer.from(r.dataUrl.split(",")[1], "base64")); if (r.sd < 15 || r.nonBg < 0.15) fail("v2_capture_dark: looks blank"); } },
+  { name: "v2_tour", url: "?tour=off", steps: async () => { await page.evaluate(() => window.__tour()); await sleep(900); }, tour: true },
+  { name: "v2_phone", url: "?tour=off", viewport: PHONE, steps: async () => {}, assert: async () => {
+      const b = await page.evaluate(() => ({ v: window.ccTheme?.version, src: [...document.querySelectorAll(".cc-header .cc-home img")].find((i) => i.getBoundingClientRect().width > 0)?.currentSrc ?? "", hdr: document.querySelector(".cc-header").getBoundingClientRect().height })); if (b.v !== "2") return;
+      console.log(`  header ${b.hdr}px · logo ${b.src.split("/").pop()}`); if (!/logo_calcofi_light\.svg/.test(b.src)) fail(`v2_phone: the header shows ${b.src.split("/").pop()} (expected the bare mark under 480 px)`); if (b.hdr > 48) fail(`v2_phone: header ${b.hdr}px`); } },
 ];
 // every tour step: its anchor resolves and is on screen in the state its before() produced; one screenshot per step
 async function walkTour(name) {

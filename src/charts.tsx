@@ -9,14 +9,17 @@ const plotly = () => PlotlyMod ? Promise.resolve(PlotlyMod) : import("plotly.js-
 
 function cssVar(n: string) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
 function base(theme: string) {
-  const fg = cssVar("--fg") || "#e6e9ed", muted = cssVar("--muted") || "#9aa0a6", border = cssVar("--border") || "#3a3f44";
+  // the fallbacks only apply before getComputedStyle answers: brand v2's light values (the default theme)
+  const fg = cssVar("--fg") || "#182b49", muted = cssVar("--muted") || "#66686a", border = cssVar("--border") || "#dddddd";
   return {
     paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
     font: { color: fg, size: 11, family: cssVar("--sans") || "system-ui" },
     xaxis: { gridcolor: border, zerolinecolor: border, color: muted, linecolor: border },
     yaxis: { gridcolor: border, zerolinecolor: border, color: muted, linecolor: border },
     margin: { l: 44, r: 8, t: 6, b: 28 },
-    accent: cssVar("--accent") || (theme === "dark" ? "#4dabf7" : "#2780e3"), muted,
+    accent: cssVar("--accent") || (theme === "dark" ? "#4fb6e6" : "#00629b"), muted,
+    // the selection highlight: the brand's yellow (UCSD #ffcd00 in v2) — the one place the accent lands inside the data view
+    pick: cssVar("--cc-yellow") || "#ffd60a",
   };
 }
 const CFG = { displayModeBar: false, responsive: true } as const;
@@ -139,7 +142,7 @@ export function YearStrip(p: {
       const nmax = Math.max(1, ...g.map((d) => d.n));
       data = [{
         type: "bar", orientation: "h", y: g.map((d) => d.lane), base: g.map((d) => new Date(d.t0 * 1000).toISOString()), x: g.map((d) => Math.max(86400e3, (d.t1 - d.t0) * 1000)),
-        marker: { color: g.map((d) => { const c = col(p.stat === "n" ? d.n : d[p.stat]); return `rgba(${c[0]},${c[1]},${c[2]},${(0.45 + 0.55 * Math.sqrt(d.n / nmax)).toFixed(2)})`; }), line: { width: g.map((d) => (d.cruise_key === p.gantt!.selected ? 2 : 0.5)), color: g.map((d) => (d.cruise_key === p.gantt!.selected ? "#ffd60a" : "rgba(0,0,0,0.5)")) } },
+        marker: { color: g.map((d) => { const c = col(p.stat === "n" ? d.n : d[p.stat]); return `rgba(${c[0]},${c[1]},${c[2]},${(0.45 + 0.55 * Math.sqrt(d.n / nmax)).toFixed(2)})`; }), line: { width: g.map((d) => (d.cruise_key === p.gantt!.selected ? 2 : 0.5)), color: g.map((d) => (d.cruise_key === p.gantt!.selected ? b.pick : "rgba(0,0,0,0.5)")) } },
         width: 0.8, customdata: g.map((d) => [d.cruise_key, new Date(d.t0 * 1000).toISOString().slice(0, 10), new Date(d.t1 * 1000).toISOString().slice(0, 10), d.n_sta, d.n, fmtStat(p.stat === "n" ? d.n : d[p.stat]), d.ship]),
         hovertemplate: "<b>%{customdata[0]}</b> · %{customdata[6]}<br>%{customdata[1]} → %{customdata[2]} · %{customdata[3]} stations · %{customdata[4]} observations · " + p.stat + " %{customdata[5]}<extra></extra>",
       }];
@@ -269,7 +272,7 @@ export function CruiseSeries(p: { rows: CruiseRow[]; stat: "mean" | "med" | "n";
     const y = p.rows.map((d) => (p.stat === "n" ? d.n : d[p.stat]));
     Plotly.react(div, [{
       x: p.rows.map((d) => new Date(d.t0 * 1000)), y, type: "scatter", mode: "markers",
-      marker: { size: p.rows.map((d) => (d.cruise_key === p.selected ? 12 : 6)), color: p.rows.map((d) => (d.cruise_key === p.selected ? "#ffd60a" : b.accent)), line: { width: 0.5, color: "#000" } },
+      marker: { size: p.rows.map((d) => (d.cruise_key === p.selected ? 12 : 6)), color: p.rows.map((d) => (d.cruise_key === p.selected ? b.pick : b.accent)), line: { width: 0.5, color: "#000" } },
       text: p.rows.map((d) => `${d.cruise_key}<br>${d.n_sta} stations, ${d.n} observations`), hovertemplate: "%{text}<br>%{y:.2f}<extra></extra>",
     }], {
       ...b, showlegend: false, xaxis: { ...b.xaxis, fixedrange: true }, yaxis: { ...b.yaxis, title: { text: `${p.stat} ${p.unit}`, standoff: 2 }, fixedrange: true },
