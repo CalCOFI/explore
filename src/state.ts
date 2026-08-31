@@ -36,7 +36,35 @@ export interface Sel {
   map: [number, number, number] | null; // the map extent as lon,lat,zoom (`map=-121.5,33.2,5.1`); null = the grid's home view
   bathy: BathyPart[] | null;   // sea floor: null = the default (all three parts on); [] = off; else the subset shown (`bathy=relief,contours`)
   bathyo: number | null;       // sea-floor opacity 0–1 (`bathyo=0.6`); null = the theme default (0.7 dark · 1 light)
+  layers: LayerStyle[] | null; // visible boundary layers in DRAW ORDER, first on top (`layers=slug[:colour][:fill_opacity][:line_width],…`); null = none
 }
+/** one visible boundary layer's style (D24/D26): null field = the registry default */
+export interface LayerStyle {
+  id: string;                  // the registry dataset_id (unknown slugs are kept in state and ignored by the style — an older link survives a rename)
+  color: string | null;        // hex6 (no #) = one colour for fill + line · pal1|pal2|pal3 = the by-name palette
+  fillOpacity: number | null;  // 0–1, 2 dp (lines ignore it)
+  lineWidth: number | null;    // 0.5–4 px, 0.5 steps (points read it as radius)
+}
+function parseLayerStyles(v: string | null): LayerStyle[] | null {
+  if (v == null) return null;
+  const out: LayerStyle[] = [];
+  for (const e of v.split(",")) {
+    const [id, c, o, w] = e.split(":");
+    if (!id) continue;
+    out.push({
+      id,
+      color: c && (/^[0-9a-fA-F]{6}$/.test(c) || /^pal[123]$/.test(c)) ? c : null,
+      fillOpacity: o !== undefined && o !== "" && isFinite(+o) && +o >= 0 && +o <= 1 ? Math.round(+o * 100) / 100 : null,
+      lineWidth: w !== undefined && w !== "" && isFinite(+w) && +w >= 0.5 && +w <= 4 ? Math.round(+w * 2) / 2 : null,
+    });
+  }
+  return out.length ? out : null;
+}
+const fmtLayerStyles = (ls: LayerStyle[]) => ls.map((l) => {
+  const f = [l.id, l.color ?? "", l.fillOpacity != null ? String(l.fillOpacity) : "", l.lineWidth != null ? String(l.lineWidth) : ""];
+  while (f.length > 1 && f[f.length - 1] === "") f.pop();
+  return f.join(":");
+}).join(",");
 /** the sea floor's parts, in the URL's canonical order (D26) */
 export type BathyPart = "relief" | "depth" | "contours";
 export const BATHY_PARTS: BathyPart[] = ["relief", "depth", "contours"];
@@ -95,7 +123,7 @@ export const DEFAULTS: Sel = {
   lens: "station", res: 5, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature",
   stage: null, den: null, zeros: true, years: [1949, YEAR_OPEN], months: null, q: null, yview: null, depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
   line: 90, cruise: null, stat: "mean", anom: false, tour: true, tourOn: false, theme: null, release: null, station: null, datasets: null,
-  hide: DEFAULT_HIDE, max: null, map: null, bathy: null, bathyo: null,
+  hide: DEFAULT_HIDE, max: null, map: null, bathy: null, bathyo: null, layers: null,
 };
 
 const num = (v: string | null, d: number) => (v != null && v !== "" && !isNaN(+v) ? +v : d);
@@ -163,6 +191,7 @@ export function fromUrl(): Sel {
     map: parseMap(p.get("map")),
     bathy: parseBathyParts(p.get("bathy")),
     bathyo: (v => v != null && v !== "" && isFinite(+v) && +v >= 0 && +v <= 1 ? Math.round(+v * 100) / 100 : null)(p.get("bathyo")),
+    layers: parseLayerStyles(p.get("layers")),
   };
 }
 
@@ -195,6 +224,7 @@ export function toUrl(s: Sel) {
   if (s.map && !sameMap(s.map, MAP_HOME)) p.set("map", roundMap(s.map).join(","));
   if (s.bathy !== null) p.set("bathy", s.bathy.length ? s.bathy.join(",") : "off");
   if (s.bathyo != null) p.set("bathyo", s.bathyo.toFixed(2));
+  if (s.layers?.length) p.set("layers", fmtLayerStyles(s.layers));
   const url = `${location.pathname}?${p.toString()}`;
   if (url !== location.pathname + location.search) history.replaceState(null, "", url);
 }

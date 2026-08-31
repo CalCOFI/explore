@@ -9,7 +9,7 @@ import { H3HexagonLayer, TripsLayer } from "@deck.gl/geo-layers";
 import type { Layer, PickingInfo } from "@deck.gl/core";
 import { latLngToCell, cellToLatLng } from "h3-js";
 import type { Lens, Stat } from "./state";
-import { baseStyle, composeStyle, warmBaseStyles, type BathyState } from "./basemap";
+import { baseStyle, composeStyle, warmBaseStyles, type BathyState, type BoundaryState } from "./basemap";
 
 export const STYLE = {
   dark: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
@@ -202,6 +202,7 @@ export function buildLayers(inp: LayerInputs): Layer[] {
 export function MapView(props: {
   layers: Layer[]; theme: "dark" | "light";
   bathy: BathyState;                                 // the sea floor (D21/D26): composed INTO the style, never addLayer'd
+  boundaries: BoundaryState;                         // the visible boundary layers, URL order = draw order (D23–D26)
   view: [number, number, number];                    // the opening extent: lon · lat · zoom (the URL's `map=`, else the home view)
   onView?: (v: [number, number, number]) => void;    // every settled pan / zoom, so the URL — and a shared link — carries the extent
   getTooltip: (info: PickingInfo) => any; onClick?: (info: PickingInfo) => void; onFirstFrame?: () => void;
@@ -243,12 +244,14 @@ export function MapView(props: {
   const applyStyle = async () => {
     const m = map.current; if (!m || !loaded.current) return;
     const seq = ++styleSeq.current;
-    const s = composeStyle(await baseStyle(cb.current.theme), cb.current.theme, cb.current.bathy, true);
+    const s = composeStyle(await baseStyle(cb.current.theme), cb.current.theme, cb.current.bathy, true, cb.current.boundaries);
     if (seq !== styleSeq.current || !map.current) return; // a newer theme/bathy superseded this compose mid-fetch
     m.setStyle(s, { diff: true }); // diff keeps it a handful of ops; a failed diff rebuilds from this same object — the layers survive either way
   };
   useEffect(() => { overlay.current?.setProps({ layers: props.layers }); }, [props.layers]);
-  useEffect(() => { applyStyle(); }, [props.theme, props.bathy.parts.join(","), props.bathy.opacity]);
+  const boundsKey = props.boundaries.styles.map((s) => [s.id, s.color, s.fillOpacity, s.lineWidth].join("~")).join(",") +
+    `|${props.boundaries.regionOutline}|${props.boundaries.defs.length}`;
+  useEffect(() => { applyStyle(); }, [props.theme, props.bathy.parts.join(","), props.bathy.opacity, boundsKey]);
   // a view set from outside (the home button) flies the map there; the map's own moves come back through onView and match already
   useEffect(() => {
     const m = map.current; if (!m) return;

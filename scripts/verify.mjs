@@ -308,6 +308,61 @@ const STATES = [
       const op = await page.evaluate(() => window.__map.getPaintProperty("gebco-relief", "color-relief-opacity")); if (Math.abs(op - 0.4) > 1e-6) fail(`layers_opacity_url: relief opacity ${op}`); } },
   { name: "phone_layers_sheet", url: "?tour=off&theme=dark", viewport: PHONE, steps: async () => { await click(".map-layers-pill"); await sleep(700); },
     assert: async () => { const n = await page.$$eval(".sheet input[type=checkbox]", (r) => r.length); if (n !== 4) fail(`phone_layers_sheet: ${n} checkboxes in the sheet`); } },
+  // slice 3 (plan 2026-08-31, D23–D26): boundary layers — palette, order (the URL is the draw order), outline rule, hover
+  { name: "layers3_default_none", url: "?tour=off&theme=dark", steps: async () => { await waitTiles(); },
+    assert: async () => { const n = await page.evaluate(() => (window.__map.getStyle().layers || []).filter((l) => /^sp-/.test(l.id)).length); if (n) fail(`layers3_default_none: ${n} boundary layers with no layers= param`); } },
+  { name: "layers3_mpa_palette", url: "?tour=off&theme=dark&layers=ca_marine_protected_areas:pal1&map=-119.6,33.9,9", steps: async () => { await waitTiles(); await sleep(600); },
+    assert: async () => { const r = await page.evaluate(() => { const m = window.__map; const pc = m.getPaintProperty("sp-ca_marine_protected_areas-fill", "fill-color");
+        const fs = m.queryRenderedFeatures({ layers: ["sp-ca_marine_protected_areas-fill"] }); return { exprLen: Array.isArray(pc) ? pc.length : 0, rendered: fs.length, names: [...new Set(fs.map((f) => f.properties?.name))].length }; });
+      console.log(`  by-name expr ${r.exprLen} entries · ${r.rendered} features rendered · ${r.names} names in view`);
+      if (r.exprLen < 20) fail(`layers3_mpa_palette: fill-color is not the by-name palette (${r.exprLen})`);
+      if (r.rendered < 1) fail("layers3_mpa_palette: no MPA features rendered"); } },
+  { name: "layers3_url_roundtrip", url: "?tour=off&theme=dark&layers=noaa_onms_sanctuaries:pal2:0.25:1.5,noaa_maritime_eez,ca_marine_protected_areas:388e3c", steps: async () => { await waitTiles(); await click(".map-layers-btn"); await sleep(500); },
+    assert: async () => {
+      const rows = await page.$$eval(".onmap-row .onmap-name", (r) => r.map((x) => x.textContent));
+      if (rows.join("|") !== "National Marine Sanctuaries|200NM EEZ|Marine Protected Areas") fail(`layers3_url_roundtrip: rows ${rows.join("|")}`);
+      const u0 = decodeURIComponent(await page.evaluate(() => location.search));
+      if (!/layers=noaa_onms_sanctuaries:pal2:0.25:1.5,noaa_maritime_eez,ca_marine_protected_areas:388e3c/.test(u0)) fail(`layers3_url_roundtrip: URL rewrote to ${u0}`);
+      await page.click(".onmap-row:nth-child(2) button[aria-label^='Move 200NM EEZ up']"); await sleep(500);
+      const u1 = decodeURIComponent(await page.evaluate(() => location.search));
+      if (!/layers=noaa_maritime_eez,noaa_onms_sanctuaries:pal2:0.25:1.5,/.test(u1)) fail(`layers3_url_roundtrip: ▲ did not flip the order (${u1})`); } },
+  { name: "layers3_reorder_pixel", url: "?tour=off&theme=dark&layers=ca_marine_protected_areas:e91e63:0.9,noaa_onms_sanctuaries:1565c0:0.9&map=-119.44,34.0,10", steps: async () => { await waitTiles(); await sleep(600); },
+    assert: async () => {
+      const probe = await page.evaluate(() => { const m = window.__map;
+        const fs = m.queryRenderedFeatures({ layers: ["sp-ca_marine_protected_areas-fill"] }); if (!fs.length) return null;
+        const ring = fs[0].geometry.coordinates[0]; const n = ring.length;
+        const lon = ring.reduce((a, c) => a + c[0], 0) / n, lat = ring.reduce((a, c) => a + c[1], 0) / n;
+        const c = document.querySelector("canvas.maplibregl-canvas"), gl = c.getContext("webgl2") || c.getContext("webgl");
+        const q = m.project([lon, lat]); const dpr = c.width / c.clientWidth; const b = new Uint8Array(4);
+        gl.readPixels(Math.round(q.x * dpr), Math.round(c.height - q.y * dpr), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, b);
+        return { lon, lat, px: [b[0], b[1], b[2]] }; });
+      if (!probe) { fail("layers3_reorder_pixel: no MPA feature in view"); return; }
+      await click(".map-layers-btn"); await sleep(400);
+      await page.click(".onmap-row:nth-child(2) button[aria-label^='Move National Marine Sanctuaries up']"); await sleep(900);
+      const px2 = await page.evaluate((pt) => { const m = window.__map; const c = document.querySelector("canvas.maplibregl-canvas"), gl = c.getContext("webgl2") || c.getContext("webgl");
+        const q = m.project([pt.lon, pt.lat]); const dpr = c.width / c.clientWidth; const b = new Uint8Array(4);
+        gl.readPixels(Math.round(q.x * dpr), Math.round(c.height - q.y * dpr), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, b); return [b[0], b[1], b[2]]; }, probe);
+      console.log(`  MPA centroid ${probe.lon.toFixed(3)},${probe.lat.toFixed(3)} · before ${probe.px} · after ${px2}`);
+      if (probe.px.join() === px2.join()) fail("layers3_reorder_pixel: the pixel did not change when the sanctuaries moved on top");
+      const u = decodeURIComponent(await page.evaluate(() => location.search));
+      if (!/layers=noaa_onms_sanctuaries:1565c0:0.9,ca_marine_protected_areas:e91e63:0.9/.test(u)) fail(`layers3_reorder_pixel: URL order (${u})`); } },
+  { name: "layers3_region_outline", url: "?tour=off&theme=dark&lens=region&layer=National+Marine+Sanctuaries&layers=noaa_onms_sanctuaries", steps: async () => { await waitTiles(); await sleep(800); },
+    assert: async () => { const op = await page.evaluate(() => window.__map.getPaintProperty("sp-noaa_onms_sanctuaries-fill", "fill-opacity"));
+      if (op !== 0) fail(`layers3_region_outline: background fill-opacity ${op} while the Regions lens draws the same layer`); } },
+  { name: "layers3_hover", url: "?tour=off&theme=dark&layers=ca_marine_protected_areas:pal1&map=-119.6,33.9,9", steps: async () => { await waitTiles(); await sleep(500);
+      const pt = await page.evaluate(() => { const m = window.__map; const fs = m.queryRenderedFeatures({ layers: ["sp-ca_marine_protected_areas-fill"] }); if (!fs.length) return null;
+        const ring = fs[0].geometry.coordinates[0]; const n = ring.length; const q = m.project([ring.reduce((a, c) => a + c[0], 0) / n, ring.reduce((a, c) => a + c[1], 0) / n]);
+        const r = m.getCanvas().getBoundingClientRect(); return { x: r.left + q.x, y: r.top + q.y }; });
+      if (pt) { await page.mouse.move(pt.x, pt.y); await sleep(600); await page.mouse.move(pt.x + 2, pt.y + 2); await sleep(600); } },
+    assert: async () => { const t = await page.evaluate(() => document.querySelector(".deck-tooltip")?.textContent ?? ""); console.log(`  tooltip: "${t.trim().slice(0, 60)}"`);
+      if (!/· Marine Protected Areas/.test(t)) fail(`layers3_hover: tooltip "${t.trim().slice(0, 60)}"`); } },
+  { name: "layers3_map_png", url: "?tour=off&theme=dark&layers=noaa_maritime_eez,ca_marine_protected_areas:pal1", steps: async () => { await waitTiles(); await sleep(500); },
+    assert: async () => { const rows = await page.$$eval(".legend-layers .row", (r) => r.map((x) => x.textContent)); if (rows.length !== 2) fail(`layers3_map_png: ${rows.length} legend rows`);
+      const f = await page.evaluate(() => window.__figure("map", "png")); if (!f.bytes || f.bytes < 50000) fail(`layers3_map_png: map png ${f.bytes} bytes`);
+      console.log(`  legend rows: ${rows.join(" | ")} · map png ${Math.round(f.bytes / 1024)} KB`); } },
+  { name: "phone_layers3_reorder", url: "?tour=off&theme=dark&layers=noaa_maritime_eez,ca_marine_protected_areas", viewport: PHONE, steps: async () => { await click(".map-layers-pill"); await sleep(700);
+      await page.click(".sheet .onmap-row:nth-child(2) button[aria-label^='Move Marine Protected Areas up']"); await sleep(500); },
+    assert: async () => { const u = decodeURIComponent(await page.evaluate(() => location.search)); if (!/layers=ca_marine_protected_areas,noaa_maritime_eez/.test(u)) fail(`phone_layers3_reorder: ${u}`); } },
   // U4b — feedback: the dialog captures the view, the annotator draws, Send posts to the endpoint (mocked here) and thanks with the issue link
   { name: "u4b_feedback_open", url: "?tour=off", steps: async () => { await click('[data-tour="feedback"]'); await page.waitForSelector(".feedback-shot img", { timeout: 20000 }); await sleep(300); },
     assert: async () => { const src = await page.$eval(".feedback-shot img", (i) => i.src); if (!src.startsWith("data:image/jpeg")) fail("u4b_feedback_open: no thumbnail"); const dis = await page.$eval('[data-tour="feedback-send"]', (b) => b.disabled); if (!dis) fail("u4b_feedback_open: Send enabled with no text / no endpoint"); if (!(await page.$(".hint.warn"))) fail("u4b_feedback_open: no 'no endpoint' note"); } },

@@ -387,3 +387,27 @@ button.chip { cursor: pointer; }
 .map-tr .map-layers-btn { background: color-mix(in srgb, var(--panel) 85%, transparent); border: 1px solid var(--border); border-radius: 6px; padding: 3px 5px; color: var(--fg); }
 .map-tr .map-layers-btn:hover { color: var(--accent); border-color: var(--accent); }
 @media (max-width: 479px) { .map-tr .map-layers-btn { display: none; } } /* the phone reaches Layers through its pill (the legend covers the map corner) */
+/* ── the Layers card's boundary half (D24/D25) ─────────────────────────────── */
+.layers-h { margin: 10px 0 2px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.75; display: flex; gap: 8px; align-items: baseline; }
+.layers-h .hint { text-transform: none; letter-spacing: 0; }
+.onmap { display: flex; flex-direction: column; gap: 2px; }
+.onmap-row { border: 1px solid transparent; border-radius: 6px; }
+.onmap-row.open { border-color: var(--border); background: color-mix(in srgb, var(--panel) 60%, transparent); }
+.onmap-head { display: flex; align-items: center; gap: 6px; padding: 2px 4px; }
+.onmap-head .drag { cursor: grab; opacity: 0.6; touch-action: none; }
+.onmap-head .sm { background: none; border: none; color: var(--fg); opacity: 0.7; padding: 2px; cursor: pointer; }
+.onmap-head .sm:disabled { opacity: 0.25; }
+.onmap-name { flex: 1; text-align: left; background: none; border: none; color: var(--fg); cursor: pointer; padding: 3px 0; font-size: 13px; }
+.onmap-style { display: flex; flex-direction: column; gap: 6px; padding: 4px 8px 8px 26px; }
+.swatch { width: 16px; height: 16px; border-radius: 4px; border: 1px solid var(--border); display: inline-block; }
+button.swatch { cursor: pointer; padding: 0; }
+button.swatch.on { outline: 2px solid var(--accent); outline-offset: 1px; }
+.swatches { flex-wrap: wrap; gap: 5px; }
+.swatches input[type=color] { width: 22px; height: 20px; padding: 0; border: 1px solid var(--border); border-radius: 4px; background: none; cursor: pointer; }
+.pal-strip { display: inline-flex; height: 12px; border-radius: 3px; overflow: hidden; }
+.pal-strip i { width: 7px; height: 12px; display: inline-block; }
+.palbtn { background: none; border: 1px solid var(--border); border-radius: 5px; padding: 3px 5px; cursor: pointer; }
+.palbtn.on { outline: 2px solid var(--accent); outline-offset: 1px; }
+.addgroup-h { display: flex; align-items: center; gap: 6px; background: none; border: none; color: var(--fg); cursor: pointer; padding: 4px 0; font-size: 13px; width: 100%; text-align: left; }
+.legend-layers { margin-top: 3px; display: flex; flex-direction: column; gap: 2px; }
+.legend-layers .row { display: flex; align-items: center; gap: 6px; font-size: 11px; }

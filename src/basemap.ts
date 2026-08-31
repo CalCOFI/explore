@@ -6,7 +6,7 @@
 // relief opacity 0.7 dark / 1 light) are the Phase-0 spike's measured picks (workflows plan § Measured).
 import * as maplibregl from "maplibre-gl";
 import { Protocol } from "pmtiles";
-import { BATHY_PARTS, type BathyPart } from "./state";
+import { BATHY_PARTS, type BathyPart, type LayerStyle } from "./state";
 
 maplibregl.addProtocol("pmtiles", new Protocol().tile as any); // once, at module load (range requests against GCS)
 
@@ -54,9 +54,10 @@ const CONTOUR = {
 
 /** CARTO's base ⊕ the sea-floor sources and layers, inserted right after `water` (under every label and boundary).
  *  `withDem: false` returns the plain base — the style the map boots with, and the `bathy=off` style. */
-export function composeStyle(base: any, theme: "dark" | "light", b: BathyState, withDem: boolean): any {
+export function composeStyle(base: any, theme: "dark" | "light", b: BathyState, withDem: boolean, bounds?: BoundaryState): any {
   const style = structuredClone(base);
-  if (!withDem || !bathyOn(b)) return style;
+  if (!withDem) return style;
+  if (!bathyOn(b)) { if (bounds) composeBoundaries(style, theme, bounds); return style; }
   const has = (x: BathyPart) => b.parts.includes(x);
   const o = b.opacity ?? bathyDefaultOpacity(theme);
   const k = Math.min(1.4, o / bathyDefaultOpacity(theme)); // one slider scales relief, shading and contours together
@@ -87,5 +88,92 @@ export function composeStyle(base: any, theme: "dark" | "light", b: BathyState, 
   }
   const at = style.layers.findIndex((l: any) => l.id === "water") + 1; // right after CARTO's water fill
   style.layers.splice(at > 0 ? at : 0, 0, ...add);
+  if (bounds) composeBoundaries(style, theme, bounds);
   return style;
+}
+
+// ── the boundary layers (plan 2026-08-31, D23 · D24): the release sidecar's registry, drawn from the
+// existing PMTiles at gs://calcofi-files-public/_spatial/ and styled by the URL's `layers=` entries ──
+export interface SpatialLayerDef {
+  id: string; group: string; name: string; source: string; geom: "polygon" | "line" | "point";
+  filter: any | null; line_color: string | null; fill_color: string | null;
+  line_width: number | null; fill_opacity: number | null; default_visible: boolean;
+  name_field: string | null; description: string | null; attribution: string | null;
+  n_features: number; bbox: number[] | null; names: string[] | null; n_memberships: number;
+}
+export interface SpatialLayers { version: string; pmtiles_base: string; built: string | null; layers: SpatialLayerDef[] }
+export interface BoundaryState { base: string; defs: SpatialLayerDef[]; styles: LayerStyle[]; regionOutline: string | null }
+export const spatialBaseUrl = (sidecarBase: string): string => import.meta.env.VITE_SPATIAL_URL ?? sidecarBase;
+
+// three categorical palettes for "by name" (D24) — the dataviz six-checks validator passed all three on BOTH map
+// surfaces (#d4dadc light · #2C353C dark, 2026-08-31): pal2/pal3 are rotations of pal1's validated ordering, which
+// preserves its adjacency set (the one new pair, red↔blue, passes). Same 8 hues, stepped per theme.
+export const PALETTES: Record<"pal1" | "pal2" | "pal3", Record<"dark" | "light", string[]>> = {
+  pal1: { light: ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"],
+          dark: ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"] },
+  pal2: { light: ["#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948", "#2a78d6", "#eb6834"],
+          dark: ["#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767", "#3987e5", "#d95926"] },
+  pal3: { light: ["#4a3aa7", "#e34948", "#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300"],
+          dark: ["#9085e9", "#e66767", "#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300"] },
+};
+export const isPalette = (c: string | null): c is "pal1" | "pal2" | "pal3" => !!c && /^pal[123]$/.test(c);
+
+/** the layer's colour: one colour (URL hex > registry), or the by-name palette assigned to the sidecar's sorted
+ *  names — a layer with `names: null` (> 200 of them) hashes `id` instead, so it is still distinguishable */
+export function boundaryColor(d: SpatialLayerDef, st: LayerStyle, theme: "dark" | "light"): any {
+  if (isPalette(st.color)) {
+    const pal = PALETTES[st.color][theme];
+    if (d.names?.length) {
+      const m: any[] = ["match", ["get", "name"]];
+      d.names.forEach((n, i) => m.push(n, pal[i % pal.length]));
+      m.push(pal[pal.length - 1]);
+      return m;
+    }
+    const m: any[] = ["match", ["%", ["get", "id"], pal.length]];
+    pal.forEach((c, i) => m.push(i, c));
+    m.push(pal[0]);
+    return m;
+  }
+  return st.color ? `#${st.color}` : (d.fill_color || d.line_color || "#9aa0a6");
+}
+
+export const boundaryLayerIds = (styles: LayerStyle[]): string[] =>
+  styles.flatMap((s) => [`sp-${s.id}-fill`, `sp-${s.id}-line`, `sp-${s.id}-circle`]);
+
+/** insert the visible boundary layers into a composed style: the URL's entry order is the DRAW order, first on
+ *  top, so the list is inserted REVERSED (MapLibre draws later layers on top). Everything lands above the sea
+ *  floor and still under CARTO's labels. */
+function composeBoundaries(style: any, theme: "dark" | "light", b: BoundaryState) {
+  const byId = new Map(b.defs.map((d) => [d.id, d]));
+  const entries = b.styles.filter((s) => byId.has(s.id)); // D26: unknown slugs (an older link after a rename) draw nothing
+  if (!entries.length) return;
+  const base = spatialBaseUrl(b.base);
+  const add: any[] = [];
+  for (const st of [...entries].reverse()) {
+    const d = byId.get(st.id)!;
+    const srcId = `sp-${d.source}`;
+    style.sources[srcId] ??= { type: "vector", url: `pmtiles://${base}${d.source}.pmtiles`,
+      ...(d.attribution ? { attribution: d.attribution } : {}) };
+    const color = boundaryColor(d, st, theme);
+    const width = st.lineWidth ?? d.line_width ?? 1;
+    const fillOp = st.fillOpacity ?? d.fill_opacity ?? 0.2;
+    // the Regions lens draws this same layer itself (deck, exact spatial_key membership): the background copy
+    // goes outline-only while it is the lens's layer — never a double fill (D25)
+    const outline = b.regionOutline != null && b.regionOutline === d.name;
+    const common: any = { source: srcId, "source-layer": d.source, ...(d.filter ? { filter: d.filter } : {}) };
+    if (d.geom === "polygon") {
+      add.push({ id: `sp-${st.id}-fill`, type: "fill", ...common, paint: { "fill-color": color, "fill-opacity": outline ? 0 : fillOp } });
+      add.push({ id: `sp-${st.id}-line`, type: "line", ...common, paint: { "line-color": color, "line-width": width } });
+    } else if (d.geom === "line") {
+      add.push({ id: `sp-${st.id}-line`, type: "line", ...common, paint: { "line-color": color, "line-width": width } });
+    } else {
+      add.push({ id: `sp-${st.id}-circle`, type: "circle", ...common, paint: { "circle-color": color, "circle-radius": Math.max(2, width * 2), "circle-opacity": 0.85, "circle-stroke-width": 0 } });
+    }
+  }
+  // above the sea floor (after the last gebco layer), else right after CARTO's water
+  const ids = style.layers.map((l: any) => l.id);
+  let at = -1;
+  for (let i = ids.length - 1; i >= 0; i--) if (/^gebco/.test(ids[i])) { at = i + 1; break; }
+  if (at < 0) at = ids.indexOf("water") + 1;
+  style.layers.splice(at > 0 ? at : 0, 0, ...add);
 }

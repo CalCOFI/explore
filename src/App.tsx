@@ -14,7 +14,8 @@ import { Picker, type PickerItem, type GroupOpt } from "./picker";
 import { Menu, Group } from "./ui";
 import { Rail, FloatCard, PillRow, MaxPanel, Sheet, Sparkline, FOLDED_PX, SHEET_PEEK, type CardId, type CardBox, type Detent } from "./panels";
 import { LayersCard } from "./layers";
-import { bathyFromSel, bathyOn } from "./basemap";
+import { bathyFromSel, bathyOn, boundaryLayerIds, isPalette, PALETTES, type BoundaryState, type SpatialLayerDef, type SpatialLayers } from "./basemap";
+import spatialFallback from "./spatial_layers.fallback";
 import type { IconName } from "./icons";
 import { Welcome, About, seenWelcome, markWelcome } from "./help";
 import { FeedbackDialog } from "./feedback";
@@ -26,7 +27,7 @@ import { track as trackEvent } from "./track";
 import { BRAND, LOGO, DEFAULT_THEME, fontEmbedCss } from "./brand";
 import { categoryRank, categoryIcon, envCategory, DATASET_CATEGORY_FALLBACK } from "./categories";
 import {
-  fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LENS_ICON, RES_KM, LAYERS, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, DEN_HOW, SHF_NOTE, STAT_LABEL, YEAR_OPEN, MAP_HOME,
+  fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LENS_ICON, RES_KM, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, DEN_HOW, SHF_NOTE, STAT_LABEL, YEAR_OPEN, MAP_HOME,
   type Sel, type Lens, type Den, type Stat, type PickerRow, type PanelId,
 } from "./state";
 type FigureId = PanelId | "map"; // what exports PNG · SVG · CSV from a header: every panel, and the map from its own ⬇
@@ -217,6 +218,11 @@ export function App() {
     if (!sel.station || !version || covStations) return;
     fetch(sidecarUrl(version, "coverage_stations.json")).then((r) => r.json()).then(setCovStations).catch(console.error);
   }, [sel.station, version]);
+  useEffect(() => {
+    if (!version) return;
+    fetch(sidecarUrl(version, "spatial_layers.json")).then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((j) => setSpatialLayers(j)).catch(() => console.log("spatial_layers.json: not in this release — using the bundled registry"));
+  }, [version]);
   // the polygon layers are heavy (all layers, simplified): only the Regions lens needs them
   useEffect(() => {
     if (sel.lens !== "region" || !version || spatial.length) return;
@@ -471,6 +477,8 @@ export function App() {
   const [railW, setRailW] = useState<number>(() => { try { const v = +(localStorage.getItem("explore.rail.select.w") ?? 0); return v >= 260 && v <= 440 ? v : 320; } catch { return 320; } });
   const [minCards, setMinCards] = useState<Record<CardId, boolean>>({ section: false, cruise: false, station: false, timing: false, layers: false });
   const [layersOpen, setLayersOpen] = useState(false);
+  // the boundary registry: the release's spatial_layers.json sidecar, the bundled snapshot as the fallback (D23)
+  const [spatialLayers, setSpatialLayers] = useState<SpatialLayers>(spatialFallback as unknown as SpatialLayers);
   const [topCard, setTopCard] = useState<CardId | null>(null);
   const [sheet, setSheet] = useState<{ panel: PanelId; detent: Detent }>({ panel: "select", detent: "peek" });
   const [depthPulse, setDepthPulse] = useState(false);
@@ -588,7 +596,21 @@ export function App() {
     (window as any).__lastCopy = text;
   };
   const getTooltip = (info: PickingInfo) => {
-    const o: any = info.object; if (!o) return null;
+    const o: any = info.object;
+    if (!o) {
+      // no deck object under the pointer: a visible boundary may be (MapLibre picking, D25)
+      const m = (window as any).__map;
+      if (m && visibleBoundaries.length && info.x != null && info.y != null) {
+        const ids = boundaryLayerIds(sel.layers ?? []).filter((l) => m.getLayer(l));
+        const fs = ids.length ? m.queryRenderedFeatures([info.x, info.y], { layers: ids }) : [];
+        if (fs.length) {
+          const d = spatialLayers.layers.find((dd) => String(fs[0].layer.id).startsWith(`sp-${dd.id}-`));
+          const nm = fs[0].properties?.name;
+          return { text: nm && d ? `${nm} · ${d.name}` : (nm ?? d?.name ?? "") };
+        }
+      }
+      return null;
+    }
     const id = info.layer?.id;
     if (id === "stations") { const s = stationMap.get(o.grid_key); return { text: `${o.grid_key} · line ${o.line} station ${o.station}\n${s ? (preSlice ? `${fmtN(s.n)} root samples, all datasets` : `${STAT_LABEL[stat]} ${fmt(statOf(s))} · ${fmtN(s.n)} observations · ${s.n_samples} samples · ${s.y0}–${s.y1}`) : "no observations in selection"}\nclick for the station's coverage card` }; }
     if (id === "hexes") return { text: `${o.hex}\n${STAT_LABEL[stat]} ${fmt(statOf(o))} · ${fmtN(o.n)} observations · ${o.n_samples} samples` };
@@ -634,7 +656,7 @@ export function App() {
       </div>
       {sel.lens === "hex" && <div className="row opt"><span className="hint">hexagon size</span><span className="seg">{[3, 4, 5, 6, 7].map((r) => <button key={r} className={sel.res === r ? "on" : ""} title={`H3 resolution ${r} · mean edge ${RES_KM[r]}`} onClick={() => { lensClickAt.current = performance.now(); setSel({ res: r }); }}>{RES_KM[r]}</button>)}</span></div>}
       {sel.lens === "region" && <div className="opt">
-        <label className="f">boundary layer<select value={sel.layer} onChange={(e) => setSel({ layer: e.target.value, region: null })}>{(spatial.length ? [...new Set(spatial.map((f) => f.properties.layer))].sort() : LAYERS).map((l) => <option key={l}>{l}</option>)}</select></label>
+        <label className="f">boundary layer<select value={sel.layer} onChange={(e) => setSel({ layer: e.target.value, region: null })}>{spatialLayers.layers.filter((d) => d.n_memberships > 0).map((d) => d.name).sort().map((l) => <option key={l}>{l}</option>)}</select></label>
         <div className="pills">{regionRows.slice().sort((a, b) => b.n - a.n).slice(0, 10).map((r) => <span key={r.spatial_key} className={`pill ${sel.region === r.spatial_key ? "" : "off"}`} onClick={() => setSel({ region: sel.region === r.spatial_key ? null : r.spatial_key })} style={{ cursor: "pointer" }}>{r.spatial_name} · {fmt(statOf(r))} ({fmtN(r.n)})</span>)}</div>
         <div className="hint">{layerFeatures.length} polygons · {regionRows.length} with data · membership exact per root sample (sample_spatial)</div>
       </div>}
@@ -746,8 +768,11 @@ export function App() {
     title={`line ${sel.line} · ${sel.realm === "env" ? `cruise ${sel.cruise ?? "—"}${sel.anom && climCells ? ` · anomaly vs ${climWindow ? `${climWindow[0]}–${climWindow[1]} ` : ""}monthly climatology` : ""}` : "all cruises · tows are depth-integrated, so y is year"}`} />;
   const cruiseBody = <CruiseSeries rows={cruiseRows} stat={stat} selected={sel.cruise} theme={theme} unit={unitLabel} onPick={(k) => setSel({ cruise: k })} />;
   const stationBody = <StationCard summary={stationCard?.summary} detail={stationCard?.detail} theme={theme} short={short} yearMax={yearMax} />;
-  const layersBody = <LayersCard sel={sel} setSel={setSel} theme={theme} />;
+  const layersBody = <LayersCard sel={sel} setSel={setSel} theme={theme} defs={spatialLayers.layers} />;
   const seaFloorOn = bathyOn(bathyFromSel(sel));
+  const visibleBoundaries = (sel.layers ?? []).map((st) => ({ st, d: spatialLayers.layers.find((d) => d.id === st.id) })).filter((x): x is { st: (typeof x)["st"]; d: SpatialLayerDef } => !!x.d);
+  const boundaries: BoundaryState = { base: spatialLayers.pmtiles_base, defs: spatialLayers.layers, styles: sel.layers ?? [],
+    regionOutline: displayLens === "region" ? sel.layer : null };
   const timingBody = <div className="timing-body">
     <div className="hint" style={{ padding: "4px 8px" }}>{anyCached ? "objects from cache" : "first visit"} · {navigator.hardwareConcurrency} cores{(navigator as any).deviceMemory ? ` · ${(navigator as any).deviceMemory} GB` : ""} · release {rel}</div>
     <table><tbody>
@@ -869,7 +894,7 @@ export function App() {
           resizable={{ width: railW, min: 260, max: 440, onResize: setRailW }} data-tour="rail" exportable={undefined}
           summary={<><Icon name={LENS_ICON[sel.lens]} /><Icon name={sel.realm === "bio" ? "realm-bio" : "realm-env"} />{selectSummary}</>}>{selectBody}</Rail>}
         <div className="panel mapwrap" ref={mapBox} data-tour="map">
-          <MapView layers={layers} theme={theme} bathy={bathyFromSel(sel)} view={sel.map ?? MAP_HOME} onView={(v) => setSel({ map: v })} getTooltip={getTooltip} onClick={onClick} onFirstFrame={() => timing.add("first_paint", performance.now() - window.__t0, "basemap + grid dots")} />
+          <MapView layers={layers} theme={theme} bathy={bathyFromSel(sel)} boundaries={boundaries} view={sel.map ?? MAP_HOME} onView={(v) => setSel({ map: v })} getTooltip={getTooltip} onClick={onClick} onFirstFrame={() => timing.add("first_paint", performance.now() - window.__t0, "basemap + grid dots")} />
           <div className="map-tr">
             <IconButton icon="ui-map-layers" label="Map layers — the sea floor" className="map-layers-btn" data-tour="layers"
               onClick={() => { if (layersOpen) setLayersOpen(false); else { setLayersOpen(true); setTopCard("layers"); if (phone) setSheet({ panel: "layers", detent: "half" }); } }} />
@@ -883,6 +908,14 @@ export function App() {
               <div className="bar" style={{ background: viridisCss }} />
               <div className="ticks"><span>{fmt(domain[0])}</span><span>5–95 %</span><span>{fmt(domain[1])}</span></div>
               {seaFloorOn && <div className="hint legend-bathy">sea floor · GEBCO 2025</div>}
+              {visibleBoundaries.length > 0 && <div className="legend-layers">
+                {visibleBoundaries.map(({ st, d }) => <div key={st.id} className="row">
+                  {isPalette(st.color)
+                    ? <span className="pal-strip">{PALETTES[st.color][theme].slice(0, 6).map((c) => <i key={c} style={{ background: c }} />)}</span>
+                    : <span className="swatch" style={{ background: st.color ? `#${st.color}` : (d.fill_color || d.line_color || "#9aa0a6") }} />}
+                  <span>{d.name}</span>{isPalette(st.color) && d.names && <span className="hint">by name · {d.names.length}</span>}
+                </div>)}
+              </div>}
               {emptyResult && <div className="hint warn legend-empty">nothing in the selection{filterWords.length ? ` — the filters (${filterWords.join(" · ")}) leave no observation` : ""}
                 {sel.datasets && <> · <button type="button" className="linkish" onClick={() => setSel({ datasets: null })}>all datasets</button></>}</div>}
               {!preSlice && !emptyResult && sel.realm === "bio" && <div className="hint">{stageRows.filter((r) => (sel.den === "per_10m2" ? r.n_10m2 : sel.den === "per_1000m3" ? r.n_1000m3 : r.n) > 0).map((r) => r.dataset_key).filter((v, i, a) => a.indexOf(v) === i).map(short).join(" + ") || "—"}{denInfo(sel.den ?? "raw").excluded ? ` · ${fmtN(denInfo(sel.den ?? "raw").excluded)} observations excluded` : ""}</div>}
@@ -893,7 +926,7 @@ export function App() {
             <div className="phone-pills" style={{ bottom: SHEET_PEEK + 8 }}>
               <button type="button" className={`pill${sliceKey && !depthRows.length ? " muted" : ""}`} onClick={() => setSheet({ panel: "depth", detent: "half" })} data-tour="depth"><Icon name="ui-tune" />{depthSummary}</button>
               <button type="button" className="pill" onClick={() => setSheet({ panel: "years", detent: "half" })} data-tour="years"><Icon name="ui-years" />Years {years[0]}–{years[1]}<Sparkline values={yearsSpark} width={40} height={10} /></button>
-              <button type="button" className="pill map-layers-pill" onClick={() => { setLayersOpen(true); setSheet({ panel: "layers", detent: "half" }); }}><Icon name="ui-map-layers" />Layers</button>
+              <button type="button" className="pill map-layers-pill" data-tour="layers" onClick={() => { setLayersOpen(true); setSheet({ panel: "layers", detent: "half" }); }}><Icon name="ui-map-layers" />Layers</button>
               {(["section", "cruise", "station", "timing", "layers"] as CardId[]).filter((c) => cardOpen[c] && sheet.panel !== c).map((c) => <button key={c} type="button" className="pill" onClick={() => openCard(c)}><Icon name={icons[c]} />{c === "station" ? stationCard!.grid_key : c === "timing" ? "SQL & timing" : titles[c]}</button>)}
             </div>
             <Sheet detent={sheet.detent} onDetent={(d) => setSheet((s) => ({ ...s, detent: d }))} title={sheet.panel === "select" ? undefined : titles[sheet.panel]} onClose={sheet.panel === "select" ? undefined : closeSheet} exportable={sheet.panel === "select" || sheet.panel === "layers" ? undefined : exportItems(sheet.panel)} data-tour="sheet"

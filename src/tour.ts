@@ -45,6 +45,8 @@ export const TOUR_STEPS: TourStep[] = [
   { id: "map", element: '[data-tour="map"]', side: "left", align: "start", title: "The map",
     description: "Hover a dot for its summary; click a station for its coverage card (every dataset measured there, by year and by month). Cards minimize to pills, drag, and maximize; the legend's 5–95 % window colours the dots.",
     before: (a) => { if (a.phone) a.sheet("select", "peek"); } },
+  { id: "layers", element: q('[data-tour="layers"]'), side: "bottom", align: "end", title: "Layers — the sea floor, and the boundaries you can draw on top",
+    description: "The sea floor is GEBCO 2025 — shaded relief, depth colour and isobaths — and the registry's boundary layers (EEZ, sanctuaries, MPAs, counties …) stack over it in the order you set. Every choice lands in the URL, so a shared link reopens the same map." },
   { id: "export", element: q('[data-tour="export"]'), side: "right", align: "end", title: "Take it with you",
     description: "Download data hands over the bytes, the exact SQL against the release's object URLs, citations and reproduce.R / .py. Copy code gives that SQL, or R or Python that runs it. Share copies the link — the URL is the whole view, map extent included. The map's own ⬇ exports it as PNG or the table it draws as CSV.", before: (a) => { rail(a, "select"); a.expand("export"); }, wait: 300 },
   { id: "feedback", element: q('[data-tour="feedback"], [data-tour="more"]'), side: "bottom", align: "end", title: "Tell us what you see",
