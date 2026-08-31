@@ -288,24 +288,35 @@ function ContextBar(p: { full: [number, number]; view: [number, number]; onView:
   );
 }
 
-export interface SectionCell { station: number; y: number; v: number; n: number }
+// the diverging ramp of an anomaly: blue = below normal, red = above, the neutral pinned to zero and drawn in the
+// panel's own colour so "normal" is the background. The SAME five stops as ctd-transects (RAMP_DIV_*), so a section
+// reads identically in the two products. Written out because Plotly's built-in "RdBu" runs BLUE -> red (0 =
+// rgb(5,10,172)), the reverse of the ColorBrewer scale its name suggests — the first release of this panel used it
+// with reversescale and painted +2 °C blue.
+const RAMP_DIV = (dark: boolean) => [[0, "#0d366b"], [0.25, "#3987e5"], [0.5, dark ? "#383835" : "#f0efec"], [0.75, "#e34948"], [1, "#7d1b28"]];
+
+export interface SectionCell { station: number; y: number; v: number; n: number; month?: number }
 export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | null; anom: boolean; yLabel: string; theme: string; unit: string; title: string }) {
   const ref = usePlot([p.cells, p.clim, p.anom, p.theme, p.yLabel, p.unit, p.title], (div, Plotly) => {
     const b = base(p.theme);
     const xs = [...new Set(p.cells.map((c) => c.station))].sort((a, c) => a - c);
     const ys = [...new Set(p.cells.map((c) => c.y))].sort((a, c) => a - c);
-    const climMap = new Map((p.clim ?? []).map((c) => [`${c.station}|${c.y}`, c.v]));
+    // the baseline is month-matched: a cast's value minus the climatology of the calendar month it was occupied in
+    const climMap = new Map((p.clim ?? []).map((c) => [`${c.station}|${c.month}|${c.y}`, c.v]));
     const z = ys.map((y) => xs.map((x) => {
       const c = p.cells.find((d) => d.station === x && d.y === y);
       if (!c) return null;
       if (!p.anom) return c.v;
-      const k = climMap.get(`${x}|${y}`);
-      return k == null ? null : c.v - k;
+      const k = climMap.get(`${x}|${c.month}|${y}`);
+      return k == null ? null : c.v - k;   // no baseline = blank, never 0
     }));
     const isDepth = p.yLabel.startsWith("depth");
+    // a symmetric range about zero, from the data: the colorbar's two ends mean the same magnitude either way
+    const amax = p.anom ? Math.max(0.1, ...z.flat().filter((v): v is number => v != null).map(Math.abs)) : 0;
     Plotly.react(div, xs.length ? [{
       type: "heatmap", x: xs, y: ys, z, zsmooth: "best", connectgaps: false,
-      colorscale: p.anom ? "RdBu" : "Viridis", reversescale: p.anom, zmid: p.anom ? 0 : undefined,
+      colorscale: p.anom ? RAMP_DIV(p.theme === "dark") : "Viridis",
+      ...(p.anom ? { zmid: 0, zmin: -amax, zmax: amax } : {}),
       colorbar: { thickness: 10, len: 0.9, title: { text: p.anom ? `Δ ${p.unit}` : p.unit, side: "right" }, tickfont: { size: 10 } },
       hovertemplate: `station %{x}<br>${p.yLabel} %{y}<br>%{z:.2f}<extra></extra>`,
     }] : [], {

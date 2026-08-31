@@ -50,11 +50,17 @@ const phoneQuery = matchMedia("(max-width: 899px)");
 // registered buffer names: the SQL templates read these (`{{src}}` etc.), never a URL
 const REG = { obs_bio: "obs_bio.parquet", sample_root: "sample_root.parquet", sample_spatial: "sample_spatial.parquet", taxon: "taxon.parquet", measurement_type: "measurement_type.parquet", dataset: "dataset.parquet", cruise: "cruise.parquet" } as const;
 const envReg = (v: string) => `obs_env_${v}.parquet`;
+// the release's `climatology` table, one hive object per measurement type like obs_env (calcofi4db::build_climatology())
+const climReg = (v: string) => `climatology_${v}.parquet`;
+const hasClim = (cat: Catalog | null) => !!cat?.tables.some((t) => t.name === "climatology");
 const ZEROS_TIP = `Datasets such as ichthyo record a tow only when it caught the taxon, so a mean over their records alone is a mean over positive tows — biased high, and a surveyed year with no catch looks like a year with no survey.
 By default every tow such a dataset sampled counts as 0 for this taxon (a "zero-filled tow": obs_id NULL in the export; never counted as an observation).
 positive-only turns that off: mean, median and se run over the tows with a catch, as the raw records do. Datasets that record their own zeros (CUFES, ZooScan, ZooDB, phyllosoma) read the same either way.`;
 // an env variable's source: the union of its member objects, each stamped with its measurement_type (the hive key)
 const envSrc = (key: string) => `(${members(key).map((m) => `SELECT *, '${m}' AS measurement_type FROM '${envReg(m)}'`).join(" UNION ALL ")})`;
+// the variable's member types that have a baseline object (a type with no cell >= 3 cruises has no partition)
+const climMembers = (cat: Catalog, key: string) => { const parts = sources(cat, "climatology").partitions; return members(key).filter((m) => parts.has(m)); };
+const climSrc = (ms: string[]) => `(${ms.map((m) => `SELECT *, '${m}' AS measurement_type FROM '${climReg(m)}'`).join(" UNION ALL ")})`;
 const q = (name: string) => `'${name}'`;
 
 export interface Coverage {
@@ -108,6 +114,7 @@ export function App() {
   const [cruiseSamples, setCruiseSamples] = useState<Row[]>([]);
   const [sectionCells, setSectionCells] = useState<SectionCell[]>([]);
   const [climCells, setClimCells] = useState<SectionCell[] | null>(null);
+  const [climWindow, setClimWindow] = useState<[number, number] | null>(null);   // the table's clim_yr_min–clim_yr_max
   const [sectionCruises, setSectionCruises] = useState<Row[]>([]);
   const [depthRows, setDepthRows] = useState<DepthRow[]>([]);
   const [yearRows, setYearRows] = useState<YearRow[]>([]);
@@ -147,6 +154,10 @@ export function App() {
           const v = name.slice(8, -8);
           u = sources(cat, "obs_env").partitions.get(v);
           if (!u) return Promise.reject(new Error(`obs_env has no object for ${v} in ${cat.version}`));
+        } else if (name.startsWith("climatology_")) {
+          const v = name.slice(12, -8);
+          u = sources(cat, "climatology").partitions.get(v);
+          if (!u) return Promise.reject(new Error(`climatology has no object for ${v} in ${cat.version}`));
         } else u = sources(cat, name.replace(/\.parquet$/, "")).urls[0];
       }
       if (!u) return Promise.reject(new Error(`no catalog yet for ${name}`));
@@ -310,10 +321,19 @@ export function App() {
         if (ck !== sel.cruise) { setSel({ cruise: ck }); return; }
         if (sel.realm === "env") {
           const sc = ck ? await engine.query("section", { ...params, line: sel.line, cruise: ck }) : [];
-          const cl = await engine.query("section_clim", { ...params, line: sel.line });
+          // the baseline: the release's climatology objects for this variable's types (fetched once, cached by ensure);
+          // a release without the table (before v2026.09) has no anomaly view
+          const cat = catRef.current;
+          const cms = cat && hasClim(cat) ? climMembers(cat, sel.var) : [];
+          let cl: Row[] = [];
+          if (cms.length) {
+            await Promise.all(cms.map((m) => ensure(climReg(m))));
+            cl = await engine.query("section_clim", { ...params, line: sel.line, clim_src: climSrc(cms) });
+          }
           if (stale()) return;
-          setSectionCells(sc.map((r) => ({ station: r.station, y: r.depth_bin, v: r.v, n: r.n })));
-          setClimCells(cl.map((r) => ({ station: r.station, y: r.depth_bin, v: r.v, n: r.n })));
+          setSectionCells(sc.map((r) => ({ station: r.station, y: r.depth_bin, v: r.v, n: r.n, month: r.month })));
+          setClimCells(cms.length ? cl.map((r) => ({ station: r.station, y: r.depth_bin, v: r.v, n: r.n, month: r.month })) : null);
+          setClimWindow(cl.length ? [cl[0].yr_min, cl[0].yr_max] : null);
         } else {
           const sc = await engine.query("section_bio", { ...params, line: sel.line });
           if (stale()) return;
@@ -618,7 +638,7 @@ export function App() {
       {sel.lens === "section" && <div className="opt">
         <label className="f">line<select value={sel.line} onChange={(e) => setSel({ line: +e.target.value, cruise: null })}>{lines.map((l) => <option key={l} value={l}>{l}</option>)}</select></label>
         <Picker id="section-cruise" label="cruise" hint="newest first" value={sel.cruise ?? ""} items={sectionCruiseItems} onChange={(k) => setSel({ cruise: k })} sorts={["recent", "n"]} countLabel="stations" placeholder="search YYYY-MM-NODC…" loading={sectionCruises.length ? null : "…"} native={native} sheet={phone} />
-        {sel.realm === "env" && <label className="row" style={{ fontSize: 12 }}><input type="checkbox" checked={sel.anom} onChange={(e) => setSel({ anom: e.target.checked })} /> anomaly vs climatology ({years[0]}–{years[1]})</label>}
+        {sel.realm === "env" && <label className="row" style={{ fontSize: 12 }} title={hasClim(catalog) ? `departure from the release's climatology: this station, the cast's calendar month, this 10 m depth bin, ${climWindow ? `${climWindow[0]}–${climWindow[1]}` : "1993–2013"}, ≥ 3 cruises — the same table ctd-transects subtracts` : "this release carries no climatology table (releases from v2026.09 do)"}><input type="checkbox" checked={sel.anom && hasClim(catalog)} disabled={!hasClim(catalog)} onChange={(e) => setSel({ anom: e.target.checked })} /> anomaly vs {climWindow ? `${climWindow[0]}–${climWindow[1]}` : ""} monthly climatology</label>}
       </div>}
       {sel.lens === "cruise" && <div className="opt">
         <Picker id="cruise" label="cruise" hint="newest first" value={sel.cruise ?? ""} items={cruiseItems} onChange={(k) => setSel({ cruise: k })} sorts={["recent", "n"]} placeholder="search YYYY-MM-NODC…" loading={cruiseRows.length ? null : "…"} native={native} sheet={phone} />
@@ -719,8 +739,8 @@ export function App() {
   const depthBody = (wide: boolean) => <DepthStrip rows={depthRows} band={sel.depth} theme={theme} unit={unitLabel} empty={depthEmpty} onBand={(b) => setSel({ depth: b ?? [0, 500] })} byDataset={wide && depthDs.length ? { rows: depthDs, color: dsColor, short } : null} />;
   const yearsBody = <YearStrip rows={yearRows} monthRows={monthRows} onNeedMonths={setNeedMonths} years={years} months={sel.months} yearMax={yearMax} theme={theme} mode={seriesMode} unit={unitLabel} stat={stat} log={ylog}
     view={sel.yview} onView={(v) => setSel({ yview: v })} onYears={(y, m) => setSel({ years: y ?? [1949, YEAR_OPEN], months: y ? m ?? null : null })} gantt={gantt} />;
-  const sectionBody = <SectionPlot cells={sectionCells} clim={climCells} anom={sel.anom && sel.realm === "env"} yLabel={sel.realm === "env" ? "depth (m)" : "year"} theme={theme} unit={unitLabel}
-    title={`line ${sel.line} · ${sel.realm === "env" ? `cruise ${sel.cruise ?? "—"}${sel.anom ? " · anomaly vs climatology" : ""}` : "all cruises · tows are depth-integrated, so y is year"}`} />;
+  const sectionBody = <SectionPlot cells={sectionCells} clim={climCells} anom={sel.anom && sel.realm === "env" && !!climCells} yLabel={sel.realm === "env" ? "depth (m)" : "year"} theme={theme} unit={unitLabel}
+    title={`line ${sel.line} · ${sel.realm === "env" ? `cruise ${sel.cruise ?? "—"}${sel.anom && climCells ? ` · anomaly vs ${climWindow ? `${climWindow[0]}–${climWindow[1]} ` : ""}monthly climatology` : ""}` : "all cruises · tows are depth-integrated, so y is year"}`} />;
   const cruiseBody = <CruiseSeries rows={cruiseRows} stat={stat} selected={sel.cruise} theme={theme} unit={unitLabel} onPick={(k) => setSel({ cruise: k })} />;
   const stationBody = <StationCard summary={stationCard?.summary} detail={stationCard?.detail} theme={theme} short={short} yearMax={yearMax} />;
   const timingBody = <div className="timing-body">

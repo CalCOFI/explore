@@ -31,6 +31,14 @@ says what the app does and how to work on it without needing them.
   which is in force, for which datasets, and how many observations it excludes; open it for the formulas.
   One pill per dataset × stage; a ⚠ pill is a raw count with no effort in the release. The default stage
   and denominator follow the same rule as `calcofi4r::cc_default_stage()` / `cc_default_denominator()`.
+- **A section's anomaly is a departure from one fixed baseline.** In the *Sections* lens, *anomaly vs
+  1993–2013 monthly climatology* subtracts the release's own `climatology` table
+  (`calcofi4db::build_climatology()`): the mean for that station, the cast's **own calendar month** and
+  its 10 m depth bin over 1993–2013, kept only where at least 3 cruises contribute — the same table
+  [ctd-transects](https://calcofi.io/ctd-transects/) subtracts, so the two products cannot disagree. The
+  year, season and depth filters do not touch the baseline (that is what makes anomalies comparable
+  across cruises); the datasets in view are pooled weighted by their observation counts. Red is above
+  normal, blue below, the scale symmetric about zero; a cell with no baseline is blank, never zero.
 - **The URL is the whole view.** Lens, organism or variable, stage, denominator, years, season, depth,
   dataset filter, region, line, cruise, summary statistic, theme, which panels are folded or maximized,
   and the **map extent** (`map=lon,lat,zoom`) are all in it — so *Share → Copy link*, a bookmark and a
