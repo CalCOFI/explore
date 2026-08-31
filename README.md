@@ -40,10 +40,16 @@ says what the app does and how to work on it without needing them.
   across cruises); the datasets in view are pooled weighted by their observation counts. Red is above
   normal, blue below, the scale symmetric about zero; a cell with no baseline is blank, never zero.
 - **The URL is the whole view.** Lens, organism or variable, stage, denominator, years, season, depth,
-  dataset filter, region, line, cruise, summary statistic, theme, which panels are folded or maximized,
+  dataset filter, region, line, cruise, summary statistic, theme, the sea floor (`bathy=`, `bathyo=`), which panels are folded or maximized,
   and the **map extent** (`map=lon,lat,zoom`) are all in it — so *Share → Copy link*, a bookmark and a
   feedback report all reopen at exactly the same place. `?tour=off` suppresses the welcome card and tour;
-  `?theme=dark|light` sets the theme.
+  `?theme=dark|light` sets the theme. The **sea floor** under every lens is GEBCO 2025 (shaded relief +
+depth colour + isobaths), drawn from terrain-RGB PMTiles at
+`storage.calcofi.io/calcofi-db/bathymetry/` (override with `VITE_BATHY_URL`); the layers button on the
+map toggles its parts and opacity, `?bathy=off` reproduces the plain basemap, `bathy=relief,contours`
+keeps a subset, `bathyo=0.5` sets its opacity. The style is COMPOSED (CARTO ⊕ sea floor, one object,
+`setStyle(diff)`), so a theme flip can never drop the layers — see the 2026-08-31 map-layers plan in
+CalCOFI/workflows for how the tiles are built.
 - **Taking it with you** (the *Export* group, folded by default): **Download data (zip)** hands over the
   bytes shown, the exact SQL against the release's content-addressed object URLs, per-dataset citations
   and `reproduce.R` / `reproduce.py` that run the same query; **Copy code** gives that SQL, or R or

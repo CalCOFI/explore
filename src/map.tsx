@@ -9,6 +9,7 @@ import { H3HexagonLayer, TripsLayer } from "@deck.gl/geo-layers";
 import type { Layer, PickingInfo } from "@deck.gl/core";
 import { latLngToCell, cellToLatLng } from "h3-js";
 import type { Lens, Stat } from "./state";
+import { baseStyle, composeStyle, warmBaseStyles, type BathyState } from "./basemap";
 
 export const STYLE = {
   dark: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
@@ -200,6 +201,7 @@ export function buildLayers(inp: LayerInputs): Layer[] {
 // ── the map component ─────────────────────────────────────────────────────────
 export function MapView(props: {
   layers: Layer[]; theme: "dark" | "light";
+  bathy: BathyState;                                 // the sea floor (D21/D26): composed INTO the style, never addLayer'd
   view: [number, number, number];                    // the opening extent: lon · lat · zoom (the URL's `map=`, else the home view)
   onView?: (v: [number, number, number]) => void;    // every settled pan / zoom, so the URL — and a shared link — carries the extent
   getTooltip: (info: PickingInfo) => any; onClick?: (info: PickingInfo) => void; onFirstFrame?: () => void;
@@ -230,10 +232,23 @@ export function MapView(props: {
     (window as any).__map = m; (window as any).__overlay = o; // spike: reachable from the console
     m.on("error", (e: any) => console.error("maplibre error", e?.error ?? e));
     m.once("load", () => requestAnimationFrame(() => cb.current.onFirstFrame?.()));
+    // D22: the map BOOTS from CARTO's plain style URL (first_paint owes the DEM nothing); the composed style —
+    // CARTO ⊕ sea floor, one object — lands as a diff right after load, and again on every theme / bathy change.
+    warmBaseStyles();
+    m.once("load", () => { loaded.current = true; applyStyle(); });
     return () => { m.remove(); };
   }, []);
+  const loaded = useRef(false);
+  const styleSeq = useRef(0);
+  const applyStyle = async () => {
+    const m = map.current; if (!m || !loaded.current) return;
+    const seq = ++styleSeq.current;
+    const s = composeStyle(await baseStyle(cb.current.theme), cb.current.theme, cb.current.bathy, true);
+    if (seq !== styleSeq.current || !map.current) return; // a newer theme/bathy superseded this compose mid-fetch
+    m.setStyle(s, { diff: true }); // diff keeps it a handful of ops; a failed diff rebuilds from this same object — the layers survive either way
+  };
   useEffect(() => { overlay.current?.setProps({ layers: props.layers }); }, [props.layers]);
-  useEffect(() => { map.current?.setStyle(STYLE[props.theme]); }, [props.theme]);
+  useEffect(() => { applyStyle(); }, [props.theme, props.bathy.parts.join(","), props.bathy.opacity]);
   // a view set from outside (the home button) flies the map there; the map's own moves come back through onView and match already
   useEffect(() => {
     const m = map.current; if (!m) return;

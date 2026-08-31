@@ -374,3 +374,16 @@ button.chip { cursor: pointer; }
 .browse-item.more .cnt { color: var(--muted); }
 .browse-group.partial > .browse-row { background: transparent; position: static; }
 .picker-pop .picker-search + .picker-count { margin-top: -2px; }
+
+/* ── the Layers card (D25, sea-floor half) + the legend's sea-floor row ─────── */
+.layers-body { display: flex; flex-direction: column; gap: 7px; padding: 2px 2px 4px; font-size: 13px; }
+.layers-row { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.layers-row input[type=checkbox] { accent-color: var(--accent, #4a90d9); }
+.layers-sub { margin-left: 22px; }
+.layers-opacity { margin-top: 2px; }
+.layers-opacity input[type=range] { flex: 1; accent-color: var(--accent, #4a90d9); }
+.layers-note { margin: 4px 0 0; }
+.legend-bathy { margin-top: 2px; }
+.map-tr .map-layers-btn { background: color-mix(in srgb, var(--panel) 85%, transparent); border: 1px solid var(--border); border-radius: 6px; padding: 3px 5px; color: var(--fg); }
+.map-tr .map-layers-btn:hover { color: var(--accent); border-color: var(--accent); }
+@media (max-width: 479px) { .map-tr .map-layers-btn { display: none; } } /* the phone reaches Layers through its pill (the legend covers the map corner) */

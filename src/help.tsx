@@ -58,6 +58,12 @@ export function About(p: { release: string; nTables?: number; datasets: Row[]; c
         hydrography, ichthyoplankton, zooplankton, seabirds and mammals, carbonate chemistry, weather — projected into one <code>obs</code> / <code>sample</code>
         core and read here through five <b>lenses</b> (stations, hexagons, cruises, regions, sections). The SQL runs in your browser (DuckDB-WASM), so no server
         stands between you and the release.</p>
+      <h5><Icon name="ui-map-layers" /> Map layers</h5>
+      <p>The sea floor under every lens is <a href="https://www.gebco.net/" target="_blank" rel="noopener">GEBCO 2025</a> — shaded
+        relief, depth colour and isobaths, rendered in your browser from terrain tiles at
+        <code> storage.calcofi.io/calcofi-db/bathymetry/</code> (GEBCO Compilation Group (2025) GEBCO 2025 Grid,
+        doi:10.5285/37c52e96-24ea-67ce-e063-7086abc05f29 · public domain). The layers button on the map toggles and
+        restyles it; <code>?bathy=off</code> in a link reproduces the plain basemap.</p>
       <h5><Icon name="ui-data" /> The release — <a className="cc-release" href={`https://calcofi.io/db-schema/#erd?v=${p.release}`} target="_blank" rel="noopener">release <b>{p.release}</b></a>{p.nTables ? <span className="hint"> · {p.nTables} tables</span> : null}</h5>
       <p>Every value on the page comes from this one <b>frozen</b> release: content-addressed objects that never change, so a link you share today draws the
         same picture next year, and <code>calcofi4r</code> / <code>calcofi4py</code> read the very same bytes. A new release is a new version; the header

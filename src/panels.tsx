@@ -9,7 +9,7 @@ import { Icon, type IconName } from "./icons";
 import { IconButton, Menu, type MenuItem } from "./ui";
 
 export type RailId = "select" | "depth" | "years";
-export type CardId = "section" | "cruise" | "station" | "timing";
+export type CardId = "section" | "cruise" | "station" | "timing" | "layers";
 export type PanelId = RailId | CardId;
 export const RAILS: RailId[] = ["select", "depth", "years"];
 export const PANELS: PanelId[] = [...RAILS, "section", "cruise", "station", "timing"];

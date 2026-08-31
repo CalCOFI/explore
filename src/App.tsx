@@ -13,6 +13,8 @@ import { Icon } from "./icons";
 import { Picker, type PickerItem, type GroupOpt } from "./picker";
 import { Menu, Group } from "./ui";
 import { Rail, FloatCard, PillRow, MaxPanel, Sheet, Sparkline, FOLDED_PX, SHEET_PEEK, type CardId, type CardBox, type Detent } from "./panels";
+import { LayersCard } from "./layers";
+import { bathyFromSel, bathyOn } from "./basemap";
 import type { IconName } from "./icons";
 import { Welcome, About, seenWelcome, markWelcome } from "./help";
 import { FeedbackDialog } from "./feedback";
@@ -467,7 +469,8 @@ export function App() {
 
   // ── panels (D11 · D18): folds + maximize in the URL; card minimize, rail width and the phone sheet in memory ────
   const [railW, setRailW] = useState<number>(() => { try { const v = +(localStorage.getItem("explore.rail.select.w") ?? 0); return v >= 260 && v <= 440 ? v : 320; } catch { return 320; } });
-  const [minCards, setMinCards] = useState<Record<CardId, boolean>>({ section: false, cruise: false, station: false, timing: false });
+  const [minCards, setMinCards] = useState<Record<CardId, boolean>>({ section: false, cruise: false, station: false, timing: false, layers: false });
+  const [layersOpen, setLayersOpen] = useState(false);
   const [topCard, setTopCard] = useState<CardId | null>(null);
   const [sheet, setSheet] = useState<{ panel: PanelId; detent: Detent }>({ panel: "select", detent: "peek" });
   const [depthPulse, setDepthPulse] = useState(false);
@@ -743,6 +746,8 @@ export function App() {
     title={`line ${sel.line} · ${sel.realm === "env" ? `cruise ${sel.cruise ?? "—"}${sel.anom && climCells ? ` · anomaly vs ${climWindow ? `${climWindow[0]}–${climWindow[1]} ` : ""}monthly climatology` : ""}` : "all cruises · tows are depth-integrated, so y is year"}`} />;
   const cruiseBody = <CruiseSeries rows={cruiseRows} stat={stat} selected={sel.cruise} theme={theme} unit={unitLabel} onPick={(k) => setSel({ cruise: k })} />;
   const stationBody = <StationCard summary={stationCard?.summary} detail={stationCard?.detail} theme={theme} short={short} yearMax={yearMax} />;
+  const layersBody = <LayersCard sel={sel} setSel={setSel} theme={theme} />;
+  const seaFloorOn = bathyOn(bathyFromSel(sel));
   const timingBody = <div className="timing-body">
     <div className="hint" style={{ padding: "4px 8px" }}>{anyCached ? "objects from cache" : "first visit"} · {navigator.hardwareConcurrency} cores{(navigator as any).deviceMemory ? ` · ${(navigator as any).deviceMemory} GB` : ""} · release {rel}</div>
     <table><tbody>
@@ -756,15 +761,15 @@ export function App() {
     <pre>{lastSql}</pre>
   </div>;
   const titles: Record<PanelId, string> = {
-    select: "Select", depth: "Depth", years: "Years", section: `Section · line ${sel.line}${sel.realm === "env" && sel.cruise ? ` · ${sel.cruise}` : ""}`, cruise: "Cruise series",
+    select: "Select", depth: "Depth", years: "Years", section: `Section · line ${sel.line}${sel.realm === "env" && sel.cruise ? ` · ${sel.cruise}` : ""}`, cruise: "Cruise series", layers: "Layers",
     station: stationCard ? `${stationCard.grid_key} · line ${stationCard.cell?.line} station ${stationCard.cell?.station}` : "Station",
     timing: `SQL & timing · ${anyCached ? "warm" : "cold"} · paint ${firstPaint ?? "…"} · ready ${readyAt ?? "…"} · query ${lastQ ? lastQ.ms : "…"} · switch ${grain ? grain.ms : "…"} ms`,
   };
-  const icons: Record<PanelId, IconName> = { select: "ui-tune", depth: "ui-tune", years: "ui-years", section: "lens-sections", cruise: "lens-cruises", station: "lens-stations", timing: "ui-sql" };
-  const body = (id: PanelId, wide = false) => id === "select" ? selectBody : id === "depth" ? depthBody(wide) : id === "years" ? yearsBody : id === "section" ? sectionBody : id === "cruise" ? cruiseBody : id === "station" ? stationBody : timingBody;
+  const icons: Record<PanelId, IconName> = { select: "ui-tune", depth: "ui-tune", years: "ui-years", section: "lens-sections", cruise: "lens-cruises", station: "lens-stations", timing: "ui-sql", layers: "ui-map-layers" };
+  const body = (id: PanelId, wide = false) => id === "select" ? selectBody : id === "depth" ? depthBody(wide) : id === "years" ? yearsBody : id === "section" ? sectionBody : id === "cruise" ? cruiseBody : id === "station" ? stationBody : id === "layers" ? layersBody : timingBody;
   const actions = (id: PanelId) => (id === "years" ? <>{sel.yview && <IconButton icon="ui-zoom-out" label="Reset zoom (double-click the strip)" className="sm" onClick={() => setSel({ yview: null })} data-tour="zoom-reset" />}{seriesToggle}{logChip}</> : null);
   // ── figures (D19) and the whole-view share (D17): every panel exports PNG · SVG · CSV from its header with the shared footer
-  const stampFor = (id: FigureId): Stamp => ({ title: `${id === "map" ? `Map · ${LENS_SHORT[sel.lens]}` : titles[id]} · ${legendTitle}`, release: rel, url: location.href }); // the legend title carries the unit
+  const stampFor = (id: FigureId): Stamp => ({ title: `${id === "map" ? `Map · ${LENS_SHORT[sel.lens]}` : titles[id]} · ${legendTitle}${id === "map" && seaFloorOn ? " · sea floor: GEBCO 2025" : ""}`, release: rel, url: location.href }); // the legend title carries the unit; the compact ⓘ is collapsed in a capture, so the stamp credits GEBCO (D27)
   const plotDivOf = (id: PanelId) => document.querySelector<HTMLElement>(`.max-panel.panel-${id} .js-plotly-plot, .sheet .panel-body-${id} .js-plotly-plot, #rail-${id} .js-plotly-plot, .card-${id} .js-plotly-plot`);
   const panelElOf = (id: PanelId) => document.querySelector<HTMLElement>(`.max-panel.panel-${id}, .sheet .panel-body-${id}, #rail-${id}, .card-${id}`);
   // the map's table is what it draws: the lens summary per station / hexagon / region, the samples along a cruise track
@@ -808,7 +813,7 @@ export function App() {
   (window as any).__figure = async (id: FigureId, kind: "png" | "svg" | "csv") => { const f = await figure(id, kind); const out: any = { name: f.name, bytes: f.blob.size, type: f.blob.type }; if (kind === "png") { Object.assign(out, await blobStats(f.blob)); out.dataUrl = await new Promise<string>((ok) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.readAsDataURL(f.blob); }); } else { const t = await f.blob.text(); out.text = t.slice(0, 300); out.stamped = /release /.test(t); out.lines = t.split("\n").length; } return out; };
   (window as any).__fontEmbedCss = fontEmbedCss;   // verify.mjs: the v2 capture embeds the brand fonts
   (window as any).__captureView = async () => { const c = await captureView({ stamp: viewStamp() }); return { w: c.width, h: c.height, ...luminanceStats(c), dataUrl: c.toDataURL("image/png") }; };
-  const cardOpen: Record<CardId, boolean> = { section: displayLens === "section", cruise: displayLens === "cruise", station: !!stationCard, timing: advanced };
+  const cardOpen: Record<CardId, boolean> = { section: displayLens === "section", cruise: displayLens === "cruise", station: !!stationCard, timing: advanced, layers: layersOpen };
   const maxId: PanelId | null = sel.max && !phone && (sel.max === "select" || sel.max === "depth" || sel.max === "years" || cardOpen[sel.max as CardId]) ? sel.max : null;
   const bottomBand = cardOpen.section && !minCards.section ? "46%" : cardOpen.cruise && !minCards.cruise ? "34%" : "0%";
   const stationUp = cardOpen.station && !minCards.station;
@@ -817,12 +822,13 @@ export function App() {
     cruise: { left: 10, right: 44, bottom: 10, height: "34%" },
     station: { top: 84, right: 10, width: 340, maxHeight: `calc(100% - 94px - ${bottomBand} - 10px)` },   // under the status chip + the map's +/− control
     timing: { top: 84, right: stationUp ? 360 : 10, width: 420, maxHeight: `calc(100% - 94px - ${bottomBand} - 10px)` },
+    layers: { top: 84, right: stationUp ? 360 : 10, width: 270, maxHeight: `calc(100% - 94px - ${bottomBand} - 10px)` },
   };
-  const closeCard: Partial<Record<CardId, () => void>> = { station: () => setSel({ station: null }), timing: () => setAdvanced(false) };
-  const pills = (["section", "cruise", "station", "timing"] as CardId[]).filter((c) => cardOpen[c] && minCards[c]).map((c) => ({ id: c, label: c === "station" ? stationCard!.grid_key : c === "timing" ? "SQL & timing" : titles[c], icon: icons[c], onRestore: () => openCard(c), onClose: closeCard[c] }));
-  const card = (c: CardId) => cardOpen[c] && !phone && <FloatCard key={c} id={c} title={titles[c]} icon={icons[c]} boxRef={mapBox} defaults={cardBox[c]} minimized={minCards[c]} onMinimize={() => minCard(c)} maximized={maxId === c} onMax={() => toggleMax(c)} onClose={closeCard[c]} raised={topCard === c} onTouch={() => setTopCard(c)} exportable={exportItems(c)} data-tour={c === "station" ? "station" : undefined}>{body(c)}</FloatCard>;
+  const closeCard: Partial<Record<CardId, () => void>> = { station: () => setSel({ station: null }), timing: () => setAdvanced(false), layers: () => setLayersOpen(false) };
+  const pills = (["section", "cruise", "station", "timing", "layers"] as CardId[]).filter((c) => cardOpen[c] && minCards[c]).map((c) => ({ id: c, label: c === "station" ? stationCard!.grid_key : c === "timing" ? "SQL & timing" : titles[c], icon: icons[c], onRestore: () => openCard(c), onClose: closeCard[c] }));
+  const card = (c: CardId) => cardOpen[c] && !phone && <FloatCard key={c} id={c} title={titles[c]} icon={icons[c]} boxRef={mapBox} defaults={cardBox[c]} minimized={minCards[c]} onMinimize={() => minCard(c)} maximized={maxId === c} onMax={() => toggleMax(c)} onClose={closeCard[c]} raised={topCard === c} onTouch={() => setTopCard(c)} exportable={c === "layers" ? undefined : exportItems(c)} data-tour={c === "station" ? "station" : c === "layers" ? "layers-card" : undefined}>{body(c)}</FloatCard>;
   const lensStrip = <div className="lens-strip" data-tour="lens-strip">{LENSES.map((l) => <button key={l} className={sel.lens === l ? "on" : ""} onClick={() => onLens(l)} title={LENS_TITLE[l]}><Icon name={LENS_ICON[l]} />{LENS_SHORT[l]}</button>)}</div>;
-  const closeSheet = () => { const pnl = sheet.panel; if (pnl === "station") setSel({ station: null }); else if (pnl === "timing") setAdvanced(false); else if (pnl === "section" || pnl === "cruise") setMinCards((m) => ({ ...m, [pnl]: true })); setSheet({ panel: "select", detent: "peek" }); };
+  const closeSheet = () => { const pnl = sheet.panel; if (pnl === "station") setSel({ station: null }); else if (pnl === "timing") setAdvanced(false); else if (pnl === "layers") setLayersOpen(false); else if (pnl === "section" || pnl === "cruise") setMinCards((m) => ({ ...m, [pnl]: true })); setSheet({ panel: "select", detent: "peek" }); };
 
   return (
     <div className="app">
@@ -863,8 +869,10 @@ export function App() {
           resizable={{ width: railW, min: 260, max: 440, onResize: setRailW }} data-tour="rail" exportable={undefined}
           summary={<><Icon name={LENS_ICON[sel.lens]} /><Icon name={sel.realm === "bio" ? "realm-bio" : "realm-env"} />{selectSummary}</>}>{selectBody}</Rail>}
         <div className="panel mapwrap" ref={mapBox} data-tour="map">
-          <MapView layers={layers} theme={theme} view={sel.map ?? MAP_HOME} onView={(v) => setSel({ map: v })} getTooltip={getTooltip} onClick={onClick} onFirstFrame={() => timing.add("first_paint", performance.now() - window.__t0, "basemap + grid dots")} />
+          <MapView layers={layers} theme={theme} bathy={bathyFromSel(sel)} view={sel.map ?? MAP_HOME} onView={(v) => setSel({ map: v })} getTooltip={getTooltip} onClick={onClick} onFirstFrame={() => timing.add("first_paint", performance.now() - window.__t0, "basemap + grid dots")} />
           <div className="map-tr">
+            <IconButton icon="ui-map-layers" label="Map layers — the sea floor" className="map-layers-btn" data-tour="layers"
+              onClick={() => { if (layersOpen) setLayersOpen(false); else { setLayersOpen(true); setTopCard("layers"); if (phone) setSheet({ panel: "layers", detent: "half" }); } }} />
             <Menu className="export-menu map-export" icon="ui-download" label="" title="export the map: PNG (the map and its legend, stamped) · CSV (the table it draws) — WebGL has no SVG" align="right" data-tour="map-export" items={exportItems("map")} />
             <div className="status"><b>{status}</b>{sliceKey ? ` · ${fmtN(inView)} observations` : ""}</div>
           </div>
@@ -874,19 +882,21 @@ export function App() {
               <div className="ttl">{legendTitle}</div>
               <div className="bar" style={{ background: viridisCss }} />
               <div className="ticks"><span>{fmt(domain[0])}</span><span>5–95 %</span><span>{fmt(domain[1])}</span></div>
+              {seaFloorOn && <div className="hint legend-bathy">sea floor · GEBCO 2025</div>}
               {emptyResult && <div className="hint warn legend-empty">nothing in the selection{filterWords.length ? ` — the filters (${filterWords.join(" · ")}) leave no observation` : ""}
                 {sel.datasets && <> · <button type="button" className="linkish" onClick={() => setSel({ datasets: null })}>all datasets</button></>}</div>}
               {!preSlice && !emptyResult && sel.realm === "bio" && <div className="hint">{stageRows.filter((r) => (sel.den === "per_10m2" ? r.n_10m2 : sel.den === "per_1000m3" ? r.n_1000m3 : r.n) > 0).map((r) => r.dataset_key).filter((v, i, a) => a.indexOf(v) === i).map(short).join(" + ") || "—"}{denInfo(sel.den ?? "raw").excluded ? ` · ${fmtN(denInfo(sel.den ?? "raw").excluded)} observations excluded` : ""}</div>}
             </div>
           </div>
-          {card("section")}{card("cruise")}{card("station")}{card("timing")}
+          {card("section")}{card("cruise")}{card("station")}{card("timing")}{card("layers")}
           {phone && <>
             <div className="phone-pills" style={{ bottom: SHEET_PEEK + 8 }}>
               <button type="button" className={`pill${sliceKey && !depthRows.length ? " muted" : ""}`} onClick={() => setSheet({ panel: "depth", detent: "half" })} data-tour="depth"><Icon name="ui-tune" />{depthSummary}</button>
               <button type="button" className="pill" onClick={() => setSheet({ panel: "years", detent: "half" })} data-tour="years"><Icon name="ui-years" />Years {years[0]}–{years[1]}<Sparkline values={yearsSpark} width={40} height={10} /></button>
-              {(["section", "cruise", "station", "timing"] as CardId[]).filter((c) => cardOpen[c] && sheet.panel !== c).map((c) => <button key={c} type="button" className="pill" onClick={() => openCard(c)}><Icon name={icons[c]} />{c === "station" ? stationCard!.grid_key : c === "timing" ? "SQL & timing" : titles[c]}</button>)}
+              <button type="button" className="pill map-layers-pill" onClick={() => { setLayersOpen(true); setSheet({ panel: "layers", detent: "half" }); }}><Icon name="ui-map-layers" />Layers</button>
+              {(["section", "cruise", "station", "timing", "layers"] as CardId[]).filter((c) => cardOpen[c] && sheet.panel !== c).map((c) => <button key={c} type="button" className="pill" onClick={() => openCard(c)}><Icon name={icons[c]} />{c === "station" ? stationCard!.grid_key : c === "timing" ? "SQL & timing" : titles[c]}</button>)}
             </div>
-            <Sheet detent={sheet.detent} onDetent={(d) => setSheet((s) => ({ ...s, detent: d }))} title={sheet.panel === "select" ? undefined : titles[sheet.panel]} onClose={sheet.panel === "select" ? undefined : closeSheet} exportable={sheet.panel === "select" ? undefined : exportItems(sheet.panel)} data-tour="sheet"
+            <Sheet detent={sheet.detent} onDetent={(d) => setSheet((s) => ({ ...s, detent: d }))} title={sheet.panel === "select" ? undefined : titles[sheet.panel]} onClose={sheet.panel === "select" ? undefined : closeSheet} exportable={sheet.panel === "select" || sheet.panel === "layers" ? undefined : exportItems(sheet.panel)} data-tour="sheet"
               peek={sheet.panel === "select" ? <>
                 <div className="sheet-summary" onClick={() => setSheet((s) => ({ ...s, detent: s.detent === "peek" ? "half" : "peek" }))}><Icon name={LENS_ICON[sel.lens]} /><Icon name={sel.realm === "bio" ? "realm-bio" : "realm-env"} /><span>{selectSummary}</span></div>
                 {lensStrip}</> : sheet.panel === "years" ? actions("years") : null}>

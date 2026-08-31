@@ -34,14 +34,25 @@ export interface Sel {
   hide: PanelId[];             // folded rails (D11 rule 4: `hide=depth,years`, absent when it is the viewport default)
   max: PanelId | null;         // the maximized panel (`max=section`)
   map: [number, number, number] | null; // the map extent as lon,lat,zoom (`map=-121.5,33.2,5.1`); null = the grid's home view
+  bathy: BathyPart[] | null;   // sea floor: null = the default (all three parts on); [] = off; else the subset shown (`bathy=relief,contours`)
+  bathyo: number | null;       // sea-floor opacity 0–1 (`bathyo=0.6`); null = the theme default (0.7 dark · 1 light)
+}
+/** the sea floor's parts, in the URL's canonical order (D26) */
+export type BathyPart = "relief" | "depth" | "contours";
+export const BATHY_PARTS: BathyPart[] = ["relief", "depth", "contours"];
+function parseBathyParts(v: string | null): BathyPart[] | null {
+  if (v == null) return null;
+  if (v === "off") return [];
+  const parts = BATHY_PARTS.filter((x) => v.split(",").includes(x));
+  return parts.length === 0 || parts.length === BATHY_PARTS.length ? null : parts; // garbage or "all three" = the default
 }
 /** the map's home view: the CalCOFI grid, lon · lat · zoom */
 export const MAP_HOME: [number, number, number] = [-121.5, 33.2, 5.1];
 /** the extent rounded the way the URL carries it (4 decimals of a degree ≈ 10 m; zoom to 2) */
 export const roundMap = (v: [number, number, number]): [number, number, number] => [+v[0].toFixed(4), +v[1].toFixed(4), +v[2].toFixed(2)];
 const sameMap = (a: [number, number, number] | null, b: [number, number, number] | null) => (!a && !b) || (!!a && !!b && roundMap(a).join() === roundMap(b).join());
-export type PanelId = "select" | "depth" | "years" | "section" | "cruise" | "station" | "timing";
-export const PANEL_IDS: PanelId[] = ["select", "depth", "years", "section", "cruise", "station", "timing"];
+export type PanelId = "select" | "depth" | "years" | "section" | "cruise" | "station" | "timing" | "layers";
+export const PANEL_IDS: PanelId[] = ["select", "depth", "years", "section", "cruise", "station", "timing", "layers"];
 /** the folds a visit starts with (D11 rule 3, once per visit): ≥ 1200 px all open; 900–1200 the depth rail folded */
 export const DEFAULT_HIDE: PanelId[] = typeof innerWidth === "number" && innerWidth < 1200 ? ["depth"] : [];
 
@@ -84,7 +95,7 @@ export const DEFAULTS: Sel = {
   lens: "station", res: 5, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature",
   stage: null, den: null, zeros: true, years: [1949, YEAR_OPEN], months: null, q: null, yview: null, depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
   line: 90, cruise: null, stat: "mean", anom: false, tour: true, tourOn: false, theme: null, release: null, station: null, datasets: null,
-  hide: DEFAULT_HIDE, max: null, map: null,
+  hide: DEFAULT_HIDE, max: null, map: null, bathy: null, bathyo: null,
 };
 
 const num = (v: string | null, d: number) => (v != null && v !== "" && !isNaN(+v) ? +v : d);
@@ -150,6 +161,8 @@ export function fromUrl(): Sel {
     hide: p.has("hide") ? (p.get("hide")!.split(",").filter((x): x is PanelId => (PANEL_IDS as string[]).includes(x))) : DEFAULT_HIDE,
     max: (PANEL_IDS as string[]).includes(p.get("max") ?? "") ? (p.get("max") as PanelId) : null,
     map: parseMap(p.get("map")),
+    bathy: parseBathyParts(p.get("bathy")),
+    bathyo: (v => v != null && v !== "" && isFinite(+v) && +v >= 0 && +v <= 1 ? Math.round(+v * 100) / 100 : null)(p.get("bathyo")),
   };
 }
 
@@ -180,6 +193,8 @@ export function toUrl(s: Sel) {
   if (s.hide.slice().sort().join(",") !== DEFAULT_HIDE.slice().sort().join(",")) p.set("hide", s.hide.join(","));
   if (s.max) p.set("max", s.max);
   if (s.map && !sameMap(s.map, MAP_HOME)) p.set("map", roundMap(s.map).join(","));
+  if (s.bathy !== null) p.set("bathy", s.bathy.length ? s.bathy.join(",") : "off");
+  if (s.bathyo != null) p.set("bathyo", s.bathyo.toFixed(2));
   const url = `${location.pathname}?${p.toString()}`;
   if (url !== location.pathname + location.search) history.replaceState(null, "", url);
 }

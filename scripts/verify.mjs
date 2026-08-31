@@ -68,6 +68,17 @@ async function assertLayout(name) {
   return r;
 }
 async function shot(name) { const file = path.join(out, `${name}.png`); await page.screenshot({ path: file }); return file; }
+// ── sea-floor probes (slice 2): read the MapLibre canvas (deck's overlay is a separate canvas, so no dots in the way)
+const waitTiles = async (timeout = 25000) => { const t = Date.now(); while (Date.now() - t < timeout) { if (await page.evaluate(() => { const m = window.__map; return !!m && m.loaded() && m.areTilesLoaded(); })) return true; await sleep(150); } console.log("  (tiles not settled)"); return false; };
+const PROBE_PTS = { basin: [-119.7, 33.9], deep: [-125.5, 32.5], land: [-119.0, 34.6] }; // Santa Cruz Basin · abyssal plain · land (Ventura)
+const probeMap = () => page.evaluate((pts) => { const m = window.__map, c = document.querySelector("canvas.maplibregl-canvas"), gl = c.getContext("webgl2") || c.getContext("webgl"); const px = {}; const dpr = c.width / c.clientWidth; for (const [k, [lon, lat]] of Object.entries(pts)) { const q = m.project([lon, lat]); const b = new Uint8Array(4); gl.readPixels(Math.round(q.x * dpr), Math.round(c.height - q.y * dpr), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, b); px[k] = [b[0], b[1], b[2]]; } return { px, layers: (m.getStyle().layers || []).filter((l) => /^gebco/.test(l.id)).map((l) => l.id) }; }, PROBE_PTS);
+const rgbNear = (a, b, tol = 0) => a && b && a.every((v, i) => Math.abs(v - b[i]) <= tol);
+const WATER = { dark: [44, 53, 60], light: [212, 218, 220] }, LAND = { dark: [14, 14, 14], light: [250, 250, 248] };
+const expectSeaFloor = async (name, theme) => { const r = await probeMap();
+  if (r.layers.length < 4) fail(`${name}: only [${r.layers.join(",")}] gebco layers`);
+  if (rgbNear(r.px.basin, WATER[theme], 2)) fail(`${name}: basin is bare CARTO water ${r.px.basin}`);
+  if (!rgbNear(r.px.land, LAND[theme], 5)) fail(`${name}: land is tinted ${r.px.land} (expected ~${LAND[theme]})`);
+  console.log(`  gebco layers ${r.layers.length} · basin ${r.px.basin} · deep ${r.px.deep} · land ${r.px.land}`); return r; };
 const click = async (sel) => { await page.click(sel); };
 const clickText = async (scope, txt) => page.click(`${scope}::-p-text(${txt})`);
 const clickLens = async (txt) => { await clickText(".lenses button", txt); await waitMark(/^grain_switch:/); };
@@ -270,6 +281,33 @@ const STATES = [
     assert: async () => { const u = await page.evaluate(() => location.search); if (!/taxon=worms%3A?\d+/.test(u) || /217452/.test(u)) fail(`u7_picker_tree_enter: ${u}`); else console.log(`  picked → ${decodeURIComponent(u).match(/taxon=[^&]+/)[0]}`); } },
   { name: "u7_variable_tree", url: "?var=temperature&tour=off", steps: async () => { await click("#variable-btn"); await sleep(400); },
     assert: async () => { const g = await page.$$eval(".browse-group", (r) => r.map((x) => `${x.querySelector(".lab").firstChild.textContent}${x.classList.contains("open") ? " [open]" : ""}`)); console.log(`  ${g.join(" · ")}`); if (!g.some((x) => /Physical Oceanography \[open\]/.test(x))) fail(`u7_variable_tree: Physical Oceanography not the open one`); if (!(await page.$(".browse-item.sel"))) fail("u7_variable_tree: Temperature not shown selected"); } },
+  // slice 2 (plan 2026-08-31, D21/D22/D26/D27): the sea floor — pixel-probed on both themes, the flip, off, the card, the phone sheet
+  { name: "layers_default_dark", url: "?tour=off&theme=dark", steps: async () => { await waitTiles(); await sleep(400); },
+    assert: async () => { await expectSeaFloor("layers_default_dark", "dark");
+      if (!(await page.$(".legend-bathy"))) fail("layers_default_dark: no sea-floor legend row"); } },
+  { name: "layers_default_light", url: "?tour=off&theme=light", steps: async () => { await waitTiles(); await sleep(400); },
+    assert: async () => { await expectSeaFloor("layers_default_light", "light"); } },
+  { name: "layers_theme_flip", url: "?tour=off&theme=dark", steps: async () => { await waitTiles(); await click(".cc-theme-toggle"); await sleep(900); await waitTiles(); await sleep(300); },
+    assert: async () => { await expectSeaFloor("layers_theme_flip(→light)", "light");
+      await click(".cc-theme-toggle"); await sleep(900); await waitTiles(); await sleep(300);
+      await expectSeaFloor("layers_theme_flip(→dark)", "dark"); } },
+  { name: "layers_bathy_off", url: "?tour=off&theme=dark&bathy=off", steps: async () => { await waitTiles(); await sleep(400); },
+    assert: async () => { const r = await probeMap();
+      if (r.layers.length) fail(`layers_bathy_off: gebco layers survived [${r.layers.join(",")}]`);
+      if (!rgbNear(r.px.basin, WATER.dark, 1) || !rgbNear(r.px.land, LAND.dark, 1)) fail(`layers_bathy_off: not today's map (basin ${r.px.basin} land ${r.px.land})`);
+      if (await page.$(".legend-bathy")) fail("layers_bathy_off: the legend row survived"); } },
+  { name: "layers_card", url: "?tour=off&theme=dark", steps: async () => { await click(".map-layers-btn"); await sleep(400); await clickText(".card-layers label", "contours"); await sleep(700); },
+    assert: async () => { const u = decodeURIComponent(await page.evaluate(() => location.search));
+      if (!/bathy=relief,depth(&|$)/.test(u)) fail(`layers_card: URL after unchecking contours: ${u}`);
+      const n = await page.$$eval(".card-layers input[type=checkbox]", (r) => r.length); if (n !== 4) fail(`layers_card: ${n} checkboxes`);
+      const r = await probeMap(); if (r.layers.some((l) => /contour/.test(l))) fail("layers_card: contour layers survived the uncheck");
+      await clickText(".card-layers label", "contours"); await sleep(500);
+      const u2 = decodeURIComponent(await page.evaluate(() => location.search)); if (/bathy=/.test(u2)) fail(`layers_card: bathy= should leave the URL at the default (${u2})`); } },
+  { name: "layers_opacity_url", url: "?tour=off&theme=dark&bathyo=0.40", steps: async () => { await click(".map-layers-btn"); await sleep(400); },
+    assert: async () => { const v = await page.$eval(".card-layers input[type=range]", (el) => el.value); if (+v !== 0.4) fail(`layers_opacity_url: slider at ${v}`);
+      const op = await page.evaluate(() => window.__map.getPaintProperty("gebco-relief", "color-relief-opacity")); if (Math.abs(op - 0.4) > 1e-6) fail(`layers_opacity_url: relief opacity ${op}`); } },
+  { name: "phone_layers_sheet", url: "?tour=off&theme=dark", viewport: PHONE, steps: async () => { await click(".map-layers-pill"); await sleep(700); },
+    assert: async () => { const n = await page.$$eval(".sheet input[type=checkbox]", (r) => r.length); if (n !== 4) fail(`phone_layers_sheet: ${n} checkboxes in the sheet`); } },
   // U4b — feedback: the dialog captures the view, the annotator draws, Send posts to the endpoint (mocked here) and thanks with the issue link
   { name: "u4b_feedback_open", url: "?tour=off", steps: async () => { await click('[data-tour="feedback"]'); await page.waitForSelector(".feedback-shot img", { timeout: 20000 }); await sleep(300); },
     assert: async () => { const src = await page.$eval(".feedback-shot img", (i) => i.src); if (!src.startsWith("data:image/jpeg")) fail("u4b_feedback_open: no thumbnail"); const dis = await page.$eval('[data-tour="feedback-send"]', (b) => b.disabled); if (!dis) fail("u4b_feedback_open: Send enabled with no text / no endpoint"); if (!(await page.$(".hint.warn"))) fail("u4b_feedback_open: no 'no endpoint' note"); } },
@@ -386,12 +424,16 @@ if (opt.timing != null) {
     }
     r.marksAll = await marks();
     results.timing[label] = r;
+    const fp = r.marksAll.find((m) => m.name === "first_paint"), fl = r.marksAll.find((m) => m.name === "first_lens_ready");
+    console.log(`  first_paint ${fp ? Math.round(fp.ms) : "-"} ms · first_lens_ready ${fl ? Math.round(fl.ms) : "-"} ms`);
+    fs.writeFileSync(path.join(out, "results.json"), JSON.stringify(results, null, 1)); // keep what has been measured if a later run throws
   }
+  const runSafe = async (...a) => { try { await run(...a); } catch (e) { fail(`timing ${a[0]}: ${e.message}`); await freshPage(); } };
   const lenses = [["station", async () => {}], ["hex", () => clickLens("Hexagons")], ["cruise", () => clickLens("Cruises")], ["region", () => clickLens("Regions")], ["section", () => clickLens("Sections")]];
-  await run("cold", base + "?tour=off", lenses);
-  await run("env", base + "?var=temperature&tour=off", [["station", async () => {}], ["section", () => clickLens("Sections")], ["section_anom", async () => { await page.click("input[type=checkbox]"); await sleep(300); }]]);
-  await run("warm", base + "?lens=hex&res=5", [["hex", async () => { await sleep(1500); }], ["station", () => clickLens("Stations")], ["hex", () => clickLens("Hexagons")]]);
-  await run("phone", base + "?tour=off", [["station", async () => {}]], PHONE);
+  await runSafe("cold", base + "?tour=off", lenses);
+  await runSafe("env", base + "?var=temperature&tour=off", [["station", async () => {}], ["section", () => clickLens("Sections")], ["section_anom", async () => { await page.click("input[type=checkbox]"); await sleep(300); }]]);
+  await runSafe("warm", base + "?lens=hex&res=5", [["hex", async () => { await sleep(1500); }], ["station", () => clickLens("Stations")], ["hex", () => clickLens("Hexagons")]]);
+  await runSafe("phone", base + "?tour=off", [["station", async () => {}]], PHONE);
 }
 
 fs.writeFileSync(path.join(out, "results.json"), JSON.stringify(results, null, 1));
