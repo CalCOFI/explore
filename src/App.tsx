@@ -14,6 +14,7 @@ import { Picker, type PickerItem, type GroupOpt } from "./picker";
 import { Menu, Group } from "./ui";
 import { Rail, FloatCard, PillRow, MaxPanel, Sheet, Sparkline, FOLDED_PX, SHEET_PEEK, type CardId, type CardBox, type Detent } from "./panels";
 import { LayersCard } from "./layers";
+import { Curtain3D } from "./curtain";
 import { bathyFromSel, bathyOn, boundaryLayerIds, isPalette, PALETTES, type BoundaryState, type SpatialLayerDef, type SpatialLayers } from "./basemap";
 import spatialFallback from "./spatial_layers.fallback";
 import type { IconName } from "./icons";
@@ -773,6 +774,10 @@ export function App() {
   const visibleBoundaries = (sel.layers ?? []).map((st) => ({ st, d: spatialLayers.layers.find((d) => d.id === st.id) })).filter((x): x is { st: (typeof x)["st"]; d: SpatialLayerDef } => !!x.d);
   const boundaries: BoundaryState = { base: spatialLayers.pmtiles_base, defs: spatialLayers.layers, styles: sel.layers ?? [],
     regionOutline: displayLens === "region" ? sel.layer : null };
+  // D28 reshaped: the Sections lens (env) as a deck-only curtain scene — desktop only, the phone keeps 2-D
+  const view3dOn = sel.view3d && displayLens === "section" && sel.realm === "env" && !phone;
+  // the scene needs the map box: the section card minimizes while 3-D is on (a URL-opened view too), and comes back
+  useEffect(() => { setMinCards((m) => ({ ...m, section: view3dOn })); }, [view3dOn]);
   const timingBody = <div className="timing-body">
     <div className="hint" style={{ padding: "4px 8px" }}>{anyCached ? "objects from cache" : "first visit"} · {navigator.hardwareConcurrency} cores{(navigator as any).deviceMemory ? ` · ${(navigator as any).deviceMemory} GB` : ""} · release {rel}</div>
     <table><tbody>
@@ -894,8 +899,13 @@ export function App() {
           resizable={{ width: railW, min: 260, max: 440, onResize: setRailW }} data-tour="rail" exportable={undefined}
           summary={<><Icon name={LENS_ICON[sel.lens]} /><Icon name={sel.realm === "bio" ? "realm-bio" : "realm-env"} />{selectSummary}</>}>{selectBody}</Rail>}
         <div className="panel mapwrap" ref={mapBox} data-tour="map">
-          <MapView layers={layers} theme={theme} bathy={bathyFromSel(sel)} boundaries={boundaries} view={sel.map ?? MAP_HOME} onView={(v) => setSel({ map: v })} getTooltip={getTooltip} onClick={onClick} onFirstFrame={() => timing.add("first_paint", performance.now() - window.__t0, "basemap + grid dots")} />
+          {view3dOn
+            ? <Curtain3D cells={sectionCells} clim={climCells} anom={sel.anom && !!climCells} theme={theme} line={sel.line} grid={grid} exag={sel.exag ?? 60} onExag={(v) => setSel({ exag: v })} unit={unitLabel} />
+            : <MapView layers={layers} theme={theme} bathy={bathyFromSel(sel)} boundaries={boundaries} view={sel.map ?? MAP_HOME} onView={(v) => setSel({ map: v })} getTooltip={getTooltip} onClick={onClick} onFirstFrame={() => timing.add("first_paint", performance.now() - window.__t0, "basemap + grid dots")} />}
           <div className="map-tr">
+            {displayLens === "section" && sel.realm === "env" && !phone &&
+              <button type="button" className="map-3d-btn" title="the section as a 3-D curtain over the sea floor (D28)"
+                onClick={() => setSel({ view3d: !sel.view3d })}>{sel.view3d ? "2-D" : "3-D"}</button>}
             <IconButton icon="ui-map-layers" label="Map layers — the sea floor" className="map-layers-btn" data-tour="layers"
               onClick={() => { if (layersOpen) setLayersOpen(false); else { setLayersOpen(true); setTopCard("layers"); if (phone) setSheet({ panel: "layers", detent: "half" }); } }} />
             <Menu className="export-menu map-export" icon="ui-download" label="" title="export the map: PNG (the map and its legend, stamped) · CSV (the table it draws) — WebGL has no SVG" align="right" data-tour="map-export" items={exportItems("map")} />

@@ -35,7 +35,7 @@ export const warmBaseStyles = () => { baseStyle("dark").catch(() => {}); baseSty
 // depth colour: each ramp fades to TRANSPARENT at exactly 0 m (land is clamped to 0 in the tiles — a stop above 0
 // paints every land pixel). On dark the ramp ends ON the shallow colour (CARTO's #2C353C water is DARKER than the
 // shallows, so ending on it drew a dark rim along every shelf < 50 m); on light ending on CARTO's water is right.
-const RAMP: Record<"dark" | "light", (number | string)[]> = {
+export const BATHY_RAMP: Record<"dark" | "light", (number | string)[]> = {
   dark: [-6500, "#03070f", -4500, "#060d19", -3000, "#0b1a2e", -2000, "#11284a", -1000, "#183760",
          -500, "#20466e", -200, "#27536f", -100, "#2a5a6f", -50, "#2b5b68", 0, "rgba(43,91,104,0)"],
   light: [-6500, "#2a527a", -4500, "#35638f", -3000, "#4a7aa6", -2000, "#6392ba", -1000, "#7ea8c9",
@@ -70,7 +70,7 @@ export function composeStyle(base: any, theme: "dark" | "light", b: BathyState, 
   const add: any[] = [];
   for (const src of ["gebco-far", "gebco"]) {
     if (has("depth")) add.push({ id: `${src}-relief`, type: "color-relief", source: src,
-      paint: { "color-relief-opacity": o, "color-relief-color": ["interpolate", ["linear"], ["elevation"], ...RAMP[theme]] } });
+      paint: { "color-relief-opacity": o, "color-relief-color": ["interpolate", ["linear"], ["elevation"], ...BATHY_RAMP[theme]] } });
     if (has("relief")) add.push({ id: `${src}-shade`, type: "hillshade", source: src,
       paint: { "hillshade-method": "igor", "hillshade-exaggeration": Math.min(1, 0.5 * k), ...SHADE[theme] } });
   }

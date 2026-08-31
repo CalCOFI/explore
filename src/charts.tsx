@@ -293,7 +293,7 @@ function ContextBar(p: { full: [number, number]; view: [number, number]; onView:
 // reads identically in the two products. Written out because Plotly's built-in "RdBu" runs BLUE -> red (0 =
 // rgb(5,10,172)), the reverse of the ColorBrewer scale its name suggests — the first release of this panel used it
 // with reversescale and painted +2 °C blue.
-const RAMP_DIV = (dark: boolean) => [[0, "#0d366b"], [0.25, "#3987e5"], [0.5, dark ? "#383835" : "#f0efec"], [0.75, "#e34948"], [1, "#7d1b28"]];
+export const RAMP_DIV = (dark: boolean): [number, string][] => [[0, "#0d366b"], [0.25, "#3987e5"], [0.5, dark ? "#383835" : "#f0efec"], [0.75, "#e34948"], [1, "#7d1b28"]];
 
 export interface SectionCell { station: number; y: number; v: number; n: number; month?: number }
 export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | null; anom: boolean; yLabel: string; theme: string; unit: string; title: string }) {

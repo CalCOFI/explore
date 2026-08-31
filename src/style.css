@@ -411,3 +411,14 @@ button.swatch.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .addgroup-h { display: flex; align-items: center; gap: 6px; background: none; border: none; color: var(--fg); cursor: pointer; padding: 4px 0; font-size: 13px; width: 100%; text-align: left; }
 .legend-layers { margin-top: 3px; display: flex; flex-direction: column; gap: 2px; }
 .legend-layers .row { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+
+/* ── the 3-D curtain scene (D28 reshaped) ──────────────────────────────────── */
+.curtain-scene { position: absolute; inset: 0; background: var(--bg); }
+.curtain-scene canvas { border-radius: inherit; }
+.curtain-status { position: absolute; top: 46%; width: 100%; text-align: center; }
+.curtain-ui { position: absolute; left: 10px; bottom: 10px; z-index: var(--z-map-chrome); display: flex; flex-direction: column; gap: 3px;
+  background: color-mix(in srgb, var(--panel) 85%, transparent); border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; }
+.curtain-ui label { display: flex; align-items: center; gap: 8px; }
+.curtain-ui input[type=range] { width: 140px; }
+.map-tr .map-3d-btn { background: color-mix(in srgb, var(--panel) 85%, transparent); border: 1px solid var(--border); border-radius: 6px; padding: 3px 7px; color: var(--fg); cursor: pointer; font-size: 12px; }
+.map-tr .map-3d-btn:hover { color: var(--accent); border-color: var(--accent); }

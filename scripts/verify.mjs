@@ -363,6 +363,31 @@ const STATES = [
   { name: "phone_layers3_reorder", url: "?tour=off&theme=dark&layers=noaa_maritime_eez,ca_marine_protected_areas", viewport: PHONE, steps: async () => { await click(".map-layers-pill"); await sleep(700);
       await page.click(".sheet .onmap-row:nth-child(2) button[aria-label^='Move Marine Protected Areas up']"); await sleep(500); },
     assert: async () => { const u = decodeURIComponent(await page.evaluate(() => location.search)); if (!/layers=ca_marine_protected_areas,noaa_maritime_eez/.test(u)) fail(`phone_layers3_reorder: ${u}`); } },
+  // slice 4 (D28 reshaped): the Sections lens as a deck-only curtain scene
+  { name: "curtain_3d", url: "?tour=off&theme=dark&lens=section&var=temperature&line=90&view=3d", steps: async () => { await sleep(2500);
+      const t = Date.now(); while (Date.now() - t < 25000) { const ok = await page.evaluate(() => (window.__curtain?.cells ?? 0) > 0); if (ok) break; await sleep(300); } await sleep(800); },
+    assert: async () => { const c = await page.evaluate(() => window.__curtain);
+      if (!c || !c.cells) { fail(`curtain_3d: no curtain (${JSON.stringify(c)})`); return; }
+      console.log(`  ${c.stations} stations · ${c.cells} cells · ${c.painted} texels painted · terrain ${c.terrainVerts} verts · max depth ${c.maxDepth} m · ×${c.exag}`);
+      if (c.stations < 5 || c.terrainVerts < 10000) fail(`curtain_3d: scene too thin (${JSON.stringify(c)})`);
+      if (!c.painted) fail("curtain_3d: the curtain texture painted nothing");
+      if (await page.$(".maplibregl-canvas")) fail("curtain_3d: MapLibre still mounted");
+      const lum = await page.evaluate(() => { const cv = document.querySelector(".curtain-scene canvas"); const gl = cv.getContext("webgl2") || cv.getContext("webgl");
+        const W = cv.width, H = cv.height, b = new Uint8Array(W * H * 4); gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, b);
+        let s = 0, n = 0, lit = 0; for (let i = 0; i < b.length; i += 4 * 97) { const l = 0.2126 * b[i] + 0.7152 * b[i + 1] + 0.0722 * b[i + 2]; s += l; n++; if (l > 20) lit++; } return { mean: s / n, litFrac: lit / n }; });
+      console.log(`  scene luminance ${lum.mean.toFixed(1)} · lit fraction ${(lum.litFrac * 100).toFixed(0)}%`);
+      if (lum.litFrac < 0.2) fail(`curtain_3d: the scene looks blank (lit ${(lum.litFrac * 100).toFixed(0)}%)`); } },
+  { name: "curtain_exag_url", url: "?tour=off&theme=dark&lens=section&var=temperature&line=90&view=3d&exag=100", steps: async () => { await sleep(2500);
+      const t = Date.now(); while (Date.now() - t < 25000) { if (await page.evaluate(() => (window.__curtain?.cells ?? 0) > 0)) break; await sleep(300); } },
+    assert: async () => { const x = await page.evaluate(() => window.__curtain?.exag); if (x !== 100) fail(`curtain_exag_url: exag ${x}`);
+      const v = await page.$eval(".curtain-ui input[type=range]", (el) => el.value); if (+v !== 100) fail(`curtain_exag_url: slider ${v}`); } },
+  { name: "curtain_off_and_bio_guard", url: "?tour=off&theme=dark&lens=section&var=temperature&line=90", steps: async () => { await sleep(1200); },
+    assert: async () => { if (await page.$(".curtain-scene")) fail("curtain_off: 3-D without view=3d");
+      if (!(await page.$(".map-3d-btn"))) fail("curtain_off: no 3-D toggle on an env section");
+      await page.goto(base + "?tour=off&theme=dark&lens=section&taxon=worms:217452&line=90&view=3d", { waitUntil: "domcontentloaded" });
+      await waitMark(/^first_lens_ready$/); await sleep(1000);
+      if (await page.$(".curtain-scene")) fail("curtain_bio_guard: the bio section (station × year) got a curtain");
+      if (!(await page.$(".maplibregl-canvas"))) fail("curtain_bio_guard: the 2-D map is gone"); } },
   // U4b — feedback: the dialog captures the view, the annotator draws, Send posts to the endpoint (mocked here) and thanks with the issue link
   { name: "u4b_feedback_open", url: "?tour=off", steps: async () => { await click('[data-tour="feedback"]'); await page.waitForSelector(".feedback-shot img", { timeout: 20000 }); await sleep(300); },
     assert: async () => { const src = await page.$eval(".feedback-shot img", (i) => i.src); if (!src.startsWith("data:image/jpeg")) fail("u4b_feedback_open: no thumbnail"); const dis = await page.$eval('[data-tour="feedback-send"]', (b) => b.disabled); if (!dis) fail("u4b_feedback_open: Send enabled with no text / no endpoint"); if (!(await page.$(".hint.warn"))) fail("u4b_feedback_open: no 'no endpoint' note"); } },
