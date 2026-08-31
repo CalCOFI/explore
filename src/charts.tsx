@@ -99,7 +99,7 @@ const yearsToFy = (y: [number, number], m: [number, number] | null): [number, nu
 // click = pick; the ship is in the hover)
 export function YearStrip(p: {
   rows: YearRow[]; monthRows: YearRow[] | null; onNeedMonths?: (need: boolean) => void;
-  years: [number, number]; months: [number, number] | null; yearMax: number; theme: string; mode: StripMode; unit: string; stat: "mean" | "med" | "n";
+  years: [number, number]; months: [number, number] | null; yearMax: number; theme: string; mode: StripMode; unit: string; stat: "mean" | "med" | "n"; log?: boolean;
   view: [number, number] | null; onView: (v: [number, number] | null) => void;
   onYears: (y: [number, number] | null, months?: [number, number] | null) => void;
   gantt?: { rows: GanttRow[]; selected: string | null; onPick: (k: string) => void } | null;
@@ -114,7 +114,7 @@ export function YearStrip(p: {
   const monthRes = monthly || (p.mode === "cruises" && span <= MONTH_LOD_YEARS); // the brush snaps to months
   const yearsSet = p.years[0] > 1949 || p.years[1] < p.yearMax || !!p.months;
   const fy = yearsToFy(p.years, p.months);
-  const ref = usePlot([p.rows, p.monthRows, p.years, p.months, p.yearMax, p.theme, p.mode, p.unit, p.stat, p.view, p.gantt, monthly], (div, Plotly) => {
+  const ref = usePlot([p.rows, p.monthRows, p.years, p.months, p.yearMax, p.theme, p.mode, p.unit, p.stat, p.view, p.gantt, monthly, p.log], (div, Plotly) => {
     const b = base(p.theme);
     const r = monthly ? p.monthRows! : p.rows;
     const bw = monthly ? 1 / 12 : 0.85;
@@ -126,6 +126,16 @@ export function YearStrip(p: {
       data = [{ x: r.map((d) => d.year), y: r.map((d) => d.n), type: "bar", width: bw, marker: { color: b.accent },
         customdata: r.map((d) => d.n_samples), hovertemplate: (monthly ? "%{x:.2f}" : "%{x}") + ": %{y} observations, %{customdata} samples<extra></extra>" }];
     } else if (p.mode === "mean") {
+      // log scale (D20 follow-up): the axis keeps the ORIGINAL values — decade labels plus minor gridlines at one
+      // even linear step, which bunch toward the top, so the eye reads the compression. log(0) does not exist, so a
+      // zero-filled mean sits ON the axis floor (half a decade below the smallest positive mean) and the hover
+      // carries the true value from customdata, never the clamped y.
+      const pos = r.filter((d) => (d.mean ?? 0) > 0);
+      const logY = !!p.log && pos.length > 0;
+      const minPos = logY ? Math.min(...pos.map((d) => d.mean!)) : 0;
+      const maxHi = logY ? Math.max(...pos.map((d) => d.mean! + (d.se ?? 0))) : 0;
+      const floor = logY ? minPos / Math.sqrt(10) : -Infinity;
+      const cl = (v: number) => (logY && v < floor ? floor : v);
       // the line breaks at a gap (a bin with no rows: a null at the missing x) and the band is one closed polygon
       // per contiguous run — plotly joins the segments of a `tonexty` fill with a straight line, so a band with
       // gaps drew a sliver across every one of them. a bin of n = 1 has no se: the band passes through it at zero
@@ -135,21 +145,27 @@ export function YearStrip(p: {
       const flush = () => {
         if (!run.length) return;
         if (bx.length) { bx.push(null); by.push(null); }
-        for (const d of run) { bx.push(d.year); by.push(d.mean! + (d.se ?? 0)); }
-        for (let j = run.length - 1; j >= 0; j--) { bx.push(run[j].year); by.push(run[j].mean! - (run[j].se ?? 0)); }
+        for (const d of run) { bx.push(d.year); by.push(cl(d.mean! + (d.se ?? 0))); }
+        for (let j = run.length - 1; j >= 0; j--) { bx.push(run[j].year); by.push(cl(run[j].mean! - (run[j].se ?? 0))); }
         run = [];
       };
       for (let i = 0; i < r.length; i++) {
         if (i > 0 && r[i].year - r[i - 1].year > gap) { xs.push(r[i].year - gap); ys.push(null); ns.push(null); flush(); }
-        xs.push(r[i].year); ys.push(r[i].mean); ns.push(r[i].n);
+        xs.push(r[i].year); ys.push(r[i].mean == null ? null : cl(r[i].mean!)); ns.push([r[i].n, r[i].mean] as any);
         if (r[i].mean != null) run.push(r[i]); else flush();
       }
       flush();
       data = [
         { x: bx, y: by, type: "scatter", mode: "lines", fill: "toself", fillcolor: "rgba(77,171,247,0.22)", line: { width: 0 }, hoverinfo: "skip", showlegend: false },
         { x: xs, y: ys, type: "scatter", mode: "lines+markers", line: { color: b.accent, width: 2 }, marker: { size: monthly ? 3 : 4 }, connectgaps: false,
-          customdata: ns, hovertemplate: (monthly ? "%{x:.2f}" : "%{x}") + ": mean %{y:.3g} ± se<br>n %{customdata}<extra></extra>" },
+          customdata: ns, cliponaxis: !logY, hovertemplate: (monthly ? "%{x:.2f}" : "%{x}") + ": mean %{customdata[1]:.3g} ± se<br>n %{customdata[0]}<extra></extra>" },
       ];
+      if (logY) {
+        // one even step for the minor grid, ~8 lines to the max; labels stay on the decades (original values)
+        const raw = maxHi / 8, mag = Math.pow(10, Math.floor(Math.log10(raw))), lstep = raw / mag < 1.5 ? mag : raw / mag < 3.5 ? 2 * mag : raw / mag < 7.5 ? 5 * mag : 10 * mag;
+        layout = { yaxis: { ...b.yaxis, type: "log", range: [Math.log10(floor), Math.log10(maxHi) + 0.08], dtick: 1, exponentformat: "none", fixedrange: true,
+          minor: { showgrid: true, dtick: "L" + lstep, gridcolor: b.yaxis.gridcolor }, title: { text: `mean ${p.unit} (log)`, standoff: 2 } } };
+      }
     } else if (p.gantt) {
       // the cruise calendar: one cell per cruise at (year, month of its first sample), spanning the months it ran,
       // the cruises starting in one month sharing the year's column; zoomed to <= 15 years the cell becomes the
