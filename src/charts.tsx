@@ -296,17 +296,33 @@ function ContextBar(p: { full: [number, number]; view: [number, number]; onView:
 export const RAMP_DIV = (dark: boolean): [number, string][] => [[0, "#0d366b"], [0.25, "#3987e5"], [0.5, dark ? "#383835" : "#f0efec"], [0.75, "#e34948"], [1, "#7d1b28"]];
 
 export interface SectionCell { station: number; y: number; v: number; n: number; month?: number }
+
+/* A CalCOFI station number IS a distance, on a different scale: `+proj=calcofi` is equidistant along a line at
+ * 7.386 km = 3.988 nautical miles (i.e. 4 nmi) per station unit — measured constant to 0.02 % over the 665 km of
+ * line 90, and to 0.04 % against the real occupied cast positions. That is why the section can carry BOTH rulers,
+ * station number above and distance below, with neither one distorting the field: they are one affine map.
+ *
+ * It is also why the axis is LINEAR and no longer `type: "category"`. A category axis spaces by INDEX, so station
+ * 80 → 90 (74 km) was drawn exactly as wide as 30 → 35 (37 km); the stations are not evenly numbered, so that is a
+ * real distortion, and hanging a distance ruler off it would have printed uneven distances at even pixel spacing. */
+export const KM_PER_STATION = 7.386;
+
 export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | null; anom: boolean; yLabel: string; theme: string; unit: string; title: string }) {
   const ref = usePlot([p.cells, p.clim, p.anom, p.theme, p.yLabel, p.unit, p.title], (div, Plotly) => {
     const b = base(p.theme);
-    // x runs OFFSHORE -> NEARSHORE, i.e. station number DESCENDING, so the section reads like the map it was cut
-    // from: a CalCOFI line runs west-south-west off the coast, so the high station numbers are the western
-    // (left) end and station 30 sits against the shore on the right. z is built over xs, so the sort is the flip.
-    const xs = [...new Set(p.cells.map((c) => c.station))].sort((a, c) => c - a);
+    // stations run OFFSHORE -> NEARSHORE, i.e. station number DESCENDING, so the section reads like the map it was
+    // cut from: a CalCOFI line runs west-south-west off the coast, so the high station numbers are the western
+    // (left) end and station 30 sits against the shore on the right. z is built over `stas`, so the sort is the flip.
+    const stas = [...new Set(p.cells.map((c) => c.station))].sort((a, c) => c - a);
     const ys = [...new Set(p.cells.map((c) => c.y))].sort((a, c) => a - c);
+    // distance offshore, zeroed on the nearest-shore station in view — the ruler ctd-transects draws by default
+    const sta0 = stas.length ? Math.min(...stas) : 0;
+    const km = (sta: number) => (sta - sta0) * KM_PER_STATION;
+    const kmToSta = (v: number) => sta0 + v / KM_PER_STATION;   // exact: the map is affine
+    const xs = stas.map(km);
     // the baseline is month-matched: a cast's value minus the climatology of the calendar month it was occupied in
     const climMap = new Map((p.clim ?? []).map((c) => [`${c.station}|${c.month}|${c.y}`, c.v]));
-    const z = ys.map((y) => xs.map((x) => {
+    const z = ys.map((y) => stas.map((x) => {
       const c = p.cells.find((d) => d.station === x && d.y === y);
       if (!c) return null;
       if (!p.anom) return c.v;
@@ -316,19 +332,55 @@ export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | nul
     const isDepth = p.yLabel.startsWith("depth");
     // a symmetric range about zero, from the data: the colorbar's two ends mean the same magnitude either way
     const amax = p.anom ? Math.max(0.1, ...z.flat().filter((v): v is number => v != null).map(Math.abs)) : 0;
-    Plotly.react(div, xs.length ? [{
+    // x is km now, so the station number travels in customdata to stay in the hover
+    const cd = ys.map(() => stas.map((sta) => sta));
+    const traces = xs.length ? [{
       type: "heatmap", x: xs, y: ys, z, zsmooth: "best", connectgaps: false,
       colorscale: p.anom ? RAMP_DIV(p.theme === "dark") : "Viridis",
       ...(p.anom ? { zmid: 0, zmin: -amax, zmax: amax } : {}),
       colorbar: { thickness: 10, len: 0.9, title: { text: p.anom ? `Δ ${p.unit}` : p.unit, side: "right" }, tickfont: { size: 10 } },
-      hovertemplate: `station %{x}<br>${p.yLabel} %{y}<br>%{z:.2f}<extra></extra>`,
-    }] : [], {
-      ...b, title: { text: p.title, font: { size: 12 }, x: 0.02, xanchor: "left", y: 0.98 },
-      xaxis: { ...b.xaxis, title: { text: "station (offshore → nearshore)", standoff: 4 }, type: "category" },
+      customdata: cd,
+      hovertemplate: `station %{customdata} · %{x:.0f} km<br>${p.yLabel} %{y}<br>%{z:.2f}<extra></extra>`,
+    }, {
+      // the station axis renders only if a trace sits on it; this one is here for that and nothing else
+      // (its x is in STATION units, x2's own scale). It rides a hidden y-axis: on the real one, Plotly pads
+      // the autorange to fit these markers and opened a blank band above depth 0 above the section.
+      type: "scatter", mode: "markers", xaxis: "x2", yaxis: "y2", x: stas, y: stas.map(() => 0),
+      marker: { opacity: 0 }, hoverinfo: "skip" as const, showlegend: false,
+    }] : [];
+    Plotly.react(div, traces, {
+      // t holds the panel title AND the station axis; pinning the title to the container top keeps them apart
+      ...b, title: { text: p.title, font: { size: 12 }, x: 0.02, xanchor: "left", yref: "container", y: 0.985, yanchor: "top" },
+      xaxis: { ...b.xaxis, title: { text: "distance offshore (km)", standoff: 4 }, type: "linear",
+               range: xs.length ? [Math.max(...xs), Math.min(...xs)] : undefined },
+      /* The same ruler on the other scale — a REAL linear axis in station units, not a fixed list of ticks at
+       * the occupied stations. Ticking every occupied station crowds the nearshore end into an unreadable run:
+       * stations are 5 units apart inshore and 20 offshore, so line 90's bio section put 25-30-35-40-45-50-55-60
+       * in the last fifth of the panel. Letting Plotly tick it picks round station numbers, thins them to the
+       * width it actually has, and re-thins them when the card is resized. */
+      xaxis2: { ...b.xaxis, title: { text: "station", standoff: 2 }, overlaying: "x", side: "top",
+                showgrid: false, zeroline: false, tickfont: { size: 10 },
+                // an overlaying axis defaults to tickmode "sync", which pins its ticks to the km axis's and
+                // labelled them 84.2, 77.4, 70.6 — round KILOMETRES read out in stations. Ask for its own.
+                tickmode: "auto",
+                range: xs.length ? [kmToSta(Math.max(...xs)), kmToSta(Math.min(...xs))] : undefined },
       yaxis: { ...b.yaxis, title: { text: p.yLabel, standoff: 4 }, autorange: isDepth ? "reversed" : true },
-      margin: { l: 50, r: 10, t: 28, b: 36 },
+      yaxis2: { overlaying: "y", visible: false, range: [0, 1], fixedrange: true },
+      margin: { l: 50, r: 10, t: 62, b: 36 },
       annotations: xs.length ? [] : [{ text: "no rows for this line × cruise × filters", xref: "paper", yref: "paper", x: 0.5, y: 0.5, showarrow: false }],
     }, CFG);
+    // the two axes carry different units, so `matches` cannot hold them together: re-derive the station range
+    // from the km range after any zoom. Our own relayout fires this again, hence the no-op guard.
+    const d = div as any;
+    d.removeAllListeners?.("plotly_relayout");
+    d.on("plotly_relayout", () => {
+      const r = (d._fullLayout?.xaxis?.range ?? []).map(Number);
+      if (r.length !== 2 || !r.every(Number.isFinite)) return;
+      const want = [kmToSta(r[0]), kmToSta(r[1])];
+      const cur = (d._fullLayout?.xaxis2?.range ?? []).map(Number);
+      if (cur.length === 2 && cur.every((v: number, i: number) => Math.abs(v - want[i]) < 1e-6)) return;
+      Plotly.relayout(div, { "xaxis2.range": want });
+    });
   });
   return <div ref={ref} className="plot fill" />;
 }

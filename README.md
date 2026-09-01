@@ -31,6 +31,13 @@ says what the app does and how to work on it without needing them.
   which is in force, for which datasets, and how many observations it excludes; open it for the formulas.
   One pill per dataset × stage; a ⚠ pill is a raw count with no effort in the release. The default stage
   and denominator follow the same rule as `calcofi4r::cc_default_stage()` / `cc_default_denominator()`.
+- **A section is laid out like the map, and carries both rulers.** *Sections* draws **offshore on the left,
+  the coast on the right** — a CalCOFI line runs west-south-west off the coast — and labels the x-axis
+  **station number above, distance offshore below**. The two are one ruler: `+proj=calcofi` is equidistant
+  along a line at **7.386 km = 3.99 nmi (4 nautical miles) per station unit**, measured constant to 0.02 %
+  over the 665 km of line 90, so the axis is linear in both at once. It is linear rather than categorical
+  for that reason: spacing stations evenly by index drew 80 → 90 (74 km) as wide as 30 → 35 (37 km).
+  [ctd-transects](https://calcofi.io/ctd-transects/) draws the same section the same way.
 - **A section's anomaly is a departure from one fixed baseline.** In the *Sections* lens, *anomaly vs
   1993–2013 monthly climatology* subtracts the release's own `climatology` table
   (`calcofi4db::build_climatology()`): the mean for that station, the cast's **own calendar month** and
