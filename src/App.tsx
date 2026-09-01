@@ -307,7 +307,8 @@ export function App() {
         if (stale()) return;
         setCruiseRows(cr);
         let ck = sel.cruise && cr.some((c) => c.cruise_key === sel.cruise) ? sel.cruise : null;
-        if (!ck && cr.length) ck = cr.slice().sort((a, b) => b.n_sta - a.n_sta || b.t0 - a.t0)[0].cruise_key;
+        // newest first, like the picker says (was: the most stations occupied, which opened the lens on 2009)
+        if (!ck && cr.length) ck = cr.slice().sort((a, b) => b.t0 - a.t0 || b.n_sta - a.n_sta)[0].cruise_key;
         if (ck !== sel.cruise) { setSel({ cruise: ck }); return; } // the effect re-runs once with the cruise set
         if (ck) {
           await ensure(REG.sample_root);
@@ -326,7 +327,11 @@ export function App() {
         if (stale()) return;
         setSectionCruises(cs);
         let ck = sel.cruise && cs.some((c) => c.cruise_key === sel.cruise) ? sel.cruise : null;
-        if (!ck && cs.length) ck = cs.slice().sort((a, b) => b.n_sta - a.n_sta || b.cruise_key.localeCompare(a.cruise_key))[0].cruise_key;
+        // the default is the NEWEST cruise on this line, not the one that occupied the most stations: ranking by
+        // n_sta put line 90 on 1950-09-31CR, so the lens opened in 1950 under a picker labelled "newest first"
+        // (and an anomaly there is always blank — the climatology starts in 1993). A YYYY-MM-NODC key sorts
+        // chronologically by itself; n_sta only breaks a tie between two cruises of the same month.
+        if (!ck && cs.length) ck = cs.slice().sort((a, b) => b.cruise_key.localeCompare(a.cruise_key) || b.n_sta - a.n_sta)[0].cruise_key;
         if (ck !== sel.cruise) { setSel({ cruise: ck }); return; }
         if (sel.realm === "env") {
           const sc = ck ? await engine.query("section", { ...params, line: sel.line, cruise: ck }) : [];

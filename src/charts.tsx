@@ -299,7 +299,10 @@ export interface SectionCell { station: number; y: number; v: number; n: number;
 export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | null; anom: boolean; yLabel: string; theme: string; unit: string; title: string }) {
   const ref = usePlot([p.cells, p.clim, p.anom, p.theme, p.yLabel, p.unit, p.title], (div, Plotly) => {
     const b = base(p.theme);
-    const xs = [...new Set(p.cells.map((c) => c.station))].sort((a, c) => a - c);
+    // x runs OFFSHORE -> NEARSHORE, i.e. station number DESCENDING, so the section reads like the map it was cut
+    // from: a CalCOFI line runs west-south-west off the coast, so the high station numbers are the western
+    // (left) end and station 30 sits against the shore on the right. z is built over xs, so the sort is the flip.
+    const xs = [...new Set(p.cells.map((c) => c.station))].sort((a, c) => c - a);
     const ys = [...new Set(p.cells.map((c) => c.y))].sort((a, c) => a - c);
     // the baseline is month-matched: a cast's value minus the climatology of the calendar month it was occupied in
     const climMap = new Map((p.clim ?? []).map((c) => [`${c.station}|${c.month}|${c.y}`, c.v]));
@@ -321,7 +324,7 @@ export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | nul
       hovertemplate: `station %{x}<br>${p.yLabel} %{y}<br>%{z:.2f}<extra></extra>`,
     }] : [], {
       ...b, title: { text: p.title, font: { size: 12 }, x: 0.02, xanchor: "left", y: 0.98 },
-      xaxis: { ...b.xaxis, title: { text: "station (nearshore → offshore)", standoff: 4 }, type: "category" },
+      xaxis: { ...b.xaxis, title: { text: "station (offshore → nearshore)", standoff: 4 }, type: "category" },
       yaxis: { ...b.yaxis, title: { text: p.yLabel, standoff: 4 }, autorange: isDepth ? "reversed" : true },
       margin: { l: 50, r: 10, t: 28, b: 36 },
       annotations: xs.length ? [] : [{ text: "no rows for this line × cruise × filters", xref: "paper", yref: "paper", x: 0.5, y: 0.5, showarrow: false }],
