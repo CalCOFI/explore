@@ -15,6 +15,7 @@ export interface BundleCtx {
 }
 
 import { csv, saveBlob } from "./export";
+import { citationMd } from "./cite";
 export { saveBlob };
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -116,7 +117,9 @@ export async function buildBundle(ctx: BundleCtx): Promise<{ blob: Blob; name: s
   zip.file("data/reference/measurement_type.csv", csv(await engine.exec(`SELECT m.* FROM 'measurement_type.parquet' m WHERE measurement_type IN (SELECT DISTINCT measurement_type FROM slice WHERE ${where})`, "bundle_mt")));
   if (sel.realm === "bio") zip.file("data/reference/taxon.csv", csv(await engine.exec(`SELECT * FROM 'taxon.parquet' WHERE taxon_key = '${sel.taxon}'`, "bundle_taxon")));
   // 5. CITATION.md and README.md
-  const cite = ds.map((d) => `## ${d.dataset_name ?? d.dataset_key} (\`${d.dataset_key}\`)\n\n${d.citation_main ? `${d.citation_main}\n\n` : ""}${d.citation_others ? `Also cite: ${d.citation_others}\n\n` : ""}${d.license ? `License: ${d.license}  \n` : ""}${d.pi_names ? `PIs: ${d.pi_names}  \n` : ""}${d.link_data_source ? `Source: ${d.link_data_source}  \n` : ""}${d.link_calcofi_org ? `CalCOFI: ${d.link_calcofi_org}\n` : ""}`).join("\n");
+  // the same per-dataset block the Sources modal and Cite this data show (src/cite.ts): one builder, so a
+  // dataset that gains a DOI or a contact cannot say one thing in the bundle and another on the screen
+  const cite = ds.map(citationMd).join("\n");
   zip.file("CITATION.md", `# Citations\n\nEvery row in \`data/observations\` carries \`dataset_key\`; cite each dataset it came from, and the CalCOFI integrated database release **${version}** (https://calcofi.io/db-schema/#erd?v=${version}).\n\n${cite}`);
   const filt = [
     `release: ${version} (release_date ${catalog.release_date ?? "—"}; every object read, with bytes / sha256 / content_hash, is in query/objects.json)`,

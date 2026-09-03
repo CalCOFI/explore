@@ -144,7 +144,8 @@ const STATES = [
   { name: "p_light", url: "?tour=off&theme=light", viewport: PHONE, steps: async () => { await click(".sheet-summary"); await sleep(400); } },
   // U3 — help: the welcome card (?tour=on), about, feedback, and every tour step resolving in the state its before() makes
   { name: "u3_welcome", url: "?tour=on", steps: async () => {}, assert: async () => { if (!(await page.$(".modal-welcome"))) fail("u3_welcome: no welcome card"); } },
-  { name: "u3_no_welcome_after_seen", url: "?tour=on", steps: async () => { await click(".modal-welcome .btn:not(.primary)"); await sleep(300); await page.goto(base + "?lens=hex&res=5", { waitUntil: "domcontentloaded" }); await waitMark(/^first_lens_ready$/); await sleep(800); },
+  // the primary button is the agreement (WS-A3); the secondary is Take the tour, so this state clicks the primary
+  { name: "u3_no_welcome_after_seen", url: "?tour=on", steps: async () => { await click(".modal-welcome .btn.primary"); await sleep(300); await page.goto(base + "?lens=hex&res=5", { waitUntil: "domcontentloaded" }); await waitMark(/^first_lens_ready$/); await sleep(800); },
     assert: async () => { if (await page.$(".modal-welcome")) fail("u3: the welcome card came back after Explore"); } },
   { name: "u3_about", url: "?tour=off", steps: async () => { await click('[data-tour="about"]'); await sleep(500); }, assert: async () => { const n = await page.$$eval(".about-datasets tr", (r) => r.length); if (n < 10) fail(`u3_about: ${n} dataset rows`); } },
   { name: "u3_feedback", url: "?tour=off", steps: async () => { await click('[data-tour="feedback"]'); await sleep(400); }, assert: async () => { const href = await page.$eval(".modal-feedback a.btn", (a) => a.href); if (!/github\.com\/CalCOFI\/explore\/issues\/new/.test(href)) fail(`u3_feedback: issue link ${href}`); } },
@@ -411,8 +412,130 @@ const STATES = [
       if (j.image && j.image.length > 4.2e6) fail(`u4b_send_mock: image ${j.image.length} chars > 3 MB after fitBytes`);
       const t = await page.$eval(".modal-feedback .modal-body", (el) => el.textContent); if (!/public issue/.test(t)) fail(`u4b_send_mock: thanks reads ${t.slice(0, 80)}`); } },
   { name: "p4b_feedback", url: "?tour=off", viewport: PHONE, steps: async () => { await click('[data-tour="more"] button'); await sleep(200); await clickText(".menu-item", "Feedback"); await page.waitForSelector(".feedback-shot img", { timeout: 20000 }); await sleep(300); } },
+  // WS-A3 — attribution: the agreement, the Sources line under the pills, the figure footer's third line,
+  // Cite this data, the Data Sources & Attribution modal, Register a product. The rule the brand contract
+  // sets is checked too: ?tour=off opens NO modal (a deterministic screenshot), ?modal=sources opens one
+  // because the URL asked for it by name.
+  { name: "a3_welcome", url: "?tour=on&theme=dark", steps: async () => { await page.evaluate(() => { try { localStorage.removeItem("explore_cite_ack"); } catch {} }); await sleep(200); },
+    assert: async () => {
+      const b = await page.$eval(".modal-welcome .modal-actions .btn.primary", (el) => el.textContent.trim());
+      if (!/I will cite the datasets I use/.test(b)) fail(`a3_welcome: the primary button reads "${b}"`);
+      const t = await page.$eval(".modal-welcome .modal-body", (el) => el.textContent);
+      if (!/Downloads and figures name their datasets; Cite this data gives you the citations\./.test(t)) fail("a3_welcome: no agreement note under the button");
+      if (!/Take the tour/.test(await page.$eval(".modal-welcome .modal-actions", (el) => el.textContent))) fail("a3_welcome: Take the tour is gone"); } },
+  { name: "a3_welcome_agree", url: "?tour=on", steps: async () => { await page.evaluate(() => { try { localStorage.removeItem("explore_cite_ack"); } catch {} }); await sleep(200); },
+    assert: async () => {
+      await click(".modal-welcome .modal-actions .btn.primary"); await sleep(400);
+      const ls = await page.evaluate(() => [localStorage.getItem("explore_cite_ack"), localStorage.getItem("explore_welcome")]);
+      if (ls[0] !== "1" || ls[1] !== "1") fail(`a3_welcome: after agreeing localStorage is ${JSON.stringify(ls)}`);
+      if (await page.$(".modal-backdrop")) fail("a3_welcome: the card survived the agreement");
+      await page.goto(base + "?lens=hex&res=5", { waitUntil: "domcontentloaded" }); await waitMark(/^first_lens_ready$/); await sleep(700);
+      if (await page.$(".modal-welcome")) fail("a3_welcome: the card came back after agreeing"); } },
+  { name: "a3_welcome_light", url: "?tour=on&theme=light", steps: async () => { await sleep(200); } },
+  { name: "a3_tour_off_no_modal", url: "?tour=off", steps: async () => { await page.evaluate(() => { try { localStorage.clear(); } catch {} }); await page.goto(base + "?tour=off", { waitUntil: "domcontentloaded" }); await waitMark(/^first_lens_ready$/); await sleep(900); },
+    assert: async () => { if (await page.$(".modal-backdrop")) fail("a3_tour_off_no_modal: ?tour=off opened a modal on a first visit"); } },
+  { name: "a3_sources_line", url: "?tour=off&theme=dark", steps: async () => { await sleep(600); },
+    assert: async () => {
+      const r = await page.evaluate(() => ({
+        chips: [...document.querySelectorAll(".sources .chip.src")].map((c) => c.textContent.trim()),
+        pills: [...document.querySelectorAll(".group[data-group='data'] .pills .pill:not(.off)")].length,
+        hint: [...document.querySelectorAll(".group[data-group='data'] .hint")].map((h) => h.textContent).find((t) => /observations in view/.test(t)) ?? "",
+        all: !!document.querySelector(".sources .linkish") }));
+      console.log(`  Sources: ${r.chips.join(" | ")}`);
+      if (!r.chips.length) fail("a3_sources_line: no dataset chips under the pills");
+      if (!r.all) fail("a3_sources_line: no 'all sources' link");
+      if (!/averaged across datasets that share this life stage and denominator; never across denominators or life stages/.test(r.hint))
+        fail(`a3_sources_line: the averaging line still reads "${r.hint}"`);
+      // the citation opens with a copy button
+      await click(".sources .chip.src .src-btn"); await sleep(250);
+      const cite = await page.$eval(".src-cite .txt", (el) => el.textContent.trim());
+      console.log(`  first citation: "${cite.slice(0, 70)}…"`);
+      if (!cite) fail("a3_sources_line: the chip opened an empty citation box"); } },
+  { name: "a3_sources_line_light", url: "?tour=off&theme=light", steps: async () => { await sleep(500); await click(".sources .chip.src .src-btn"); await sleep(250); } },
+  { name: "a3_sources_line_env", url: "?var=temperature&tour=off&theme=dark", steps: async () => { await sleep(600); },
+    assert: async () => { const c = await page.$$eval(".sources .chip.src", (r) => r.map((x) => x.textContent.trim())); console.log(`  env Sources: ${c.join(" | ")}`);
+      if (c.length < 2) fail(`a3_sources_line_env: ${c.length} chips for temperature (bottle + CTD expected)`); } },
+  { name: "a3_sources_modal", url: "?tour=off&modal=sources&theme=dark", steps: async () => { await page.waitForSelector(".modal-sources", { timeout: 20000 }); await sleep(700); },
+    assert: async () => {
+      const r = await page.evaluate(() => ({
+        rows: document.querySelectorAll(".src-table tr").length,
+        inView: document.querySelectorAll(".src-table tr.in-view").length,
+        firstIsInView: document.querySelector(".src-table tr")?.classList.contains("in-view") ?? false,
+        release: [...document.querySelectorAll(".modal-sources p.cite")].map((p) => p.textContent.trim())[0] ?? "",
+        frontDoor: !!document.querySelector('.modal-sources a[href="https://calcofi.io/"]'),
+        register: [...document.querySelectorAll(".modal-sources button")].some((b) => /Register a product/.test(b.textContent)),
+        subheads: document.querySelectorAll(".src-table tr th, .src-table tbody tr.group").length }));
+      console.log(`  ${r.rows} dataset rows (${r.inView} in view) · release "${r.release.slice(0, 60)}…"`);
+      if (r.rows < 10) fail(`a3_sources_modal: ${r.rows} rows`);
+      if (r.subheads) fail(`a3_sources_modal: ${r.subheads} sub-headings — the table is one row per DATASET`);
+      if (!r.inView || !r.firstIsInView) fail("a3_sources_modal: the datasets in view are not listed first");
+      if (!/CalCOFI \(\d{4}\)\. CalCOFI Integrated Database, release v\d{4}\.\d{2}\.\d{2} \[Data set\]/.test(r.release)) fail(`a3_sources_modal: release citation "${r.release}"`);
+      if (!r.frontDoor) fail("a3_sources_modal: no CalCOFI front door");
+      if (!r.register) fail("a3_sources_modal: no Register a product entry"); } },
+  { name: "a3_sources_modal_url", url: "?tour=off&modal=sources", steps: async () => { await page.waitForSelector(".modal-sources", { timeout: 20000 }); await sleep(500); },
+    assert: async () => {
+      const u = await page.evaluate(() => location.search); if (!/modal=sources/.test(u)) fail(`a3_sources_modal_url: URL ${u}`);
+      await click(".modal-sources .modal-head button"); await sleep(300);
+      if (await page.$(".modal-sources")) fail("a3_sources_modal_url: the modal survived the close box");
+      const u2 = await page.evaluate(() => location.search); if (/modal=/.test(u2)) fail(`a3_sources_modal_url: modal= survived the close (${u2})`); } },
+  { name: "a3_sources_modal_light", url: "?tour=off&modal=sources&theme=light", steps: async () => { await page.waitForSelector(".modal-sources", { timeout: 20000 }); await sleep(700); } },
+  { name: "a3_sources_from_header", url: "?tour=off", steps: async () => { await click('[data-tour="sources-btn"]'); await sleep(500); },
+    assert: async () => { if (!(await page.$(".modal-sources"))) fail("a3_sources_from_header: the header button did not open the modal"); } },
+  { name: "a3_cite_menu", url: "?tour=off&theme=dark", steps: async () => { await expandGroup("export"); await clickText(".menu-btn", "Cite this data"); await sleep(300); },
+    assert: async () => { const items = await page.$$eval('[data-tour="cite"] .menu-item', (r) => r.map((x) => x.textContent.trim())); console.log(`  ${items.join(" · ")}`);
+      if (items.length !== 4) fail(`a3_cite_menu: ${items.length} items`); } },
+  { name: "a3_cite_copy", url: "?tour=off", steps: async () => { await expandGroup("export"); await clickText(".menu-btn", "Cite this data"); await sleep(250); await clickText('[data-tour="cite"] .menu-item', "Copy citations"); await sleep(500); },
+    assert: async () => {
+      const t = await page.evaluate(() => window.__lastCite ?? "");
+      const ds = await page.evaluate(() => [...document.querySelectorAll(".sources .chip.src .src-btn")].length);
+      console.log(`  ${t.split("\n").length} lines for ${ds} datasets · "${t.split("\n")[3].trim().slice(0, 60)}…"`);
+      if (!/CalCOFI Integrated Database, release v\d{4}\.\d{2}\.\d{2} \[Data set\]/.test(t)) fail("a3_cite_copy: no release citation in the copied text");
+      if (!/\(swfsc_ichthyo\)/.test(t)) fail(`a3_cite_copy: the pooled datasets are not named:\n${t.slice(0, 300)}`);
+      await clickText(".menu-btn", "Cite this data"); await sleep(250); await clickText('[data-tour="cite"] .menu-item', "Copy BibTeX"); await sleep(400);
+      const b = await page.evaluate(() => window.__lastCite ?? "");
+      if (!/^@misc\{calcofi_integrated_database_/.test(b) || !/@misc\{calcofi_swfsc_ichthyo/.test(b)) fail(`a3_cite_copy: BibTeX\n${b.slice(0, 200)}`); } },
+  { name: "a3_footer", url: "?tour=off", steps: async () => { await sleep(900); },
+    assert: async () => {
+      const svg = await page.evaluate(() => window.__figure("years", "svg"));
+      if (!/Data: /.test(svg.tail) || !/cite: calcofi\.io\/explore/.test(svg.tail)) fail(`a3_footer: no dataset line in the SVG footer: …${svg.tail.slice(-220)}`);
+      const has = await page.evaluate(() => window.__stampLines("years"));
+      console.log(`  stamp lines: ${has.length} · "${has[2]}"`);
+      if (has.length !== 3 || !/^Data: \S.* · cite: calcofi\.io\/explore → Cite this data$/.test(has[2])) fail(`a3_footer: stampLines ${JSON.stringify(has)}`);
+      for (const [name, theme] of [["a3_footer_dark", "dark"], ["a3_footer_light", "light"]]) {
+        await page.goto(base + `?tour=off&theme=${theme}`, { waitUntil: "domcontentloaded" }); await waitMark(/^first_lens_ready$/); await sleep(1400);
+        const r = await page.evaluate(() => window.__figure("years", "png"));
+        fs.writeFileSync(path.join(out, `${name}.png`), Buffer.from(r.dataUrl.split(",")[1], "base64"));
+        console.log(`  ${theme} years.png ${r.w}×${r.h} sd ${r.sd.toFixed(1)}`);
+        if (r.sd < 8) fail(`a3_footer: ${theme} figure looks blank`);
+      } } },
+  { name: "a3_csv_dataset_key", url: "?tour=off", steps: async () => { await sleep(900); },
+    assert: async () => {
+      for (const id of ["years", "depth"]) {
+        const r = await page.evaluate((id) => window.__figure(id, "csv"), id);
+        const head = r.text.split("\n")[0];
+        console.log(`  ${id}.csv header: ${head}`);
+        if (!/(^|,)dataset_key(,|$)/.test(head)) fail(`a3_csv_dataset_key: ${id}.csv has no dataset_key column (${head})`);
+        if (/^#/.test(r.text)) fail(`a3_csv_dataset_key: ${id}.csv starts with a comment line`);
+      } } },
+  { name: "a3_product", url: "?tour=off&theme=dark", steps: async () => { await expandGroup("export"); await clickText(".menu-btn", "Cite this data"); await sleep(250); await clickText('[data-tour="cite"] .menu-item', "Register a product"); await page.waitForSelector('[data-tour="product-title"]', { timeout: 20000 }); await sleep(500); },
+    assert: async () => {
+      const r = await page.evaluate(() => ({
+        title: document.querySelector(".modal-feedback .modal-head b")?.textContent,
+        chips: [...document.querySelectorAll('[data-tour="product-datasets"] .chip')].map((c) => c.textContent.trim()),
+        href: document.querySelector(".modal-feedback a.btn")?.href ?? "",
+        include: document.querySelector(".feedback-shot input[type=checkbox]")?.checked,
+        send: document.querySelector('[data-tour="feedback-send"]')?.textContent.trim() }));
+      console.log(`  "${r.title}" · datasets ${r.chips.join(", ")} · send "${r.send}"`);
+      if (r.title !== "Register a product") fail(`a3_product: dialog title "${r.title}"`);
+      if (!r.chips.length) fail("a3_product: the datasets in view were not prefilled");
+      if (!/labels=derived-product/.test(r.href)) fail(`a3_product: the fallback issue link is ${r.href}`);
+      if (r.include !== false) fail("a3_product: the screenshot is on by default for a product registration"); } },
+  { name: "p3_a3_welcome", url: "?tour=on&theme=dark", viewport: PHONE, steps: async () => { await sleep(300); } },
+  { name: "p3_a3_sources", url: "?tour=off&modal=sources&theme=dark", viewport: PHONE, steps: async () => { await page.waitForSelector(".modal-sources", { timeout: 20000 }); await sleep(700); } },
   // U2 — Browse (by category · by dataset) from coverage.json's taxa[] and categories; the organism list before the engine is warm
-  { name: "u2_prewarm", url: "?tour=off", ready: "sidecars", steps: async () => { await click("#organism-btn"); await sleep(300); },
+  // the flat A–Z list is the Search tab since U7c (the picker opens on the folded Browse tree) — this state
+  // asserted `#organism-list` without switching to it and had been failing on every run since
+  { name: "u2_prewarm", url: "?tour=off", ready: "sidecars", steps: async () => { await click("#organism-btn"); await sleep(300); await clickText(".picker-tabs [role=tab]", "Search"); await sleep(300); },
     assert: async () => { const n = await page.$$eval("#organism-list li[role=option]", (r) => r.length); const warm = await page.evaluate(() => (window.__marks ?? []).some((m) => m.name === "query:taxa")); console.log(`  ${n} organisms listed · taxa.sql answered: ${warm}`); if (n < 1000) fail(`u2_prewarm: ${n} organisms before the engine (coverage.json taxa[])`); } },
   { name: "u2_browse_category", url: "?tour=off", steps: async () => { await click("#organism-btn"); await sleep(300); await click('[data-tour="browse"]'); await sleep(300); await clickText(".picker-tabs .seg button", "by category"); await sleep(200); await clickText(".browse-row .lab", "Fish Eggs"); await sleep(300); },
     assert: async () => { const g = await page.$$eval(".browse-group", (r) => r.map((x) => `${x.querySelector(".lab").firstChild.textContent} (${x.querySelector(".lab small").textContent})`)); const items = await page.$$eval(".browse-group.open .browse-item", (r) => r.length); console.log(`  ${g.length} categories: ${g.join(" · ")} · ${items} organisms under the open one`); if (g.length < 6 || items < 500) fail(`u2_browse_category: ${g.length} groups, ${items} items`); } },

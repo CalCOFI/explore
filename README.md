@@ -49,7 +49,9 @@ says what the app does and how to work on it without needing them.
 - **The URL is the whole view.** Lens, organism or variable, stage, denominator, years, season, depth,
   dataset filter, region, line, cruise, summary statistic, theme, the sea floor (`bathy=`, `bathyo=`), which panels are folded or maximized,
   and the **map extent** (`map=lon,lat,zoom`) are all in it — so *Share → Copy link*, a bookmark and a
-  feedback report all reopen at exactly the same place. `?tour=off` suppresses the welcome card and tour;
+  feedback report all reopen at exactly the same place. `?tour=off` suppresses the welcome card and tour
+  (and opens no modal at all); `?modal=sources` opens *Data Sources &amp; Attribution*, the one modal the URL
+  carries, so an attribution link is shareable;
   `?theme=dark|light` sets the theme. The **sea floor** under every lens is GEBCO 2025 (shaded relief +
 depth colour + isobaths), drawn from terrain-RGB PMTiles at
 `storage.calcofi.io/calcofi-db/bathymetry/` (override with `VITE_BATHY_URL`); the layers button on the
@@ -70,6 +72,57 @@ CalCOFI/workflows for how the tiles are built.
   *without* your email. Without a configured endpoint the dialog offers a prefilled GitHub issue instead.
 - **Keyboard:** `?` replays the tour · `Esc` closes a dialog or restores a maximized panel · `↑ ↓ Enter`
   in the lists · `A`–`Z` strip to jump in the flat list.
+
+## Attribution
+
+These are sixteen datasets that people collected, curated and depend on being cited for, and a view
+usually **pools several of them** — the statistic is averaged across the datasets that share the chosen
+life stage and denominator (never across denominators or life stages). Pooling is exactly why each of
+those datasets has to be named, so the app names them everywhere a number can leave it:
+
+- **The welcome card asks for the promise.** Its primary button is *"I will cite the datasets I use"*;
+  pressing it stores `explore_cite_ack` beside `explore_welcome`. It is **not a gate** — *Take the tour*,
+  Esc and the close box all still enter the app. `?tour=on` shows the card again, `?tour=off` never shows
+  it (the brand contract's deterministic screenshot).
+- **The Sources line** sits in the SELECT rail directly under the dataset pills: one chip per dataset the
+  view pools — `provider · dataset · licence` — that opens that dataset's citation with a copy button.
+- **Every figure footer carries three lines**: the selection, `CalCOFI Explorer · release · the view URL`,
+  and `Data: <dataset_key, …> · cite: calcofi.io/explore → Cite this data`. PNG (1× and 2×), SVG and the
+  whole-view capture all share it (`src/export.ts` `stampLines()`).
+- **Every panel CSV carries a `dataset_key` column.** A row that already has one keeps it; a **pooled** row
+  gains one holding the datasets it pools, `;`-separated. A column, never a leading `#` comment line — a
+  comment breaks `read.csv`, `pandas.read_csv` and DuckDB's `read_csv_auto` alike.
+- **Cite this data** (EXPORT group, and the ⋯ menu) copies the release citation plus every dataset in view
+  as text or BibTeX (`@misc` built from the release's own fields — the app never fetches to cite).
+- **Data Sources & Attribution** (`?modal=sources`, the ❞ button in the header, the ⋯ menu on a phone, and
+  from About): one row **per dataset** — never per taxon or per variable, so the phytoplankton dataset is
+  one row and not 393 — with its citation, licence, DOI, PIs, acknowledgement, contact and links, the rows
+  in view first, and the integrated database's own citation plus one CalCOFI front door in the footer.
+- **Register a product** ("I used CalCOFI data in …") is the feedback dialog's second kind: title, link or
+  DOI, the datasets in view prefilled, through the same Apps Script → Sheet → mail → public issue pipeline,
+  labelled `derived-product`. The Apps Script must read `label` from the payload for the issue to be filed
+  under it; the zero-backend fallback link already carries `labels=derived-product`.
+
+All of it reads the release's own `dataset` rows and `catalog.json` through **`src/cite.ts`** — one set of
+builders, so the bundle's `CITATION.md`, the modal and the clipboard cannot drift. Nothing is fetched.
+
+**What degrades, and how.** The `dataset` columns `doi`, `license_url`, `acknowledgement`, `contact` and
+`source_accessed`, the `provider` table (for `provider_short`) and `catalog.citation` all arrive with the
+attribution contract (calcofi4db 3.30.0, workflows WS-A0/A1) in the next release; until then the app runs on
+the dev catalog, which has none of them. Each is optional:
+
+| absent | what the app does instead |
+|---|---|
+| `dataset.doi` | no DOI link; BibTeX omits the `doi` field |
+| `dataset.license_url` | the licence chip is plain text, unless the SPDX id is one `cite.ts` knows a URL for |
+| `dataset.acknowledgement` | the line is omitted (it is not invented from `citation_others`) |
+| `dataset.contact` | no *contact* link; the modal's front door is the only route |
+| `dataset.source_accessed` | no "Accessed:" line in the copied citation or the BibTeX note |
+| `dataset.citation_main` | "no citation in this release — the dataset's provider question is open", in italics; the copy button disappears |
+| `dataset.license` | no licence chip at all (an absent licence is a fact, not a label) |
+| a `provider` table | `provider_short` falls back to `cite.ts`'s `PROVIDER_SHORT` map, then to the slug |
+| `catalog.citation` | the same wording is built locally from `version` + `release_date` (+ `catalog.doi` when minted), so it matches `calcofi4db::release_citation()` |
+| `dataset.parquet` not yet loaded | the Sources line still names the pooled datasets by key |
 
 ## Run it locally
 
@@ -165,8 +218,10 @@ screenshot in the mail). Usage analytics go through the fleet's GA4 snippet in `
   rails, floating cards and phone sheet · `src/export.ts` per-panel PNG/SVG/CSV and the footer stamp ·
   `src/capture.ts` the whole-view figure (one `html-to-image` composite; MapLibre runs with
   `preserveDrawingBuffer` so its canvas can be read) · `src/annotate.tsx` + `src/feedback.tsx` the
-  feedback dialog · `src/bundle.ts` the download · `src/tour.ts` the guided tour over `data-tour`
-  anchors · `src/help.tsx` the welcome and About dialogs.
+  feedback dialog (and *Register a product*, its second kind) · `src/bundle.ts` the download ·
+  `src/cite.ts` the citation builders every attribution surface shares · `src/sources.tsx` the Sources line
+  and the Data Sources &amp; Attribution modal · `src/tour.ts` the guided tour over `data-tour`
+  anchors · `src/help.tsx` the welcome (with the agreement) and About dialogs.
 - **Layout rule:** nothing re-lays out on a selection change — only a fold, maximize, drag, lens change
   or breakpoint moves panels. Card positions and the rail width live in `localStorage`; folds and
   maximize live in the URL.
