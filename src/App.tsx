@@ -18,11 +18,13 @@ import { Curtain3D } from "./curtain";
 import { bathyFromSel, bathyOn, boundaryLayerIds, isPalette, PALETTES, type BoundaryState, type SpatialLayerDef, type SpatialLayers } from "./basemap";
 import spatialFallback from "./spatial_layers.fallback";
 import type { IconName } from "./icons";
-import { Welcome, About, seenWelcome, markWelcome } from "./help";
+import { Welcome, About, seenWelcome, markWelcome, markCiteAck } from "./help";
+import { SourcesLine, SourcesModal } from "./sources";
+import { citeBibtex, citeText } from "./cite";
 import { FeedbackDialog } from "./feedback";
 import { startTour, type TourActions } from "./tour";
 import { IconButton, type MenuItem } from "./ui";
-import { figureName, plotPng, plotSvg, csvBlob, copyImage, type Stamp } from "./export";
+import { figureName, plotPng, plotSvg, csvBlob, copyImage, stampLines, type Stamp } from "./export";
 import { captureView, canvasBlob, luminanceStats, blobStats } from "./capture";
 import { track as trackEvent } from "./track";
 import { BRAND, LOGO, DEFAULT_THEME, fontEmbedCss } from "./brand";
@@ -33,6 +35,7 @@ import {
 } from "./state";
 type FigureId = PanelId | "map"; // what exports PNG · SVG · CSV from a header: every panel, and the map from its own ⬇
 type Foldable = "filters" | "export" | "denominator";
+type ModalId = "welcome" | "about" | "feedback" | "product" | "sources"; // "product" is the feedback dialog's second kind (WS-A3)
 
 const DS_SHORT: Record<string, string> = {
   swfsc_ichthyo: "ichthyo", swfsc_cufes: "CUFES", calcofi_bottle: "bottle", "calcofi_ctd-cast": "CTD", calcofi_dic: "DIC", calcofi_mets: "METS",
@@ -52,7 +55,7 @@ const native = new URLSearchParams(location.search).get("native") === "1"; // D1
 const phoneQuery = matchMedia("(max-width: 899px)");
 
 // registered buffer names: the SQL templates read these (`{{src}}` etc.), never a URL
-const REG = { obs_bio: "obs_bio.parquet", sample_root: "sample_root.parquet", sample_spatial: "sample_spatial.parquet", taxon: "taxon.parquet", measurement_type: "measurement_type.parquet", dataset: "dataset.parquet", cruise: "cruise.parquet" } as const;
+const REG = { obs_bio: "obs_bio.parquet", sample_root: "sample_root.parquet", sample_spatial: "sample_spatial.parquet", taxon: "taxon.parquet", measurement_type: "measurement_type.parquet", dataset: "dataset.parquet", cruise: "cruise.parquet", provider: "provider.parquet" } as const;
 const envReg = (v: string) => `obs_env_${v}.parquet`;
 // the release's `climatology` table, one hive object per measurement type like obs_env (calcofi4db::build_climatology())
 const climReg = (v: string) => `climatology_${v}.parquet`;
@@ -104,6 +107,7 @@ export function App() {
   const [yearsEdit, setYearsEdit] = useState(false);
   const [phone, setPhone] = useState(phoneQuery.matches);
   const [datasets, setDatasets] = useState<Row[]>([]);
+  const [providerTable, setProviderTable] = useState<Map<string, string> | null>(null); // provider -> provider_short, when the release carries the registry
   const [picker, setPicker] = useState<PickerRow[]>([]);
   const [sliceKey, setSliceKey] = useState<string | null>(null);
   const [status, setStatus] = useState("grid (static)");
@@ -209,6 +213,12 @@ export function App() {
         setMt(new Map(rows.map((r) => [r.measurement_type, { description: r.description, units: r.units }])));
         setDatasets(await engine.exec(`SELECT * FROM ${q(REG.dataset)}`, "dataset"));
       });
+      // the curating organizations (metadata/provider.csv) when the release ships them: `provider_short` is the
+      // label the Sources line and the Sources modal want. No table -> cite.ts's PROVIDER_SHORT map, as before.
+      if (cat.tables.some((t) => t.name === "provider"))
+        ensure(REG.provider).then(() => engine.exec(`SELECT * FROM ${q(REG.provider)}`, "provider"))
+          .then((rows) => setProviderTable(new Map(rows.map((r) => [String(r.provider), String(r.provider_short ?? r.provider_name ?? r.provider)]))))
+          .catch((e) => console.warn("provider table:", e.message));
     })().catch((e) => { console.error(e); setStatus(`error: ${e.message}`); });
   }, []);
 
@@ -434,10 +444,24 @@ export function App() {
     return { ok: [...ok], off: [...all].filter((d) => !ok.has(d)), excluded, rows };
   };
   const inView = stageRows.reduce((a, r) => a + (sel.realm === "env" ? r.n : sel.den === "per_10m2" ? r.n_10m2 : sel.den === "per_1000m3" ? r.n_1000m3 : r.n), 0);
+  // ── attribution (WS-A3): the datasets this view POOLS ──────────────────────
+  // the statistic averages across the datasets that share the chosen life stage and denominator (bio) or the
+  // chosen variable (env) — so these are exactly the datasets the number on the screen rests on, and exactly
+  // the ones that must be cited. Every attribution surface reads this one list: the Sources line, the figure
+  // footer's third line, every panel CSV's `dataset_key` column, Cite this data, and the product registration.
+  const viewDatasetKeys = useMemo(() => {
+    const keys = sel.realm === "bio"
+      ? stageRows.filter((r) => (sel.den === "per_10m2" ? r.n_10m2 : sel.den === "per_1000m3" ? r.n_1000m3 : r.n) > 0).map((r) => r.dataset_key)
+      : envPills.filter(([dk]) => dsOn(dk)).map(([dk]) => dk);
+    return [...new Set(keys as string[])].sort((a, b) => short(a).localeCompare(short(b)));
+  }, [sel.realm, sel.den, sel.datasets, sel.stage, picker, envPills]);
   // ── picker items (D13): organisms from taxa.sql, variables from coverage.json (+ measurement_type labels once loaded), cruises from the lens
   const dsRow = (dk: string) => datasets.find((d) => d.dataset_key === dk);
   const dsColor = (dk: string) => dsRow(dk)?.color ?? "var(--muted)";
   const dsCategory = (dk: string) => dsRow(dk)?.category ?? DATASET_CATEGORY_FALLBACK[dk] ?? "Other";
+  // the pooled datasets as their release rows; before `dataset.parquet` lands, a stand-in carrying the key, so the
+  // Sources line names the datasets from the first paint rather than appearing late
+  const viewDatasetRows = useMemo(() => viewDatasetKeys.map((dk) => dsRow(dk) ?? { dataset_key: dk, dataset_name_short: short(dk), provider: dk.split("_")[0], category: dsCategory(dk) }), [viewDatasetKeys, datasets]);
   const organismItems = useMemo<PickerItem[]>(() => (taxa.length ? taxa : (cov?.taxa ?? []).map((t) => ({
     taxon_key: t.taxon_key, scientific_name: t.scientific_name, common_name: t.common_name, class: t.class, n: t.n_obs, y0: t.year_min, y1: t.year_max,
     datasets: t.datasets.slice().sort((a, b) => b.n_obs - a.n_obs).map((d) => d.dataset_key).join(","), rank: t.rank }))).map((t: Row) => {
@@ -509,8 +533,22 @@ export function App() {
   // the maximized water column adds one median line per dataset
   useEffect(() => { if (sel.max !== "depth" || !sliceKey) { setDepthDs([]); return; } engine.query("depth_strip_ds", params).then((r) => setDepthDs(r as DepthRow[])).catch(console.error); }, [sel.max, sliceKey, params]);
   // ── help (D16): the welcome card once per browser (?tour=on forces it, ?tour=off never), about, feedback, the tour
-  const [modal, setModal] = useState<"welcome" | "about" | "feedback" | null>(() => (sel.tour && (sel.tourOn || !seenWelcome()) ? "welcome" : null));
-  const closeModal = () => { if (modal === "welcome") markWelcome(); setModal(null); };
+  // `?modal=sources` (WS-A3) opens Data Sources & Attribution and is the ONE modal that round-trips through the
+  // URL, so an attribution link is shareable; the rest are session state, and `?tour=off` still opens nothing
+  // it was not asked for by name (the brand contract's deterministic screenshot).
+  const [modal, setModal] = useState<ModalId | null>(() => (sel.modal === "sources" ? "sources" : sel.tour && (sel.tourOn || !seenWelcome()) ? "welcome" : null));
+  const openModal = (m: ModalId) => { setSel({ modal: m === "sources" ? "sources" : null }); setModal(m); };
+  const openSources = () => openModal("sources");
+  const closeModal = () => { if (modal === "welcome") markWelcome(); if (sel.modal) setSel({ modal: null }); setModal(null); };
+  // the agreement: the welcome card's primary button. It is a promise, not a gate — every other way out of the
+  // card still enters the app; this is the one that records `explore_cite_ack`.
+  const agreeToCite = () => { markWelcome(); markCiteAck(); setModal(null); trackEvent("cite_ack", { ok: true }); };
+  const copyCite = async (kind: "text" | "bibtex") => {
+    const text = kind === "bibtex" ? citeBibtex(viewDatasetRows, catalog, rel) : citeText(viewDatasetRows, catalog, rel, location.href);
+    (window as any).__lastCite = text;
+    try { await navigator.clipboard.writeText(text); setStatus(`copied ${viewDatasetRows.length} dataset citation${viewDatasetRows.length === 1 ? "" : "s"} + the release${kind === "bibtex" ? " (BibTeX)" : ""}`); } catch { setStatus("clipboard blocked"); }
+    trackEvent("cite", { kind, n: viewDatasetRows.length });
+  };
   const tourSnap = useRef<{ lens: Lens; hide: PanelId[]; sheet: typeof sheet } | null>(null);
   const selRef = useRef(sel); selRef.current = sel;
   const sheetRef = useRef(sheet); sheetRef.current = sheet;
@@ -521,7 +559,7 @@ export function App() {
     sheet: (panel, detent) => setSheet({ panel, detent }),
     snapshot: () => { tourSnap.current = { lens: selRef.current.lens, hide: selRef.current.hide, sheet: sheetRef.current }; },
     restore: () => { const t = tourSnap.current; if (!t) return; setSelRaw((s) => ({ ...s, lens: t.lens, hide: t.hide })); if (phone) setSheet(t.sheet); tourSnap.current = null; },
-    openFeedback: () => setModal("feedback"),
+    openFeedback: () => openModal("feedback"),
     expand,
   };
   const tour = () => { if (modal === "welcome") markWelcome(); setModal(null); setTimeout(() => startTour(tourActions), modal ? 250 : 0); };
@@ -563,7 +601,7 @@ export function App() {
   const unitLabel = sel.realm === "bio" ? (sel.den === "raw" ? "count" : sel.den === "per_10m2" ? "per 10 m²" : "per 1000 m³") : (picker[0]?.units ?? sel.var);
   const taxonRow = taxa.find((t) => t.taxon_key === sel.taxon);
   const legendTitle = preSlice ? "root samples · all datasets (coverage.json, before the engine is warm)" : sel.realm === "bio"
-    ? `${STAT_LABEL[stat]} · ${taxonRow?.common_name ?? taxonRow?.scientific_name ?? sel.taxon} · ${sel.stage ?? "all stages"} · ${unitLabel}${zerosNote}`
+    ? `${STAT_LABEL[stat]} · ${taxonRow?.common_name ?? taxonRow?.scientific_name ?? sel.taxon} · ${sel.stage ?? "all life stages"} · ${unitLabel}${zerosNote}`
     : `${STAT_LABEL[stat]} · ${envVar ? `${envVar.label}${envVar.sub ? ` (${envVar.sub})` : ""}` : sel.var} · ${sel.depth[0]}–${sel.depth[1]} m`;
   const lines = useMemo(() => [...new Set(grid.map((c) => c.line))].sort((a, b) => a - b), [grid]);
   const stationCard = useMemo(() => {
@@ -645,7 +683,7 @@ export function App() {
   // ── panels (D11 · D18): folds + maximize live in the URL; card minimize, rail width and the phone sheet in memory ─
   const tracks = { "--l": phone ? "0px" : folded("select") ? `${FOLDED_PX}px` : `${railW}px`, "--r": folded("depth") ? `${FOLDED_PX}px` : "210px", "--b": folded("years") ? `${FOLDED_PX}px` : "140px" } as React.CSSProperties;
   const organism = organismItems.find((i) => i.key === sel.taxon);
-  const selectSummary = sel.realm === "bio" ? `${organism?.label ?? sel.taxon} · ${sel.stage ?? "all stages"} · ${unitLabel}${zerosNote}` : `${envVar?.label ?? sel.var} · ${sel.depth[0]}–${sel.depth[1]} m`;
+  const selectSummary = sel.realm === "bio" ? `${organism?.label ?? sel.taxon} · ${sel.stage ?? "all life stages"} · ${unitLabel}${zerosNote}` : `${envVar?.label ?? sel.var} · ${sel.depth[0]}–${sel.depth[1]} m`;
   const depthSummary = sliceKey && !depthRows.length ? "Depth · integrated tows" : `Depth ${sel.depth[0]}–${sel.depth[1]} m`;
   const depthEmpty = "depth-integrated net tows —<br>no water-column profile for this selection;<br>the tow span will draw here<br>once the release carries it";
   const seriesToggle = <span className="seg" role="group" aria-label="year strip mode" data-tour="strip-mode"><button className={seriesMode === "n" ? "on" : ""} onClick={() => setSeriesMode("n")}>observations</button><button className={seriesMode === "mean" ? "on" : ""} onClick={() => setSeriesMode("mean")}>mean ± se</button><button className={seriesMode === "cruises" ? "on" : ""} onClick={() => setSeriesMode("cruises")} title="a year × month calendar, one cell per cruise coloured by the summary stat; zoom in for the dates and codes; click a cell to pick the cruise"><Icon name="ui-gantt" />cruises</button></span>;
@@ -727,7 +765,8 @@ export function App() {
               title={`${raw ? "raw count, no effort in release" : rs.map((r) => `${r.tow_type ?? "—"}: ${r.n}`).join(", ")} · click to toggle this dataset`}><i className="dot" style={{ background: dsColor(r0.dataset_key) }} />{short(r0.dataset_key)} {r0.life_stage ?? "—"} {fmtN(n)}{raw ? " ⚠" : ""}</span>;
           })}
         </div>
-        <div className="hint">{fmtN(inView)} observations in view · {sel.den === "raw" ? "raw counts are not comparable across gear or datasets" : "nothing averaged across denominators, datasets or stages"}</div>
+        <SourcesLine datasets={viewDatasetRows} providerTable={providerTable} onAll={openSources} loading={picker.length ? "no dataset in view" : status} />
+        <div className="hint">{fmtN(inView)} observations in view · {sel.den === "raw" ? "raw counts are not comparable across gear or datasets" : "averaged across datasets that share this life stage and denominator; never across denominators or life stages"}</div>
       </> : <>
         <Picker id="variable" label="variable" value={sel.var} items={variableItems} onChange={(k) => setSel({ var: k, cruise: null })}
           groups={variableGroups} defaultGroup="category" browse placeholder="search temperature, nitrate, chlorophyll…" dsColor={dsColor} dsShort={short} loading={variableItems.length ? null : "…"} native={native} sheet={phone} data-tour="picker" />
@@ -736,7 +775,8 @@ export function App() {
           {picker.length === 0 && <span className="pill off">{status}</span>}
           {envPills.map(([dk, c]) => <span key={dk} className={`pill ${dsOn(dk) ? "" : "off"} ${sel.datasets && dsOn(dk) ? "sel" : ""}`} style={{ cursor: "pointer" }} onClick={() => toggleDataset(dk)} title="bottle and CTD values of one variable are comparable · click to toggle this dataset"><i className="dot" style={{ background: dsColor(dk) }} />{short(dk)} {fmtN(c.n)}{c.n_flagged ? ` · ${fmtN(c.n_flagged)} flagged` : ""}</span>)}
         </div>
-        <div className="hint">{fmtN(inView)} observations in view</div>
+        <SourcesLine datasets={viewDatasetRows} providerTable={providerTable} onAll={openSources} loading={picker.length ? "no dataset in view" : status} />
+        <div className="hint">{fmtN(inView)} observations in view · averaged across datasets that share this variable; never across variables</div>
       </>}
     </Group>
     <Group title="Filters" icon="ui-filter" data-tour="filters" open={open.filters} onToggle={() => toggleOpen("filters")}
@@ -750,7 +790,7 @@ export function App() {
       {yearsEdit && <div className="row"><input type="number" style={{ width: 62 }} value={years[0]} min={1949} max={yearMax} onChange={(e) => setSel({ years: [+e.target.value, years[1]] })} />–<input type="number" style={{ width: 62 }} value={years[1]} min={1949} max={yearMax} onChange={(e) => setSel({ years: [years[0], +e.target.value] })} /><span className="hint">or brush the years strip{sel.months ? " · month edges from the brush" : ""}</span></div>}
       {seasonEdit && <div className="season-row"><span className="seg">{[1, 2, 3, 4].map((x) => <button key={x} className={!sel.q || sel.q.includes(x) ? "on" : ""} onClick={() => toggleQ(x)} title={Q_LABEL[x - 1]}>Q{x}</button>)}</span><span className="hint">{sel.q ? sel.q.map((x) => Q_LABEL[x - 1]).join(", ") : "every quarter"}</span></div>}
     </Group>
-    <Group title="Export" icon="ui-download" data-tour="export" open={open.export} onToggle={() => toggleOpen("export")} right={!open.export ? <span className="hint">data · code · share</span> : undefined}>
+    <Group title="Export" icon="ui-download" data-tour="export" open={open.export} onToggle={() => toggleOpen("export")} right={!open.export ? <span className="hint">data · code · cite · share</span> : undefined}>
       <div className="row">
         <button className="pill act" disabled={!sliceKey || !!bundling} onClick={download} title="README · CITATION · summary (+GeoJSON) · observations (parquet/CSV) · the exact SQL against the release's object URLs · reproduce.R / .py">
           <Icon name="ui-download" />{bundling ? `bundle: ${bundling}` : "Download data (zip)"}</button>
@@ -758,11 +798,16 @@ export function App() {
           { label: "SQL", hint: "against the release's object URLs", onSelect: () => copy("sql") },
           { label: "R", hint: "DBI + duckdb; calcofi4r noted", onSelect: () => copy("r") },
           { label: "Python", hint: "duckdb; calcofi4py noted", onSelect: () => copy("py") }]} />
+        <Menu label="Cite this data" icon="ui-cite" title="the citations for the datasets this view pools, plus the integrated database" data-tour="cite" items={[
+          { label: "Copy citations", icon: "ui-copy", hint: `text — the release + ${viewDatasetKeys.length} dataset${viewDatasetKeys.length === 1 ? "" : "s"} in view`, onSelect: () => copyCite("text") },
+          { label: "Copy BibTeX", icon: "ui-code", hint: "@misc, one per dataset + the release", onSelect: () => copyCite("bibtex") },
+          { label: "Data Sources & Attribution", icon: "ui-open", hint: "licences, DOIs, PIs, contacts — every dataset", onSelect: openSources },
+          { label: "Register a product", icon: "ui-product", hint: "tell us what you built with these data", onSelect: () => openModal("product") }]} />
         <Menu label="Share" icon="ui-share" title="the URL is the whole view; the image is the map + open panels with the release stamped" data-tour="share" items={[
           { label: "Copy link", icon: "ui-link", hint: "this view: selection, filters, map extent, folds and the years' zoom", onSelect: () => { copyLink(); trackEvent("share", { kind: "link" }); } },
           { label: "Copy image", icon: "ui-copy", hint: "the view as a figure, to the clipboard", onSelect: () => shareImage("copy") },
           { label: "Download PNG", icon: "ui-image", hint: "the same figure, as a file", onSelect: () => shareImage("download") },
-          { label: "Send feedback", icon: "ui-feedback", hint: "this view's URL to the team", onSelect: () => setModal("feedback") }]} />
+          { label: "Send feedback", icon: "ui-feedback", hint: "this view's URL to the team", onSelect: () => openModal("feedback") }]} />
         <button className="pill act" onClick={() => { if (advanced && !minCards.timing) setAdvanced(false); else { setAdvanced(true); openCard("timing"); } }} aria-pressed={advanced} title="the timing marks and the SQL behind the view"><Icon name="ui-sql" />SQL &amp; timing</button>
       </div>
     </Group>
@@ -804,7 +849,9 @@ export function App() {
   const body = (id: PanelId, wide = false) => id === "select" ? selectBody : id === "depth" ? depthBody(wide) : id === "years" ? yearsBody : id === "section" ? sectionBody : id === "cruise" ? cruiseBody : id === "station" ? stationBody : id === "layers" ? layersBody : timingBody;
   const actions = (id: PanelId) => (id === "years" ? <>{sel.yview && <IconButton icon="ui-zoom-out" label="Reset zoom (double-click the strip)" className="sm" onClick={() => setSel({ yview: null })} data-tour="zoom-reset" />}{seriesToggle}{logChip}</> : null);
   // ── figures (D19) and the whole-view share (D17): every panel exports PNG · SVG · CSV from its header with the shared footer
-  const stampFor = (id: FigureId): Stamp => ({ title: `${id === "map" ? `Map · ${LENS_SHORT[sel.lens]}` : titles[id]} · ${legendTitle}${id === "map" && seaFloorOn ? " · sea floor: GEBCO 2025" : ""}`, release: rel, url: location.href }); // the legend title carries the unit; the compact ⓘ is collapsed in a capture, so the stamp credits GEBCO (D27)
+  // the stamp's third line is the datasets the figure pools (WS-A3): a figure travels further than any other
+  // download and used to leave the app with no way back to whom to cite
+  const stampFor = (id: FigureId): Stamp => ({ title: `${id === "map" ? `Map · ${LENS_SHORT[sel.lens]}` : titles[id]} · ${legendTitle}${id === "map" && seaFloorOn ? " · sea floor: GEBCO 2025" : ""}`, release: rel, url: location.href, datasets: viewDatasetKeys }); // the legend title carries the unit; the compact ⓘ is collapsed in a capture, so the stamp credits GEBCO (D27)
   const plotDivOf = (id: PanelId) => document.querySelector<HTMLElement>(`.max-panel.panel-${id} .js-plotly-plot, .sheet .panel-body-${id} .js-plotly-plot, #rail-${id} .js-plotly-plot, .card-${id} .js-plotly-plot`);
   const panelElOf = (id: PanelId) => document.querySelector<HTMLElement>(`.max-panel.panel-${id}, .sheet .panel-body-${id}, #rail-${id}, .card-${id}`);
   // the map's table is what it draws: the lens summary per station / hexagon / region, the samples along a cruise track
@@ -814,7 +861,7 @@ export function App() {
   // the figure as a blob (no download): what the export items and window.__figure share
   const figure = async (id: FigureId, kind: "png" | "svg" | "csv"): Promise<{ blob: Blob; name: string }> => {
     const name = figureName(id, sel.lens, rel, kind), st = stampFor(id);
-    if (kind === "csv") return { blob: csvBlob(rowsOf(id)), name };
+    if (kind === "csv") return { blob: csvBlob(rowsOf(id), viewDatasetKeys), name };
     if (id === "map") {
       // the map box without the floating cards and its own ⬇ — the basemap, the layers and the legend, stamped
       if (kind === "svg") throw new Error("the map is WebGL — export it as PNG (the panels export SVG)");
@@ -834,7 +881,7 @@ export function App() {
     items.push({ label: "CSV", icon: "ui-data", hint: id === "timing" ? "the timing marks" : id === "map" ? `the ${sel.lens === "cruise" ? "samples on the track" : `${LENS_SHORT[sel.lens].toLowerCase()} summary`} the map draws (the bundle's, too)` : "this panel's table (the bundle's, too)", onSelect: go("csv") });
     return items;
   };
-  const viewStamp = (): Stamp => ({ title: legendTitle, release: rel, url: location.href });
+  const viewStamp = (): Stamp => ({ title: legendTitle, release: rel, url: location.href, datasets: viewDatasetKeys });
   const shareImage = async (how: "copy" | "download") => {
     try {
       setStatus("capturing the view…");
@@ -845,7 +892,9 @@ export function App() {
       trackEvent("share", { kind: how === "copy" ? "image" : "png" });
     } catch (e: any) { setStatus(`capture failed: ${e.message}`); }
   };
-  (window as any).__figure = async (id: FigureId, kind: "png" | "svg" | "csv") => { const f = await figure(id, kind); const out: any = { name: f.name, bytes: f.blob.size, type: f.blob.type }; if (kind === "png") { Object.assign(out, await blobStats(f.blob)); out.dataUrl = await new Promise<string>((ok) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.readAsDataURL(f.blob); }); } else { const t = await f.blob.text(); out.text = t.slice(0, 300); out.stamped = /release /.test(t); out.lines = t.split("\n").length; } return out; };
+  (window as any).__figure = async (id: FigureId, kind: "png" | "svg" | "csv") => { const f = await figure(id, kind); const out: any = { name: f.name, bytes: f.blob.size, type: f.blob.type }; if (kind === "png") { Object.assign(out, await blobStats(f.blob)); out.dataUrl = await new Promise<string>((ok) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.readAsDataURL(f.blob); }); } else { const t = await f.blob.text(); out.text = t.slice(0, 300); out.tail = t.slice(-600); out.stamped = /release /.test(t); out.lines = t.split("\n").length; } return out; };
+  (window as any).__stampLines = (id: FigureId = "years") => stampLines(stampFor(id)); // verify.mjs: the footer's three lines (WS-A3)
+  (window as any).__cite = (kind: "text" | "bibtex" = "text") => (kind === "bibtex" ? citeBibtex(viewDatasetRows, catalog, rel) : citeText(viewDatasetRows, catalog, rel, location.href));
   (window as any).__fontEmbedCss = fontEmbedCss;   // verify.mjs: the v2 capture embeds the brand fonts
   (window as any).__captureView = async () => { const c = await captureView({ stamp: viewStamp() }); return { w: c.width, h: c.height, ...luminanceStats(c), dataUrl: c.toDataURL("image/png") }; };
   const cardOpen: Record<CardId, boolean> = { section: displayLens === "section", cruise: displayLens === "cruise", station: !!stationCard, timing: advanced, layers: layersOpen };
@@ -889,10 +938,14 @@ export function App() {
         {versions.length > 1 && <select className="cc-versions" value={version ?? ""} onChange={(e) => { setSel({ release: e.target.value }); location.search = new URLSearchParams({ ...Object.fromEntries(new URLSearchParams(location.search)), release: e.target.value }).toString(); }} title="switch release (reloads)">
           {versions.map((v) => <option key={v} value={v}>{v}</option>)}</select>}
         <IconButton icon="ui-help" label="Take the tour (?)" className="hdr hdr-help" onClick={tour} data-tour="help" />
-        <IconButton icon="ui-about" label="About the explorer" className="hdr hdr-about" onClick={() => setModal("about")} data-tour="about" />
-        <IconButton icon="ui-feedback" label="Send feedback" className="hdr hdr-feedback" onClick={() => setModal("feedback")} data-tour="feedback" />
+        <IconButton icon="ui-cite" label="Data sources &amp; attribution" className="hdr hdr-sources" onClick={openSources} data-tour="sources-btn" />
+        <IconButton icon="ui-about" label="About the explorer" className="hdr hdr-about" onClick={() => openModal("about")} data-tour="about" />
+        <IconButton icon="ui-feedback" label="Send feedback" className="hdr hdr-feedback" onClick={() => openModal("feedback")} data-tour="feedback" />
         <Menu className="cc-more" icon="ui-more" label="" title="more" align="right" data-tour="more" items={[
-          { label: "About", icon: "ui-about", onSelect: () => setModal("about") }, { label: "Feedback", icon: "ui-feedback", onSelect: () => setModal("feedback") }]} />
+          { label: "About", icon: "ui-about", onSelect: () => openModal("about") },
+          { label: "Data Sources & Attribution", icon: "ui-cite", hint: "citations, licences, DOIs, contacts", onSelect: openSources },
+          { label: "Register a product", icon: "ui-product", hint: "tell us what you built with these data", onSelect: () => openModal("product") },
+          { label: "Feedback", icon: "ui-feedback", onSelect: () => openModal("feedback") }]} />
         <button className="cc-theme-toggle" type="button" aria-label="Toggle dark / light theme" title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}>
           {/* the sun while dark, the moon-in-sun while light — what a click switches to (theme.css shows one per theme) */}
           <svg className="cc-theme-icon cc-icon-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={ICON_SUN} /></svg>
@@ -958,9 +1011,11 @@ export function App() {
           summary={depthSummary}>{depthBody(false)}</Rail>}
         {maxId && <MaxPanel id={maxId} title={titles[maxId]} icon={icons[maxId]} onRestore={() => setSel({ max: null })} actions={actions(maxId)} exportable={maxId === "select" ? undefined : exportItems(maxId)}>{body(maxId, true)}</MaxPanel>}
       </div>
-      {modal === "welcome" && <Welcome release={rel} onTour={tour} onClose={closeModal} />}
-      {modal === "about" && <About release={rel} nTables={catalog?.tables.length} datasets={datasets} cov={cov} short={short} onClose={closeModal} onTour={tour} onFeedback={() => setModal("feedback")} />}
-      {modal === "feedback" && <FeedbackDialog url={location.href} release={rel} onClose={closeModal} capture={() => captureView({ stamp: viewStamp() })} />}
+      {modal === "welcome" && <Welcome release={rel} onTour={tour} onAgree={agreeToCite} onClose={closeModal} />}
+      {modal === "about" && <About release={rel} nTables={catalog?.tables.length} datasets={datasets} cov={cov} short={short} onClose={closeModal} onTour={tour} onFeedback={() => openModal("feedback")} onSources={openSources} providerTable={providerTable} />}
+      {modal === "sources" && <SourcesModal release={rel} catalog={catalog} datasets={datasets} cov={cov} inView={viewDatasetKeys} providerTable={providerTable} short={short}
+        onClose={closeModal} onRegister={() => openModal("product")} onCite={() => copyCite("text")} />}
+      {(modal === "feedback" || modal === "product") && <FeedbackDialog kind={modal === "product" ? "product" : "feedback"} datasets={viewDatasetKeys} url={location.href} release={rel} onClose={closeModal} capture={() => captureView({ stamp: viewStamp() })} />}
     </div>
   );
 }

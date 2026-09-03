@@ -294,7 +294,7 @@ button.chip { cursor: pointer; }
 .about-datasets td { padding: 4px 6px; border-top: 1px solid var(--border); vertical-align: top; }
 .about-datasets td:first-child { color: var(--muted); font-size: 16px; width: 24px; }
 .about-datasets .links { text-align: right; white-space: nowrap; }
-.about-datasets .links a, .about-datasets .links span { margin-left: 8px; font-size: var(--fs-sm, 11px); }
+.about-datasets .links a, .about-datasets .links span, .about-datasets .links button { margin-left: 8px; font-size: var(--fs-sm, 11px); }
 .cc-header .hdr { color: var(--muted); }
 .cc-header .hdr:hover { color: var(--accent); }
 /* driver.js in the brand's tokens */
@@ -422,3 +422,49 @@ button.swatch.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .curtain-ui input[type=range] { width: 140px; }
 .map-tr .map-3d-btn { background: color-mix(in srgb, var(--panel) 85%, transparent); border: 1px solid var(--border); border-radius: 6px; padding: 3px 7px; color: var(--fg); cursor: pointer; font-size: 12px; }
 .map-tr .map-3d-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+/* ── WS-A3: attribution — the SELECT rail's Sources line, the Sources modal, the product dialog ─────────
+   The Sources line sits under the dataset pills and names EVERY dataset the view pools; a chip opens its
+   own citation. Colours come from the tokens alone (both themes, brand v1 and v2). */
+.sources { margin: 4px 0 2px; }
+.src-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.src-row .k { display: inline-flex; align-items: center; gap: 3px; text-transform: uppercase; letter-spacing: 0.05em; }
+.chip.src { padding: 1px 6px 1px 2px; gap: 5px; max-width: 100%; }
+.chip.src.on { border-color: var(--accent); }
+/* `.chip button` (0,2,0) sets colour: var(--muted) and a left margin — beat it on specificity, not on order */
+.chip .src-btn { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; margin: 0; padding: 0 2px 0 6px; max-width: 22em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
+.chip .src-btn:hover { color: var(--accent); }
+.chip .lic { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 5px; white-space: nowrap; text-decoration: none; }
+a.lic:hover { color: var(--accent); border-color: var(--accent); }
+.src-cite { margin-top: 4px; padding: 5px 7px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px; }
+.src-cite .txt { font-size: var(--fs-sm, 11px); line-height: 1.45; margin-bottom: 4px; }
+.src-cite .row { gap: 4px; flex-wrap: wrap; }
+.src-cite a.pill.act { text-decoration: none; display: inline-flex; align-items: center; gap: 3px; }
+.chip.tiny { font-size: 10px; padding: 0 5px; }
+
+.src-table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.src-table td { padding: 6px; border-top: 1px solid var(--border); vertical-align: top; }
+.src-table td.ico { color: var(--muted); font-size: 16px; width: 24px; }
+.src-table tr.in-view td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.src-table .nm { display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px; }
+.src-table .nm code { font-size: 10px; }
+.src-table .meta { margin: 1px 0 3px; }
+.src-table .cite { font-size: var(--fs-sm, 11px); line-height: 1.45; }
+.src-table .cite.none { color: var(--muted); font-style: italic; }
+.src-table .ack { margin-top: 3px; font-style: italic; }
+.src-table .links { text-align: right; white-space: nowrap; }
+.src-table .links a, .src-table .links button, .src-table .links .lic { display: inline-block; margin-left: 8px; font-size: var(--fs-sm, 11px); }
+.modal-sources .cite { font-size: 12px; line-height: 1.5; }
+.modal-welcome .cite-note { margin-bottom: 6px; }
+.f-datasets { flex-wrap: wrap; gap: 4px; align-items: center; margin-bottom: 8px; }
+.modal-body label.f input[type=text] { width: 100%; box-sizing: border-box; font: inherit; color: var(--fg); background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; }
+/* the phone: the header's sources button folds into ⋯, and each dataset becomes a block with its links under it
+   rather than a squeezed right-hand column */
+@media (max-width: 899px) {
+  .cc-header .hdr-sources { display: none; }
+  .src-table tr { display: block; border-top: 1px solid var(--border); padding: 6px 0; }
+  .src-table td { display: block; padding: 2px 4px; border-top: 0; }
+  .src-table td.ico { display: none; }
+  .src-table .links { text-align: left; white-space: normal; }
+  .src-table .links a, .src-table .links button, .src-table .links .lic { margin: 5px 10px 0 0; }
+}

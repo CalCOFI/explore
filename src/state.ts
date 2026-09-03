@@ -27,6 +27,9 @@ export interface Sel {
   anom: boolean;               // section: anomaly vs climatology
   tour: boolean;               // ?tour=off suppresses the opening morph, the welcome card and the tour
   tourOn: boolean;             // ?tour=on forces the welcome card (demos)
+  modal: "sources" | null;     // a modal the URL asks for: `?modal=sources` opens Data Sources & Attribution (WS-A3).
+                               // Only the sources modal round-trips — welcome/about/feedback are session state, and a
+                               // `tour=off` screenshot must show no modal it did not ask for by name.
   release: string | null;      // ?release=vYYYY.MM.DD; null = latest.txt
   station: string | null;      // a selected grid cell (its coverage card)
   datasets: string[] | null;   // dataset filter (pills); null = every dataset in the slice
@@ -124,7 +127,7 @@ export const YEAR_OPEN = 9999; // "through the latest year in the release" until
 export const DEFAULTS: Sel = {
   lens: "station", res: 5, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature",
   stage: null, den: null, zeros: true, years: [1949, YEAR_OPEN], months: null, q: null, yview: null, depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
-  line: 90, cruise: null, stat: "mean", anom: false, tour: true, tourOn: false, theme: null, release: null, station: null, datasets: null,
+  line: 90, cruise: null, stat: "mean", anom: false, tour: true, tourOn: false, modal: null, theme: null, release: null, station: null, datasets: null,
   hide: DEFAULT_HIDE, max: null, map: null, bathy: null, bathyo: null, layers: null, view3d: false, exag: null,
 };
 
@@ -184,6 +187,7 @@ export function fromUrl(): Sel {
     anom: p.get("anom") === "1",
     tour: p.get("tour") !== "off",
     tourOn: p.get("tour") === "on",
+    modal: p.get("modal") === "sources" ? "sources" : null,
     release: p.get("release"),
     station: p.get("station"),
     datasets: p.get("datasets") ? p.get("datasets")!.split(",").filter(Boolean) : null,
@@ -219,6 +223,7 @@ export function toUrl(s: Sel) {
   if ((s.lens === "section" || s.lens === "cruise") && s.cruise) p.set("cruise", s.cruise);
   if (s.stat !== DEFAULTS.stat) p.set("stat", s.stat);
   if (!s.tour) p.set("tour", "off"); else if (s.tourOn) p.set("tour", "on");
+  if (s.modal) p.set("modal", s.modal);
   if (s.release) p.set("release", s.release);
   if (s.station) p.set("station", s.station);
   if (s.datasets?.length) p.set("datasets", s.datasets.join(","));
