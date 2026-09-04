@@ -546,7 +546,7 @@ const STATES = [
   { name: "u2_variable_browse", url: "?var=temperature&tour=off", steps: async () => { await click("#variable-btn"); await sleep(300); await click('[data-tour="browse"]'); await sleep(300); await clickText(".browse-row .lab", "Nutrients"); await sleep(300); },
     assert: async () => { const g = await page.$$eval(".browse-group", (r) => r.map((x) => x.querySelector(".lab").firstChild.textContent)); console.log(`  categories: ${g.join(" · ")}`); if (!g.includes("Nutrients & Chemistry") || !g.includes("Carbonate System")) fail("u2_variable_browse: the registry's categories are missing"); } },
   { name: "p2_browse", url: "?tour=off", viewport: PHONE, steps: async () => { await click(".sheet-summary"); await sleep(400); await click("#organism-btn"); await sleep(400); await click('[data-tour="browse"]'); await sleep(300); } },
-  // brand v2 preview (plan 2026-08-30 Phase 2) — meaningful on a VITE_BRAND=v2 build (the dev server: VITE_BRAND=v2 npm run dev); on v1 they report and skip
+  // brand v2 (in force since 2026-09-04) — the default build; on a VITE_BRAND=v1 build they report and skip
   { name: "v2_default_light", url: "?tour=off", steps: async () => {
       // a FRESH context: an earlier state's ?theme= link persisted (as it should), so drop the cookies and storage and reopen
       await page.evaluate(() => { localStorage.clear(); }); const cdp = await page.createCDPSession(); await cdp.send("Network.clearBrowserCookies"); await cdp.detach();

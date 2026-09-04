@@ -1,8 +1,8 @@
-// the brand the build is on (plan 2026-08-30, Phase 2): VITE_BRAND = v1 | v2 (default v1 until the flip).
+// the brand the build is on (plan 2026-08-30, Phase 2): VITE_BRAND = v1 | v2 (default v2 since the flip on 2026-09-04).
 // vite.config.ts injects the matching brand/<v>.head.html into index.html; this module is the same choice
 // for the code — the header lockup, the default theme, the fonts the feedback capture must embed.
 // Everything else reads the tokens at runtime (getComputedStyle), so it needs no version at all.
-export const BRAND: "v1" | "v2" = import.meta.env.VITE_BRAND === "v2" ? "v2" : "v1";
+export const BRAND: "v1" | "v2" = import.meta.env.VITE_BRAND === "v1" ? "v1" : "v2";
 export const BRAND_URL = `https://calcofi.io/brand/${BRAND}/`;
 export const DEFAULT_THEME: "dark" | "light" = BRAND === "v2" ? "light" : "dark";
 /** the header logo pair: v1 the 32 px mark, v2 the horizontal lockup at the app scale's 28 px */

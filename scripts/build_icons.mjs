@@ -3,11 +3,11 @@
 // plus a contact sheet to check the set side by side at 16 px. The explorer keeps rendering the paths inline
 // (React owns the nodes, no cross-origin <use>); the sprite and the masks are for everyone else — the
 // calcofi.io cards, db-viz-station, Quarto and pkgdown pages.
-//   node scripts/build_icons.mjs [../CalCOFI.github.io/brand/v1]     (the brand version is the output directory's name)
+//   node scripts/build_icons.mjs [../CalCOFI.github.io/brand/v2]     (the brand version is the output directory's name)
 import fs from "node:fs";
 import path from "node:path";
 
-const out = process.argv[2] ?? path.resolve("../CalCOFI.github.io/brand/v1");
+const out = process.argv[2] ?? path.resolve("../CalCOFI.github.io/brand/v2");
 const ver = path.basename(out);   // v1 | v2 — named in the generated comments and the sprite's usage line
 // Node ≥ 23 strips the types of a .ts import; the module imports nothing but @mdi/js
 const { ICON } = await import(path.resolve("src/icon-paths.ts"));

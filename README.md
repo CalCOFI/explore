@@ -165,7 +165,6 @@ node scripts/verify.mjs http://localhost:5178/ shots/dev --only=<regex>   # driv
 node scripts/verify.mjs http://localhost:5179/ shots/prod --timing        # + cold/warm lens timings
 node scripts/bundle_check.mjs http://localhost:5178/ shots/bundle          # download two bundles and list them
 node scripts/card_shots.mjs ~/Github/CalCOFI/CalCOFI.github.io/images     # the two themed card screenshots
-node scripts/card_shots.mjs shots/v2 https://calcofi.io/explore/v2/ explore_v2   # the brand v2 preview, for the meeting
 ```
 
 `verify.mjs` opens the installed Chrome (headed, fresh profile) at 1280 × 800 and 390 × 844, walks every
@@ -198,19 +197,19 @@ screenshot in the mail). Usage analytics go through the fleet's GA4 snippet in `
   `cc:theme` event) · deck.gl `MapboxOverlay` (`ScatterplotLayer` carries the station dots between
   lenses, `H3HexagonLayer`, `GeoJsonLayer`, `TripsLayer`) · DuckDB-WASM self-hosted in a Web Worker,
   no extensions, objects fetched whole and registered as buffers · Plotly for the depth strip, year
-  strip, section and cruise series · `h3-js` · the brand from `calcofi.io/brand/<VITE_BRAND>/` — v1 (dark
-  default) until the flip; `VITE_BRAND=v2` builds the SIO look (light default, Source Sans 3, the lockup at
-  28 px, `data-cc-scale="app"`), which `pages.yml` also publishes at `calcofi.io/explore/v2/` as the preview
-  for the 9/8 decision. `vite.config.ts` injects `brand/<v>.head.html`; `src/brand.ts` carries the same
-  choice into the header and the capture (v2 embeds the woff2 files so the feedback PNG is set in Source
-  Sans 3). `verify.mjs`'s `v2_*` states check a v2 dev server (`VITE_BRAND=v2 npm run dev`) and skip on v1.
+  strip, section and cruise series · `h3-js` · the brand from `calcofi.io/brand/<VITE_BRAND>/` — v2, the SIO look
+  (light default, Source Sans 3, the lockup at 28 px, `data-cc-scale="app"`), since the flip on
+  2026-09-04; `VITE_BRAND=v1` still builds the superseded dark-default look. `vite.config.ts` injects
+  `brand/<v>.head.html`; `src/brand.ts` carries the same choice into the header and the capture (v2 embeds
+  the woff2 files so the feedback PNG is set in Source Sans 3). `verify.mjs`'s `v2_*` states check the
+  default build and skip on a v1 one.
 - **Data:** the release's browser-shaped objects — `obs_bio`, one `obs_env` partition per variable,
   `sample_root`, `sample_spatial`, `taxon`, `dataset`, `measurement_type`, `cruise` — cut by
   `calcofi4db::build_*` at release time, resolved through the catalog by `src/release.ts` (a port of
   `calcofi4r::cc_release_sources()`). The category tree comes from `coverage.json` (`taxa[]` and
   `variables[].category`, calcofi4db ≥ 3.25.0; `src/categories.ts` keeps a keyword fallback for an
   older release); the categories themselves are `workflows/metadata/category.csv` and the icons
-  `calcofi.io/brand/v1/icons/` (`scripts/build_icons.mjs` regenerates that sprite from
+  `calcofi.io/brand/v2/icons/` (`scripts/build_icons.mjs` regenerates that sprite from
   `src/icon-paths.ts`, and the app renders the same paths inline).
 - **Code map:** `sql/*.sql` are the lens queries the browser runs (`{{named}}` params, the shared
   filter in `_filters.sql`; `density.sql` is the denominator fixture shared with calcofi4r /

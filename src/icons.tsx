@@ -1,7 +1,7 @@
 // the explorer's glyphs, rendered inline the way the header renders brand v1's theme-toggle pair
 // (plan D15): Material Design Icons (Pictogrammers, Apache-2.0) on the 24-px grid, filled in
 // currentColor — the idiom the fleet's shared sun / moon-in-sun toggle fixed on 2026-08-29. The
-// names are the brand sprite's ids (cat-* · lens-* · realm-* · ui-*), so when brand/v1/icons/ ships
+// names are the brand sprite's ids (cat-* · lens-* · realm-* · ui-*), so when brand/v2/icons/ ships
 // (slice U2) this map becomes <use href> over the same ids. @mdi/js is tree-shaken: only the paths
 // named here reach the bundle. Bespoke marine glyphs (copepod, krill, diatom, whale, the ship on a
 // track, the section curtain) are drawn to the same weight; the ones still marked "placeholder"
