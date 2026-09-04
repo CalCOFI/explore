@@ -18,10 +18,11 @@ jobs:
       - run: npx vite build
         env:
           # the bucket root the catalog's object paths hang off, and the releases prefix under it.
-          # explore-dev-root/explore-dev = the Phase-1 objects cut from v2026.08.25 with the real
-          # release functions; switches to ducklake/releases once a release ships them (Phase 1).
-          VITE_DATA_URL: https://storage.googleapis.com/calcofi-db/explore-dev-root/
-          VITE_RELEASE_PREFIX: explore-dev/releases
+          # the real release since v2026.09.04 (2026-09-04), the first to ship the browser-shaped
+          # objects (obs_bio, obs_env, sample_root, sample_spatial, climatology); before that the
+          # site read the explore-dev cut of v2026.08.25 (explore-dev-root/ + explore-dev/releases).
+          VITE_DATA_URL: https://storage.googleapis.com/calcofi-db/
+          VITE_RELEASE_PREFIX: ducklake/releases
           VITE_BASE: /explore/
           # the feedback endpoint (calcofi4r::cc_feedback_script() deployed as a web app): a repository variable, so
           # setting it needs no code change; empty = the dialog offers the prefilled GitHub issue only
@@ -30,8 +31,8 @@ jobs:
       # 9/8 decision. The flip is VITE_BRAND=v2 on the build above and deleting this step.
       - run: npx vite build --outDir dist/v2
         env:
-          VITE_DATA_URL: https://storage.googleapis.com/calcofi-db/explore-dev-root/
-          VITE_RELEASE_PREFIX: explore-dev/releases
+          VITE_DATA_URL: https://storage.googleapis.com/calcofi-db/
+          VITE_RELEASE_PREFIX: ducklake/releases
           VITE_BASE: /explore/v2/
           VITE_BRAND: v2
           VITE_FEEDBACK_URL: ${{ vars.VITE_FEEDBACK_URL }}

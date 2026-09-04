@@ -132,9 +132,12 @@ npm install
 
 ### Preview locally (before pushing)
 
-The app needs a release catalog to read. For development, use the catalog-shaped local copy of the
-release objects (built once by `~/_big/calcofi/explore-spike/data2/build_dev_catalog.R`; the same
-content is on GCS under `explore-dev`, which the deployed site reads):
+The app needs a release catalog to read. The deployed site reads the real release
+(`https://storage.googleapis.com/calcofi-db/` + `ducklake/releases`, the defaults) since v2026.09.04,
+the first release to ship the browser-shaped objects. For development you can still use the
+catalog-shaped local copy of the v2026.08.25 objects (built once by
+`~/_big/calcofi/explore-spike/data2/build_dev_catalog.R`; the same content is on GCS under
+`explore-dev`, which the site read before the flip):
 
 ```sh
 ln -s ~/_big/calcofi/explore-spike/data2 public/data2      # once
