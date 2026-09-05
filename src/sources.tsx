@@ -13,7 +13,7 @@ import type { Row } from "./engine";
 import type { Catalog } from "./release";
 import type { Coverage } from "./App";
 import {
-  CC_FRONT_DOOR, citationOf, citationText, contactHref, doiUrl, dsLongName, dsName,
+  CC_FRONT_DOOR, citationOf, citationText, contactHref, datasetPageUrl, doiUrl, dsLongName, dsName,
   licenseLabel, licenseUrl, NO_CITATION, providerShort, releaseCitation,
 } from "./cite";
 
@@ -60,6 +60,7 @@ export function SourcesLine(p: { datasets: Row[]; providerTable?: Map<string, st
           {cite && <button type="button" className="pill act" onClick={() => copy(citationText(d))}><Icon name="ui-copy" /> copy citation</button>}
           {doiUrl(d) && <a className="pill act" href={doiUrl(d)} target="_blank" rel="noopener"><Icon name="ui-open" /> DOI</a>}
           {d.link_data_source && <a className="pill act" href={d.link_data_source} target="_blank" rel="noopener"><Icon name="ui-open" /> source</a>}
+          <a className="pill act" href={datasetPageUrl(String(d.dataset_key))} target="_blank" rel="noopener"><Icon name="ui-open" /> dataset page</a>
         </div>
       </div>}
     </div>
@@ -114,6 +115,7 @@ export function SourcesModal(p: {
               {contactHref(d) && <a href={contactHref(d)} target="_blank" rel="noopener">contact</a>}
               {d.link_calcofi_org && <a href={d.link_calcofi_org} target="_blank" rel="noopener">calcofi.org</a>}
               {d.link_data_source && <a href={d.link_data_source} target="_blank" rel="noopener">source</a>}
+              <a href={datasetPageUrl(d.dataset_key)} target="_blank" rel="noopener">dataset page ↗</a>
             </td>
           </tr>
         ))}

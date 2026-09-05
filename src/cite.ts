@@ -52,6 +52,11 @@ export const contactHref = (d: Row) => { const c = s(d.contact); return !c ? "" 
 export const dsName = (d: Row) => s(d.dataset_name_short) || s(d.dataset_name) || s(d.dataset_key);
 export const dsLongName = (d: Row) => s(d.dataset_name) || s(d.dataset_name_short) || s(d.dataset_key);
 
+/** the calcofi.io dataset-catalog page (plan 2026-09-05 D-4) — built from the key alone, so it
+ *  degrades correctly on the dev catalog (no `datasets.json` there) exactly like every other
+ *  citation surface here: never a lookup, never conditional on a field the row may not carry. */
+export const datasetPageUrl = (dataset_key: string) => `https://calcofi.io/datasets/${dataset_key}/`;
+
 // ── the release cites itself ─────────────────────────────────────────────────
 /** calcofi4db::release_citation()'s wording, so the app and the release notes cannot disagree */
 export const CC_RELEASE_PUBLISHER =
@@ -79,7 +84,7 @@ export const NO_CITATION = "no citation in this release — the dataset's provid
 /** one dataset's block in the download bundle's CITATION.md — the shape bundle.ts has always written
  *  (WS-A3 must not change it), lifted here so every other surface reuses it. */
 export function citationMd(d: Row): string {
-  return `## ${d.dataset_name ?? d.dataset_key} (\`${d.dataset_key}\`)\n\n${d.citation_main ? `${d.citation_main}\n\n` : ""}${d.citation_others ? `Also cite: ${d.citation_others}\n\n` : ""}${d.license ? `License: ${d.license}  \n` : ""}${d.pi_names ? `PIs: ${d.pi_names}  \n` : ""}${d.link_data_source ? `Source: ${d.link_data_source}  \n` : ""}${d.link_calcofi_org ? `CalCOFI: ${d.link_calcofi_org}\n` : ""}`;
+  return `## ${d.dataset_name ?? d.dataset_key} (\`${d.dataset_key}\`)\n\n${d.citation_main ? `${d.citation_main}\n\n` : ""}${d.citation_others ? `Also cite: ${d.citation_others}\n\n` : ""}${d.license ? `License: ${d.license}  \n` : ""}${d.pi_names ? `PIs: ${d.pi_names}  \n` : ""}${d.link_data_source ? `Source: ${d.link_data_source}  \n` : ""}${d.link_calcofi_org ? `CalCOFI: ${d.link_calcofi_org}\n` : ""}Page: ${datasetPageUrl(String(d.dataset_key))}\n`;
 }
 
 /** one dataset as plain text for the clipboard: the citation first, then only the fields that exist */
@@ -96,6 +101,7 @@ export function citationText(d: Row): string {
   if (s(d.source_accessed)) out.push(`  Accessed: ${String(d.source_accessed).slice(0, 10)}`);
   if (s(d.link_data_source)) out.push(`  Source: ${s(d.link_data_source)}`);
   if (s(d.link_calcofi_org)) out.push(`  CalCOFI: ${s(d.link_calcofi_org)}`);
+  out.push(`  Page: ${datasetPageUrl(String(d.dataset_key))}`);
   return out.join("\n");
 }
 
