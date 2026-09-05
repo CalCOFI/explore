@@ -46,5 +46,9 @@ export const ICON = {
   "ui-zoom-out": mdiMagnifyMinusOutline, "ui-zoom-sel": mdiSelectionDrag, "ui-folder": mdiFolderOutline, "ui-code": mdiCodeTags, "ui-tune": mdiTune, "ui-capture": mdiCropFree,
   "ui-ferry": mdiFerry, "ui-calendar": mdiCalendarMonthOutline,
   // attribution (WS-A3): cite · licence · register a derived product · the people behind a dataset
+  // the brand's two catalog glyphs (UI refresh, 2026-09-05): the copy button and the outbound mark.
+  // ui-external shares mdiOpenInNew with ui-open by intent — ui-open is an app action, ui-external
+  // marks a link that leaves calcofi.io, and the brand exports it under that name.
+  "ui-external": mdiOpenInNew,
   "ui-cite": mdiFormatQuoteClose, "ui-license": mdiLicense, "ui-product": mdiFileDocumentPlusOutline, "ui-people": mdiAccountGroupOutline,
 } as const;
