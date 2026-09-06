@@ -18,15 +18,15 @@ says what the app does and how to work on it without needing them.
   the map shows in plain words — *"Pacific sardine (pilchard) larva, the mean per 10 m² of sea surface at
   each station, all years · all seasons."* — with the colour scale and the observation count beside it. Its
   ▾ opens the sentence as the controls: every part becomes a chip whose popover is the same picker the
-  *Select* panel holds, so the two cannot disagree; opening one folds the other. The *Select* panel
+  *Controls* panel holds, so the two cannot disagree; opening one folds the other. The *Controls* panel
   (top-left) has three tabs — **Select** (Biology or Environment, the organism or variable, *View as* the
   five lenses with a line under the active one, and *More options* for the summary statistic, how counts
   are standardized, whether zeros are counted, the dataset pills and the sources — a disclosure that
-  remembers its state), **Refine** (years, season, depth band, datasets) and **Share**. *Years* floats along
+  remembers its state), **Refine** (years, season, depth band, datasets) and **Share**. *Time* floats along
   the bottom and *Depth* starts folded to a pill on the right edge; both are brushes — drag on them to
   filter the map to a span of years or a depth band. **Every panel moves** (drag its bar; double-click sends
   it back to its place), **collapses** to a labelled pill on the nearest edge, **expands** to fill the map
-  (Esc restores) and **resizes** from its edges or corner. Under 900 px (a phone) the *Select* panel is a
+  (Esc restores) and **resizes** from its edges or corner. Under 900 px (a phone) the *Controls* panel is a
   bottom sheet and the strips are pills on the map's edge.
 - **Depth signals; it never opens itself.** The pill is quiet when a pick has no depth axis (a
   depth-integrated net tow), lights up the moment a pick sampled at depth arrives — the band in its label, a
@@ -73,20 +73,22 @@ map toggles its parts and opacity, `?bathy=off` reproduces the plain basemap, `b
 keeps a subset, `bathyo=0.5` sets its opacity. The style is COMPOSED (CARTO ⊕ sea floor, one object,
 `setStyle(diff)`), so a theme flip can never drop the layers — see the 2026-08-31 map-layers plan in
 CalCOFI/workflows for how the tiles are built.
-- **Share** (the *Select* panel's third tab): **Download data (zip)** hands over the bytes shown, the exact
+- **Share** (the *Controls* panel's third tab): **Download data (zip)** hands over the bytes shown, the exact
   SQL against the release's content-addressed object URLs, per-dataset citations and `reproduce.R` /
   `reproduce.py` that run the same query; **Copy code** gives that SQL, or R or Python; **Cite this data**
   copies the citations; **Copy link** copies the view, and **Copy image** / **Download PNG** the whole view
   as a figure with the selection, release and URL stamped in a footer; *Register a product*, *Send
   feedback* and *SQL & timing* live there too. Every panel's bar has its own ⬇ (PNG · SVG · CSV), and the
-  map's ⬇ in its bottom-right cluster exports the map with its title (PNG) or the table the lens draws
+  map's ⬇ in its top-right row exports the map with its title (PNG) or the table the lens draws
   (CSV) — the map is WebGL, so it has no SVG.
-- **Feedback** (💬 in the header) captures the view, lets you mark it up (arrow, circle, rectangle, pen,
+- **Feedback** (*Help → Send feedback*) captures the view, lets you mark it up (arrow, circle, rectangle, pen,
   text; yellow, blue or hot pink) and sends it with your note, the view URL, release, viewport and theme
   to the team — by mail with the screenshot inline, to a Sheet, and as a public issue in this repo
   *without* your email. Without a configured endpoint the dialog offers a prefilled GitHub issue instead.
-- **Help ▾** in the header gathers the tour, *Start here* (the welcome), About, Data Sources & Attribution,
-  Register a product and the keyboard shortcuts; the feedback button and the theme toggle stay beside it.
+- **The header** is the release picker (the word *release* links to the schema and release notes, the bold
+  value is a list of the releases), **Help ▾** — the tour, *Start here* (the welcome), About, Data Sources &
+  Attribution, Register a product, Keyboard and *Send feedback* — and the theme toggle. The map's own buttons —
+  zoom, layers, its ⬇ — sit in one row at the map's top right.
 - **Keyboard:** `?` replays the tour · `Esc` closes a dialog, the welcome or a chip's popover, or restores an
   expanded panel · `↑ ↓ Enter` in the lists · `A`–`Z` strip to jump in the flat list.
 
@@ -98,7 +100,7 @@ life stage and denominator (never across denominators or life stages). Pooling i
 those datasets has to be named, so the app names them everywhere a number can leave it:
 
 - **The welcome states the norm and opens the doors.** A card floating over the live map — no dim — asks
-  *What would you like to explore?*: two doors (*An organism* / *An ocean variable* open the *Select* panel
+  *What would you like to explore?*: two doors (*An organism* / *An ocean variable* open the *Controls* panel
   on that picker), four real questions (each a view the app already understands, as its URL query — see
   `QUESTIONS` in `src/help.tsx`), **Start exploring** and *Take the tour*. The citation norm is one sentence
   under them — *"These data are free to use and are cited when used: every view names its datasets, and
@@ -106,7 +108,7 @@ those datasets has to be named, so the app names them everywhere a number can le
   beside `explore_welcome`. It is **not a gate** — Esc and × enter too. `?tour=on` shows the card again,
   `?tour=off` never shows it (the brand contract's deterministic screenshot); *Help → Start here* brings it
   back.
-- **The Sources line** sits in the *Select* panel's *More options*, under the dataset pills, and the panel's
+- **The Sources line** sits in the *Controls* panel's *More options*, under the dataset pills, and the panel's
   footer counts the sources in view: one chip per dataset the view pools — `provider · dataset · licence` —
   that opens that dataset's citation with a copy button.
 - **Every figure footer carries three lines**: the selection, `CalCOFI Explorer · release · the view URL`,

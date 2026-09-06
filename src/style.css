@@ -549,7 +549,8 @@ a.lic:hover { color: var(--accent); border-color: var(--accent); }
 .menu-item .sel-check { margin-left: auto; color: var(--accent); }
 /* the Select panel: tabs, the View as tiles, the More options disclosure */
 .tabs { display: flex; border-bottom: 1px solid var(--border); flex: none; }
-.tabs button { all: unset; flex: 1; text-align: center; padding: 6px 0 5px; font-weight: 600; color: var(--muted); border-bottom: 2px solid transparent; cursor: pointer; font-size: 13px; }
+.tabs button { all: unset; flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 6px 0 5px; font-weight: 600; color: var(--muted); border-bottom: 2px solid transparent; cursor: pointer; font-size: 13px; }
+.tabs button .cc-icon { font-size: 15px; }
 .tabs button:hover { color: var(--fg); }
 .tabs button.on { color: var(--accent); border-bottom-color: var(--accent); }
 .lens5 { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
@@ -567,13 +568,23 @@ a.lic:hover { color: var(--accent); border-color: var(--accent); }
 .share-col { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .share-col .pill.act, .share-col .menu { font-size: 12px; }
 .card-foot { color: var(--muted); font-size: var(--fs-sm, 11px); line-height: 1.4; padding-top: 6px; border-top: 1px solid var(--border); }
-/* the map's bottom-right column: 3-D, layers, the map's own ⬇ — above MapLibre's +/− and the attribution */
-.map-br { position: absolute; right: 10px; bottom: 100px; z-index: var(--z-pills); display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
-.map-br .map-layers-btn, .map-br .map-export .menu-btn, .map-br .map-3d-btn { background: color-mix(in srgb, var(--panel-2) 95%, transparent); border: 1px solid var(--border); border-radius: 6px; padding: 0; width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; color: var(--fg); box-shadow: 0 3px 12px color-mix(in srgb, var(--fg) 14%, transparent); font-size: 11px; font-weight: 700; }
-.map-br .map-export .menu-btn > .cc-icon:last-child { display: none; }
-.map-br .map-layers-btn:hover, .map-br .map-export .menu-btn:hover, .map-br .map-3d-btn:hover { color: var(--accent); border-color: var(--accent); }
-.mapwrap .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group { box-shadow: 0 3px 12px color-mix(in srgb, var(--fg) 14%, transparent); border-radius: 6px; }
-/* the header: Help ▾ gathers the tour, about, sources and the keyboard */
+/* the map's top-right row: zoom · layers · the map's own ⬇ (· 3-D in the Sections lens), left to right; Depth and the cards start under it */
+.map-tr { position: absolute; right: 10px; top: 10px; z-index: var(--z-pills); display: flex; flex-direction: row; gap: 6px; align-items: center; }
+.map-tr .map-zoom { display: inline-flex; background: color-mix(in srgb, var(--panel-2) 95%, transparent); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 3px 12px color-mix(in srgb, var(--fg) 14%, transparent); overflow: hidden; }
+.map-tr .map-zoom-btn.cc-icon-button { width: 30px; height: 30px; border-radius: 0; }
+.map-tr .map-zoom-btn.cc-icon-button + .map-zoom-btn.cc-icon-button { border-left: 1px solid var(--border); }
+.map-tr .map-layers-btn, .map-tr .map-export .menu-btn, .map-tr .map-3d-btn { background: color-mix(in srgb, var(--panel-2) 95%, transparent); border: 1px solid var(--border); border-radius: 6px; padding: 0; width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; color: var(--fg); box-shadow: 0 3px 12px color-mix(in srgb, var(--fg) 14%, transparent); font-size: 11px; font-weight: 700; }
+.map-tr .map-export .menu-btn > .cc-icon:last-child { display: none; }
+.map-tr .map-zoom-btn:hover, .map-tr .map-layers-btn:hover, .map-tr .map-export .menu-btn:hover, .map-tr .map-3d-btn:hover { color: var(--accent); border-color: var(--accent); }
+.edge-pills.side-right { top: 52px; }
+/* the header: one release picker (the word links to the schema, the bold value picks a release), Help ▾ gathers the rest */
+.cc-header .cc-release.cc-release-pick { display: inline-flex; align-items: center; gap: 4px; cursor: default; }
+.cc-header .cc-release-pick .cc-release-word { color: inherit; text-decoration: none; }
+.cc-header .cc-release-pick .cc-release-word:hover { color: var(--accent); }
+.cc-header .cc-release-pick select.cc-versions { all: unset; font: inherit; font-weight: 700; color: var(--fg); cursor: pointer; margin: 0; padding: 0; appearance: none; -webkit-appearance: none; }
+.cc-header .cc-release-pick .car { color: var(--muted); }
+.cc-header .cc-release-pick b { font-weight: 700; }
+/* the header: Help ▾ gathers the tour, about, sources, feedback and the keyboard */
 .cc-header .cc-help .menu-btn { border-radius: 6px; padding: 3px 8px; font-size: 12px; background: var(--panel-2); text-transform: none; }
 .cc-header .cc-help .menu-btn:hover { border-color: var(--accent); color: var(--accent); }
 /* the welcome: a card over the live map, no dim */

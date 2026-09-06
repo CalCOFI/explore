@@ -136,7 +136,7 @@ export function Sentence(c: SentenceCtx) {
       <div className="ts" role="group" aria-label="what the map shows">
         {c.open ? <>
           <div className="ts-sent">{parts.map((p, i) => typeof p === "string" ? <span key={i} className="w">{p}</span> : <span key={p.key} className="ts-chip">{p.control ? p.control() : <span className="sc static">{p.text}</span>}</span>)}</div>
-          <div className="ts-foot">{legend}<span className="sp" /><span className="hint">the same pickers as the Select panel — change a part, the map follows</span><IconButton icon="ui-up" label="Done — back to the title" className="ts-toggle" onClick={c.onToggle} data-tour="sentence-toggle" /></div>
+          <div className="ts-foot">{legend}<span className="sp" /><span className="hint">the same pickers as the Controls panel — change a part, the map follows</span><IconButton icon="ui-up" label="Done — back to the title" className="ts-toggle" onClick={c.onToggle} data-tour="sentence-toggle" /></div>
         </> : <div className="ts-row">
           <span className="ts-text">{parts.map((p, i) => typeof p === "string" ? p : p.bold ? <b key={p.key}>{p.text}</b> : <span key={p.key}>{p.text}</span>)}</span>
           {legend}

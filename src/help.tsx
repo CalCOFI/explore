@@ -91,7 +91,9 @@ export function Welcome(p: { release: string; yearMax: number; nOrganisms: numbe
   );
 }
 
-export function About(p: { release: string; nTables?: number; datasets: Row[]; cov: Coverage | null; onClose: () => void; short: (dk: string) => string; onTour: () => void; onFeedback: () => void; onSources: () => void; providerTable?: Map<string, string> | null }) {
+export function About(p: { release: string; nTables?: number; datasets: Row[]; cov: Coverage | null; onClose: () => void; short: (dk: string) => string; onTour: () => void; onFeedback: () => void; onSources: () => void; providerTable?: Map<string, string> | null; at?: string | null }) {
+  // Help ▾ → Keyboard opens the modal on that section
+  useEffect(() => { if (p.at) setTimeout(() => document.getElementById(`about-${p.at}`)?.scrollIntoView({ block: "start" }), 0); }, []);
   const span = (dk: string) => { const d = p.cov?.datasets.find((x) => x.dataset_key === dk); return d ? (d.year_min != null ? `${d.year_min}–${d.year_max}` : "no dates (region-pooled)") : ""; };
   const nobs = (dk: string) => p.cov?.datasets.find((x) => x.dataset_key === dk)?.n_obs;
   const ds = p.datasets.slice().sort((a, b) => categoryRank(a.category) - categoryRank(b.category) || String(a.dataset_name_short).localeCompare(String(b.dataset_name_short)));
@@ -102,7 +104,7 @@ export function About(p: { release: string; nTables?: number; datasets: Row[]; c
         hydrography, ichthyoplankton, zooplankton, seabirds and mammals, carbonate chemistry, weather — projected into one <code>obs</code> / <code>sample</code>
         core and read here through five <b>lenses</b> (stations, hexagons, cruises, regions, sections). The SQL runs in your browser (DuckDB-WASM), so no server
         stands between you and the release.</p>
-      <h5><Icon name="ui-map-layers" /> Map layers</h5>
+      <h5 id="about-layers"><Icon name="ui-map-layers" /> Map layers</h5>
       <p>The sea floor under every lens is <a href="https://www.gebco.net/" target="_blank" rel="noopener">GEBCO 2025</a> — shaded
         relief, depth colour and isobaths, rendered in your browser from terrain tiles at
         <code> storage.calcofi.io/calcofi-db/bathymetry/</code> (GEBCO Compilation Group (2025) GEBCO 2025 Grid,
@@ -113,7 +115,7 @@ export function About(p: { release: string; nTables?: number; datasets: Row[]; c
         same picture next year, and <code>calcofi4r</code> / <code>calcofi4py</code> read the very same bytes. A new release is a new version; the header
         chip picks one. A statistic is <b>averaged across datasets that share this life stage and denominator; never across denominators
         or life stages</b> — the pills say which datasets are in view, and the <b>Sources</b> line under them says who to cite for each.</p>
-      <h5><Icon name="ui-layers" /> Datasets</h5>
+      <h5 id="about-datasets"><Icon name="ui-layers" /> Datasets</h5>
       <p className="hint">Citations, licences, DOIs and how to reach each dataset's curators are in <button type="button" className="linkish" onClick={p.onSources}>Data Sources &amp; Attribution</button>.</p>
       <table className="about-datasets"><tbody>
         {ds.map((d) => <tr key={d.dataset_key}>
@@ -123,10 +125,10 @@ export function About(p: { release: string; nTables?: number; datasets: Row[]; c
         </tr>)}
         {!ds.length && <tr><td colSpan={3} className="hint">the dataset table loads with the engine…</td></tr>}
       </tbody></table>
-      <h5><Icon name="ui-keyboard" /> Keyboard</h5>
+      <h5 id="about-keyboard"><Icon name="ui-keyboard" /> Keyboard</h5>
       <p className="hint"><kbd>?</kbd> tour · <kbd>Esc</kbd> closes a dialog, the welcome or a chip's popover, or restores an expanded panel · <kbd>↑</kbd><kbd>↓</kbd> <kbd>Enter</kbd> in the lists, <kbd>A</kbd>–<kbd>Z</kbd> strip to jump ·
         drag on the water column or the years to brush · every panel moves by its bar (double-click sends it home), collapses to a pill on the map's edge, expands to fill the map and resizes from its edges.</p>
-      <h5><Icon name="ui-open" /> Credits</h5>
+      <h5 id="about-credits"><Icon name="ui-open" /> Credits</h5>
       <p className="hint">Data: CalCOFI (SIO, NOAA SWFSC, CDFW), CCE LTER, the Farallon Institute and the providers above, each with its own citation in <button type="button" className="linkish" onClick={p.onSources}>Data Sources &amp; Attribution</button> and in the download bundle.
         Built by Ben Best (EcoQuants) for CalCOFI with MapLibre GL, deck.gl, DuckDB-WASM and Plotly; basemap © CARTO © OpenStreetMap contributors.
         Better on a computer — nothing should fail on a phone; if it does, the feedback button tells us.

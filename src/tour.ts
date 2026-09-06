@@ -29,7 +29,7 @@ export const TOUR_STEPS: TourStep[] = [
     description: "Every value here comes from this release of the integrated CalCOFI database — sixteen datasets projected into one core and frozen, so a link you share draws the same picture next year. The map is the CalCOFI station grid, 1949 to now." },
   // the phone has no title sentence (the sheet's summary line says the same), so the step anchors there
   { id: "sentence", element: q('[data-tour="sentence"], .sheet-summary'), side: "bottom", title: "What you are looking at",
-    description: "The title says what the map shows, in plain words, with the colour scale beside it. Its ▾ opens the same choices as the Select panel, as a sentence — change any part and the map follows.", before: (a) => { if (a.phone) a.sheet("select", "peek"); } },
+    description: "The title says what the map shows, in plain words, with the colour scale beside it. Its ▾ opens the same choices as the Controls panel, as a sentence — change any part and the map follows.", before: (a) => { if (a.phone) a.sheet("select", "peek"); } },
   { id: "lenses", element: q('[data-tour="lenses"]'), side: "right", align: "start", title: "Five ways to view it",
     description: "Stations, Hexagons, Cruises, Regions and Sections are five shapes of the same data. Switch, and the station dots travel to their new place — hexagon centres, region centroids, the ship's track — so you can see which stations feed which summary.",
     before: (a) => { rail(a, "select"); if (!a.reducedMotion && a.getLens() === "station") a.setLens("hex"); }, wait: 400 },
@@ -42,7 +42,7 @@ export const TOUR_STEPS: TourStep[] = [
   { id: "depth", element: q('[data-tour="depth"]'), side: "left", title: "The water column",
     description: "Median and interquartile range per 10 m over the current selection. Drag a band to slice the map to those depths. The panel starts folded to a pill on the right edge and lights up when a pick is sampled at depth — it never opens by itself. A depth-integrated net tow has no profile — the pill says so instead of moving.",
     before: (a) => { if (a.phone) a.sheet("select", "peek"); else if (a.isFolded("depth")) a.unfold("depth"); }, wait: 400 },
-  { id: "years", element: q('[data-tour="years"]'), side: "top", title: "The years",
+  { id: "years", element: q('[data-tour="years"]'), side: "top", title: "Time",
     description: "Observations per year, or the mean ± standard error as a time series. Drag to filter the map to a span of years; the strip keeps the whole record for context. Fold any panel into a pill when you want the map; drag it by its bar, resize it from its edges.",
     before: (a) => { if (a.phone) a.sheet("select", "peek"); else if (a.isFolded("years")) a.unfold("years"); }, wait: 400 },
   { id: "map", element: '[data-tour="map"]', side: "left", align: "start", title: "The map",
@@ -52,8 +52,8 @@ export const TOUR_STEPS: TourStep[] = [
     description: "The sea floor is GEBCO 2025 — shaded relief, depth colour and isobaths — and the registry's boundary layers (EEZ, sanctuaries, MPAs, counties …) stack over it in the order you set. Every choice lands in the URL, so a shared link reopens the same map." },
   { id: "share", element: q('[data-tour="share"]'), side: "right", align: "end", title: "Share",
     description: "Download data hands over the bytes, the exact SQL against the release's object URLs, citations and reproduce.R / .py. Copy code gives that SQL, or R or Python that runs it. Cite this data copies the citations for the datasets in view plus the integrated database (BibTeX too). Copy link — the URL is the whole view, map extent included. Every figure and CSV names its datasets.", before: (a) => { rail(a, "select"); a.expand("export"); }, wait: 300 },
-  { id: "feedback", element: q('[data-tour="feedback"]'), side: "bottom", align: "end", title: "Tell us what you see",
-    description: "Feedback sends this view's URL to the team as a public issue — so \"that spike is weird\" is reproducible by whoever opens the link. Help has the datasets, credits, keyboard shortcuts and this tour; ? replays it.", before: () => {} },
+  { id: "feedback", element: q('[data-tour="help"]'), side: "bottom", align: "end", title: "Help, and tell us what you see",
+    description: "Help holds this tour, the welcome, About (the datasets, credits and keyboard), Data Sources & Attribution, and Send feedback — which sends this view's URL to the team as a public issue, so \"that spike is weird\" is reproducible by whoever opens the link. ? replays the tour.", before: () => {} },
 ];
 
 /** start the tour; returns the driver so callers (and verify.mjs, via window.__tour) can step it */

@@ -546,7 +546,8 @@ export function App() {
   // URL, so an attribution link is shareable; the rest are session state, and `?tour=off` still opens nothing
   // it was not asked for by name (the brand contract's deterministic screenshot).
   const [modal, setModal] = useState<ModalId | null>(() => (sel.modal === "sources" ? "sources" : sel.tour && (sel.tourOn || !seenWelcome()) ? "welcome" : null));
-  const openModal = (m: ModalId) => { setSel({ modal: m === "sources" ? "sources" : null }); setModal(m); };
+  const [aboutAt, setAboutAt] = useState<string | null>(null); // Help ▾ → Keyboard opens About on that section
+  const openModal = (m: ModalId, at: string | null = null) => { setSel({ modal: m === "sources" ? "sources" : null }); setAboutAt(at); setModal(m); };
   const openSources = () => openModal("sources");
   const closeModal = () => { if (modal === "welcome") markWelcome(); if (sel.modal) setSel({ modal: null }); setModal(null); };
   // the welcome's ways in (2026-09-06): Start exploring, a door (opens the Select panel on that realm's picker) or a
@@ -853,7 +854,7 @@ export function App() {
     <button className="pill act" onClick={() => { if (advanced && !minCards.timing) setAdvanced(false); else { setAdvanced(true); openCard("timing"); } }} aria-pressed={advanced} title="the timing marks and the SQL behind the view"><Icon name="ui-sql" />SQL &amp; timing</button>
   </div>;
   const selectBody = <>
-    <div className="tabs" role="tablist" aria-label="Select panel">{(["select", "refine", "share"] as Tab[]).map((t) => <button key={t} type="button" role="tab" aria-selected={tab === t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>{t === "select" ? "Select" : t === "refine" ? "Refine" : "Share"}</button>)}</div>
+    <div className="tabs" role="tablist" aria-label="Controls">{(["select", "refine", "share"] as Tab[]).map((t) => <button key={t} type="button" role="tab" aria-selected={tab === t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}><Icon name={t === "select" ? "ui-data" : t === "refine" ? "ui-filter" : "ui-share"} />{t === "select" ? "Select" : t === "refine" ? "Refine" : "Share"}</button>)}</div>
     <div className={`tab-body tab-${tab}`} data-tour={tab === "refine" ? "filters" : undefined}>{tab === "select" ? selectTab : tab === "refine" ? refineTab : shareTab}</div>
   </>;
   const depthBody = (wide: boolean) => <DepthStrip rows={depthRows} band={sel.depth} theme={theme} unit={unitLabel} empty={depthEmpty} onBand={(b) => setSel({ depth: b ?? [0, 500] })} byDataset={wide && depthDs.length ? { rows: depthDs, color: dsColor, short } : null} />;
@@ -885,11 +886,11 @@ export function App() {
     <pre>{lastSql}</pre>
   </div>;
   const titles: Record<PanelId, ReactNode> = {
-    select: "Select", depth: "Depth", years: "Years", section: <>Section <span className="plain">· line {sel.line}{sel.realm === "env" && sel.cruise ? ` · ${sel.cruise}` : ""}</span></>, cruise: "Cruise series", layers: "Layers",
+    select: "Controls", depth: "Depth", years: "Time", section: <>Section <span className="plain">· line {sel.line}{sel.realm === "env" && sel.cruise ? ` · ${sel.cruise}` : ""}</span></>, cruise: "Cruise series", layers: "Layers",
     station: stationCard ? <>{stationCard.grid_key} <span className="plain">· line {stationCard.cell?.line} station {stationCard.cell?.station}</span></> : "Station",
     timing: <>SQL &amp; timing <span className="plain">· {anyCached ? "warm" : "cold"} · paint {firstPaint ?? "…"} · ready {readyAt ?? "…"} · query {lastQ ? lastQ.ms : "…"} · switch {grain ? grain.ms : "…"} ms</span></>,
   };
-  const titleText: Record<PanelId, string> = { select: "Select", depth: "Depth", years: "Years", section: `Section · line ${sel.line}${sel.realm === "env" && sel.cruise ? ` · ${sel.cruise}` : ""}`, cruise: "Cruise series", layers: "Layers", station: stationCard ? `${stationCard.grid_key} · line ${stationCard.cell?.line} station ${stationCard.cell?.station}` : "Station", timing: "SQL & timing" };
+  const titleText: Record<PanelId, string> = { select: "Controls", depth: "Depth", years: "Time", section: `Section · line ${sel.line}${sel.realm === "env" && sel.cruise ? ` · ${sel.cruise}` : ""}`, cruise: "Cruise series", layers: "Layers", station: stationCard ? `${stationCard.grid_key} · line ${stationCard.cell?.line} station ${stationCard.cell?.station}` : "Station", timing: "SQL & timing" };
   const icons: Record<PanelId, IconName> = { select: "ui-tune", depth: "ui-tune", years: "ui-years", section: "lens-sections", cruise: "lens-cruises", station: "lens-stations", timing: "ui-sql", layers: "ui-map-layers" };
   const body = (id: PanelId, wide = false) => id === "select" ? selectBody : id === "depth" ? depthBody(wide) : id === "years" ? yearsBody : id === "section" ? sectionBody : id === "cruise" ? cruiseBody : id === "station" ? stationBody : id === "layers" ? layersBody : timingBody;
   const actions = (id: PanelId) => (id === "years" ? <>{sel.yview && <IconButton icon="ui-zoom-out" label="Reset zoom (double-click the strip)" className="sm" onClick={() => setSel({ yview: null })} data-tour="zoom-reset" />}{seriesToggle}{logChip}</> : null);
@@ -950,16 +951,16 @@ export function App() {
   const resultUp = (cardOpen.section && !minCards.section) || (cardOpen.cruise && !minCards.cruise);
   const stationUp = cardOpen.station && !minCards.station;
   const rightBand = depthOpen ? 230 : 48;
-  const tallCap = `calc(100% - 20px - ${yearsOpen ? 150 : 0}px)`;
+  const tallCap = `calc(100% - 62px - ${yearsOpen ? 150 : 0}px)`; // under the map's top-right row, above the Time panel
   const panelBox: Record<PanelId, CardBox> = {
-    select: { left: 10, top: 10, width: 320, maxHeight: tallCap },   // never under the Years panel: the body scrolls instead
+    select: { left: 10, top: 10, width: 320, maxHeight: `calc(100% - 20px - ${yearsOpen ? 150 : 0}px)` },   // never under the Time panel: the body scrolls instead
     years: { left: 10, right: 60, bottom: 10, height: 140 },
-    depth: { right: 10, top: 10, width: 210, height: `calc(100% - ${yearsOpen || resultUp ? 170 : 20}px)` },
+    depth: { right: 10, top: 52, width: 210, height: `calc(100% - ${yearsOpen || resultUp ? 212 : 62}px)` },
     section: { left: selectOpen ? 340 : 10, right: 60, bottom: yearsOpen ? 160 : 10, height: "42%" },
     cruise: { left: selectOpen ? 340 : 10, right: 60, bottom: yearsOpen ? 160 : 10, height: "34%" },
-    station: { top: 10, right: rightBand, width: 340, maxHeight: tallCap },
-    timing: { top: 10, right: rightBand + (stationUp ? 350 : 0), width: 420, maxHeight: tallCap },
-    layers: { top: 10, right: rightBand + (stationUp ? 350 : 0), width: 270, maxHeight: tallCap },
+    station: { top: 52, right: rightBand, width: 340, maxHeight: tallCap },
+    timing: { top: 52, right: rightBand + (stationUp ? 350 : 0), width: 420, maxHeight: tallCap },
+    layers: { top: 52, right: rightBand + (stationUp ? 350 : 0), width: 270, maxHeight: tallCap },
   };
   const docks: Record<PanelId, Dock> = { select: "left", depth: "right", years: "bottom", section: "bottom", cruise: "bottom", station: "right", timing: "right", layers: "right" };
   const closeCard: Partial<Record<CardId, () => void>> = { station: () => setSel({ station: null }), timing: () => setAdvanced(false), layers: () => setLayersOpen(false) };
@@ -981,9 +982,9 @@ export function App() {
     label: depthAvail ? <><b>Depth {sel.depth[0]}–{sel.depth[1]} m</b>{!depthSet && <span className="hint"> · drag to brush</span>}</> : sliceKey ? <>Depth<span className="hint"> · no depth axis</span></> : "Depth",
     extra: depthAvail ? <><VSpark rows={depthRows} band={sel.depth} />{depthSet && <button type="button" className="edge-x" aria-label="reset the depth band" title="reset the depth band" onClick={() => setSel({ depth: [0, 500] })}><Icon name="ui-close" /></button>}</> : undefined,
     onRestore: () => toggleFold("depth") };
-  const leftPills: EdgePill[] = folded("select") ? [{ id: "select", icon: "ui-tune", "data-tour": "rail", title: "open the Select panel", label: <><b>Select</b><Icon name={LENS_ICON[sel.lens]} /><Icon name={sel.realm === "bio" ? "realm-bio" : "realm-env"} />{selectSummary}</>, onRestore: () => toggleFold("select") }] : [];
+  const leftPills: EdgePill[] = folded("select") ? [{ id: "select", icon: "ui-tune", "data-tour": "rail", title: "open the Controls panel", label: <><b>Controls</b><Icon name={LENS_ICON[sel.lens]} /><Icon name={sel.realm === "bio" ? "realm-bio" : "realm-env"} />{selectSummary}</>, onRestore: () => toggleFold("select") }] : [];
   const rightPills: EdgePill[] = [...(folded("depth") ? [depthPill] : []), ...minimized(["station", "timing", "layers"])];
-  const bottomPills: EdgePill[] = [...(folded("years") ? [{ id: "years", icon: "ui-years", "data-tour": "years", title: "open the years", label: <><b>Years</b> {years[0]}–{years[1]}<Sparkline values={yearsSpark} /></>, onRestore: () => toggleFold("years") } as EdgePill] : []), ...minimized(["section", "cruise"])];
+  const bottomPills: EdgePill[] = [...(folded("years") ? [{ id: "years", icon: "ui-years", "data-tour": "years", title: "open the years", label: <><b>Time</b> {years[0]}–{years[1]}<Sparkline values={yearsSpark} /></>, onRestore: () => toggleFold("years") } as EdgePill] : []), ...minimized(["section", "cruise"])];
   const lensStrip = <div className="lens-strip" data-tour="lens-strip">{LENSES.map((l) => <button key={l} className={sel.lens === l ? "on" : ""} onClick={() => onLens(l)} title={LENS_TITLE[l]}><Icon name={LENS_ICON[l]} />{LENS_SHORT[l]}</button>)}</div>;
   const closeSheet = () => { const pnl = sheet.panel; if (pnl === "station") setSel({ station: null }); else if (pnl === "timing") setAdvanced(false); else if (pnl === "layers") setLayersOpen(false); else if (pnl === "section" || pnl === "cruise") setMinCards((m) => ({ ...m, [pnl]: true })); setSheet({ panel: "select", detent: "peek" }); };
   // the legend's rows the title sentence carries under it: the boundary layers drawn, an empty result's note, the exclusions
@@ -1005,7 +1006,7 @@ export function App() {
     years={years} yearMax={yearMax} hasDepthAxis={depthAvail} hasClim={hasClim(catalog)} climWindow={climWindow} datasetsInSlice={datasetsInSlice} dsOn={dsOn} toggleDataset={toggleDataset} dsColor={dsColor} short={short}
     subject={subject} unit={preSlice ? "root samples" : unitLabel} domain={[fmt(domain[0]), fmt(domain[1])]} bar={viridisCss} count={inView} status={status} ready={!!sliceKey} seaFloor={seaFloorOn}
     native={native} phone={phone} loading={status} open={sentenceOpen} onToggle={toggleSentence} extra={legendExtra}
-    band={{ left: selectOpen ? 340 : 48, right: Math.max(48, rightBand + (stationUp ? 350 : 0) + (cardOpen.timing && !minCards.timing ? 430 : cardOpen.layers && !minCards.layers ? 280 : 0)) }} />;
+    band={{ left: selectOpen ? 340 : 48, right: Math.max(displayLens === "section" && sel.realm === "env" ? 200 : 160, rightBand + (stationUp ? 350 : 0) + (cardOpen.timing && !minCards.timing ? 430 : cardOpen.layers && !minCards.layers ? 280 : 0)) }} />;
 
   return (
     <div className="app">
@@ -1027,17 +1028,22 @@ export function App() {
         <a className="cc-title" href="./">{BRAND === "v1" && <span className="cc-title-org">CalCOFI </span>}Explorer<small><Icon name={LENS_ICON[sel.lens]} /> {LENS_SHORT[sel.lens]}</small></a>
         <span className="cc-spacer" />
         {/* the release chip sits at the right with the tools; Help gathers the tour, the welcome, About, the sources and the keyboard */}
-        <a className="cc-release" data-tour="release" href={`https://calcofi.io/db-schema/#erd?v=${rel}`} title="CalCOFI integrated database release — every value shown comes from this frozen release; schema and release notes"><span className="cc-release-word">release</span> <b>{rel}</b></a>
-        {versions.length > 1 && <select className="cc-versions" value={version ?? ""} onChange={(e) => { setSel({ release: e.target.value }); location.search = new URLSearchParams({ ...Object.fromEntries(new URLSearchParams(location.search)), release: e.target.value }).toString(); }} title="switch release (reloads)">
-          {versions.map((v) => <option key={v} value={v}>{v}</option>)}</select>}
+        {/* one release picker: the word links to the schema and release notes, the bold value is a select of the releases (reloads) */}
+        <span className="cc-release cc-release-pick" data-tour="release" title="CalCOFI integrated database release — every value shown comes from this frozen release">
+          <a className="cc-release-word" href={`https://calcofi.io/db-schema/#erd?v=${rel}`} title="schema and release notes">release</a>
+          {versions.length > 1
+            ? <><select className="cc-versions" value={version ?? ""} aria-label="release" onChange={(e) => { setSel({ release: e.target.value }); location.search = new URLSearchParams({ ...Object.fromEntries(new URLSearchParams(location.search)), release: e.target.value }).toString(); }} title="switch release (reloads)">
+                {versions.map((v) => <option key={v} value={v}>{v}</option>)}</select><Icon name="ui-down" className="car" size="0.9em" /></>
+            : <b>{rel}</b>}
+        </span>
         <Menu className="cc-help hdr" icon="ui-help" label={<span className="label">Help</span>} title="the tour · start here · about · data sources · keyboard" align="right" data-tour="help" items={[
           { label: "Take the tour", icon: "ui-play", hint: "twelve steps; ? replays it", onSelect: tour },
           { label: "Start here", icon: "ui-home", hint: "the welcome: two doors and four questions", onSelect: () => openModal("welcome") },
           { label: "About", icon: "ui-about", hint: "what this is, the release, the datasets, credits", onSelect: () => openModal("about") },
           { label: "Data Sources & Attribution", icon: "ui-cite", hint: "citations, licences, DOIs, contacts", onSelect: openSources },
           { label: "Register a product", icon: "ui-product", hint: "tell us what you built with these data", onSelect: () => openModal("product") },
-          { label: "Keyboard", icon: "ui-keyboard", hint: "? tour · Esc closes · ↑ ↓ Enter in the lists · drag to brush", onSelect: () => openModal("about") }]} />
-        <IconButton icon="ui-feedback" label="Send feedback" className="hdr hdr-feedback" onClick={() => openModal("feedback")} data-tour="feedback" />
+          { label: "Keyboard", icon: "ui-keyboard", hint: "? tour · Esc closes · ↑ ↓ Enter in the lists · drag to brush", onSelect: () => openModal("about", "keyboard") },
+          { label: "Send feedback", icon: "ui-feedback", hint: "this view's URL, a screenshot you can mark up, your note — to the team", onSelect: () => openModal("feedback") }]} />
         <button className="cc-theme-toggle" type="button" aria-label="Toggle dark / light theme" title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}>
           {/* the sun while dark, the moon-in-sun while light — what a click switches to (theme.css shows one per theme) */}
           <svg className="cc-theme-icon cc-icon-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={ICON_SUN} /></svg>
@@ -1049,14 +1055,18 @@ export function App() {
           {view3dOn
             ? <Curtain3D cells={sectionCells} clim={climCells} anom={sel.anom && !!climCells} theme={theme} line={sel.line} grid={grid} exag={sel.exag ?? 60} onExag={(v) => setSel({ exag: v })} unit={unitLabel} />
             : <MapView layers={layers} theme={theme} bathy={bathyFromSel(sel)} boundaries={boundaries} view={sel.map ?? MAP_HOME} onView={(v) => setSel({ map: v })} getTooltip={getTooltip} onClick={onClick} onFirstFrame={() => timing.add("first_paint", performance.now() - window.__t0, "basemap + grid dots")} />}
-          {/* the map's own buttons, bottom-right above MapLibre's +/−: 3-D (sections), the layers, its ⬇ */}
-          <div className="map-br">
-            {displayLens === "section" && sel.realm === "env" && !phone &&
-              <button type="button" className="map-3d-btn" title="the section as a 3-D curtain over the sea floor (D28)"
-                onClick={() => setSel({ view3d: !sel.view3d })}>{sel.view3d ? "2D" : "3D"}</button>}
+          {/* the map's own row, top right: zoom · layers · its ⬇ (· 3-D in the Sections lens); Depth and the cards start under it */}
+          <div className="map-tr">
+            <span className="map-zoom" role="group" aria-label="zoom">
+              <IconButton icon="ui-plus" label="Zoom in" className="map-zoom-btn" onClick={() => (window as any).__map?.zoomIn()} />
+              <IconButton icon="ui-minus" label="Zoom out" className="map-zoom-btn" onClick={() => (window as any).__map?.zoomOut()} />
+            </span>
             <IconButton icon="ui-map-layers" label="Map layers — the sea floor" className="map-layers-btn" data-tour="layers"
               onClick={() => { if (layersOpen) setLayersOpen(false); else { setLayersOpen(true); setTopCard("layers"); if (phone) setSheet({ panel: "layers", detent: "half" }); } }} />
             <Menu className="export-menu map-export" icon="ui-download" label="" title="export the map: PNG (the map and its title, stamped) · CSV (the table it draws) — WebGL has no SVG" align="right" data-tour="map-export" items={exportItems("map")} />
+            {displayLens === "section" && sel.realm === "env" && !phone &&
+              <button type="button" className="map-3d-btn" title="the section as a 3-D curtain over the sea floor (D28)"
+                onClick={() => setSel({ view3d: !sel.view3d })}>{sel.view3d ? "2D" : "3D"}</button>}
           </div>
           {sentence}
           {phone && <div className="map-tl">
@@ -1073,7 +1083,7 @@ export function App() {
           {phone && <>
             <div className="phone-pills" style={{ bottom: SHEET_PEEK + 8 }}>
               <button type="button" className={`pill${sliceKey && !depthRows.length ? " muted" : ""}`} onClick={() => setSheet({ panel: "depth", detent: "half" })} data-tour="depth"><Icon name="ui-tune" />{depthSummary}</button>
-              <button type="button" className="pill" onClick={() => setSheet({ panel: "years", detent: "half" })} data-tour="years"><Icon name="ui-years" />Years {years[0]}–{years[1]}<Sparkline values={yearsSpark} width={40} height={10} /></button>
+              <button type="button" className="pill" onClick={() => setSheet({ panel: "years", detent: "half" })} data-tour="years"><Icon name="ui-years" />Time {years[0]}–{years[1]}<Sparkline values={yearsSpark} width={40} height={10} /></button>
               <button type="button" className="pill map-layers-pill" data-tour="layers" onClick={() => { setLayersOpen(true); setSheet({ panel: "layers", detent: "half" }); }}><Icon name="ui-map-layers" />Layers</button>
               {(["section", "cruise", "station", "timing", "layers"] as CardId[]).filter((c) => cardOpen[c] && sheet.panel !== c).map((c) => <button key={c} type="button" className="pill" onClick={() => openCard(c)}><Icon name={icons[c]} />{c === "station" ? stationCard!.grid_key : c === "timing" ? "SQL & timing" : titleText[c]}</button>)}
             </div>
@@ -1088,7 +1098,7 @@ export function App() {
         </div>
         {maxId && <MaxPanel id={maxId} title={titles[maxId]} icon={icons[maxId]} onRestore={() => setSel({ max: null })} actions={actions(maxId)} exportable={maxId === "select" ? undefined : exportItems(maxId)}>{body(maxId, true)}</MaxPanel>}
       </div>
-      {modal === "about" && <About release={rel} nTables={catalog?.tables.length} datasets={datasets} cov={cov} short={short} onClose={closeModal} onTour={tour} onFeedback={() => openModal("feedback")} onSources={openSources} providerTable={providerTable} />}
+      {modal === "about" && <About release={rel} nTables={catalog?.tables.length} datasets={datasets} cov={cov} short={short} onClose={closeModal} onTour={tour} onFeedback={() => openModal("feedback")} onSources={openSources} providerTable={providerTable} at={aboutAt} />}
       {modal === "sources" && <SourcesModal release={rel} catalog={catalog} datasets={datasets} cov={cov} inView={viewDatasetKeys} providerTable={providerTable} short={short}
         onClose={closeModal} onRegister={() => openModal("product")} onCite={() => copyCite("text")} />}
       {(modal === "feedback" || modal === "product") && <FeedbackDialog kind={modal === "product" ? "product" : "feedback"} datasets={viewDatasetKeys} url={location.href} release={rel} onClose={closeModal} capture={() => captureView({ stamp: viewStamp() })} />}
