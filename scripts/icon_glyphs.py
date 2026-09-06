@@ -97,6 +97,15 @@ d += stroke([(3.6, 9.2), (1.2, 5.2)], 1.2) + stroke([(4.8, 8), (3.2, 3.5)], 1.2)
 for x0, x1 in ((6.5, 5.5), (9.5, 8.8), (13.2, 12.8), (16.2, 16)): d += stroke([(x0, 14.2 if x0 < 12 else 13.4), (x1, 17.8 if x0 < 12 else 17.2)], 1.3)  # legs
 d += circle(5.6, 10.2, 0.95, hole=True)
 ICON['cat-krill'] = d
-NAMES = {'realm-env': 'WAVES', 'lens-sections': 'SECTION', 'lens-cruises': 'VESSEL', 'lens-regions': 'POLYGON', 'cat-whale': 'WHALE', 'cat-zooplankton': 'COPEPOD', 'cat-krill': 'KRILL'}
+# lens-contours: three nested contour rings — a topographic map's idiom — for the Contour Explorer's lens
+def blob(cx, cy, sx, sy, n=28):
+    pts = []
+    for i in range(n):
+        t = 2 * math.pi * i / n
+        r = 1 + 0.13 * math.cos(2 * t + 0.9) + 0.06 * math.sin(3 * t)
+        pts.append((cx + sx * r * math.cos(t), cy + sy * r * math.sin(t)))
+    return pts
+ICON['lens-contours'] = stroke(blob(12, 12.2, 10.2, 8.0), 1.7, closed=True) + stroke(blob(11.4, 12.4, 6.6, 4.9), 1.6, closed=True) + stroke(blob(10.9, 12.6, 3.1, 2.1), 1.5, closed=True)
+NAMES = {'realm-env': 'WAVES', 'lens-contours': 'CONTOURS', 'lens-sections': 'SECTION', 'lens-cruises': 'VESSEL', 'lens-regions': 'POLYGON', 'cat-whale': 'WHALE', 'cat-zooplankton': 'COPEPOD', 'cat-krill': 'KRILL'}
 for k, v in ICON.items(): print(f'const {NAMES[k]} = "{v}";')
 
