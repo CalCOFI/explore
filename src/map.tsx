@@ -222,7 +222,7 @@ export function MapView(props: {
     m.addControl(new maplibregl.AttributionControl({ compact: true }));
     // compact attribution starts collapsed to its (i); MapLibre opens it on load, so close it after the style lands
     m.once("load", () => el.current?.querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show"));
-    m.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+    m.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right"); // the light layout: the map's corner cluster sits bottom-right, under the panels' pills
     const o = new MapboxOverlay({
       interleaved: false, layers: props.layers,
       getTooltip: (i) => cb.current.getTooltip(i),

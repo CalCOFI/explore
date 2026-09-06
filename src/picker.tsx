@@ -43,6 +43,8 @@ export function Picker(p: {
   dsColor?: (dk: string) => string; dsShort?: (dk: string) => string; loading?: string | null; letters?: boolean; native?: boolean; "data-tour"?: string;
   sheet?: boolean; // phone: the popover fills the viewport
   browse?: boolean; // the Browse tab (D14): the whole holding by category or by dataset, click -> select
+  variant?: "chip"; // the title sentence's chip: the same popover under a chip-shaped trigger, no label
+  openSignal?: number; // bump to open the popover from outside (a welcome door)
 }) {
   const sorts = p.sorts ?? ["az", "n", "recent"];
   const [open, setOpen] = useState(false);
@@ -105,6 +107,7 @@ export function Picker(p: {
     return () => document.removeEventListener("mousedown", off);
   }, [open]);
   useEffect(() => { setActive(0); }, [q, sort, group]);
+  useEffect(() => { if (p.openSignal) setOpen(true); }, [p.openSignal]);
   // scroll the list only (scrollIntoView would also scroll the rail the picker sits in)
   const scrollTo = (i: number, block: "nearest" | "center" | "start" = "nearest") => {
     const ul = list.current, el = ul?.querySelector<HTMLElement>(`[data-i="${i}"]`); if (!ul || !el) return;
@@ -168,13 +171,15 @@ export function Picker(p: {
       </select></label>);
 
   let idx = 0;
+  const chip = p.variant === "chip";
   return (
-    <div ref={root} className={`picker${open ? " open" : ""}${p.sheet ? " fullscreen" : ""}`} data-tour={p["data-tour"]}>
-      <label className="f" htmlFor={`${p.id}-btn`}>{p.label}{p.hint && <span className="hint"> {p.hint}</span>}</label>
-      <button ref={btn} id={`${p.id}-btn`} type="button" className="picker-btn" aria-haspopup="listbox" aria-expanded={open} aria-controls={listId} onClick={() => setOpen((v) => !v)} title={selected ? `${selected.label}${selected.sub ? ` — ${selected.sub}` : ""}` : p.value}>
+    <div ref={root} className={`picker${open ? " open" : ""}${p.sheet ? " fullscreen" : ""}${chip ? " picker-chip" : ""}`} data-tour={p["data-tour"]}>
+      {!chip && <label className="f" htmlFor={`${p.id}-btn`}>{p.label}{p.hint && <span className="hint"> {p.hint}</span>}</label>}
+      <button ref={btn} id={`${p.id}-btn`} type="button" className={chip ? `sc${open ? " open" : ""}` : "picker-btn"} aria-haspopup="listbox" aria-expanded={open} aria-controls={listId} onClick={() => setOpen((v) => !v)} title={selected ? `${selected.label}${selected.sub ? ` — ${selected.sub}` : ""}` : p.value}>
         {selected?.datasets?.length ? <span className="dots">{selected.datasets.map(dot)}</span> : null}
-        <span className="picker-val">{selected?.label ?? (p.loading ?? p.value)}{selected?.sub && <small className={selected.subItalic ? "i" : ""}>{selected.sub}</small>}</span>
-        <Icon name="ui-down" />
+        {chip ? <span className="sc-val">{selected?.label ?? (p.loading ?? p.value)}</span>
+          : <span className="picker-val">{selected?.label ?? (p.loading ?? p.value)}{selected?.sub && <small className={selected.subItalic ? "i" : ""}>{selected.sub}</small>}</span>}
+        <Icon name="ui-down" className={chip ? "car" : undefined} />
       </button>
       {open && <div className="picker-pop" role="dialog" aria-label={p.label} style={p.sheet ? undefined : box ?? { visibility: "hidden" }}>
         <div className="picker-head">

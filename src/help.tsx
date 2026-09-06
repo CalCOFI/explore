@@ -44,19 +44,50 @@ export function Modal(p: { id: string; title: ReactNode; icon?: IconName; onClos
   );
 }
 
-export function Welcome(p: { release: string; onTour: () => void; onAgree: () => void; onClose: () => void }) {
+/** a welcome question: a real view, as the URL query the app already understands */
+export interface WelcomeQuestion { q: string; how: string; icon: IconName; query: (yearMax: number) => string }
+export const QUESTIONS: WelcomeQuestion[] = [
+  { q: "How did the water along line 90 compare with normal on the latest cruise?", how: "Sections · temperature · line 90 · the newest cruise · vs the 1993–2013 normal", icon: "lens-sections",
+    query: () => "lens=section&var=temperature&line=90&anom=1" },
+  { q: "Where do sardine larvae turn up in spring?", how: "Hexagons · Pacific sardine · larvae · April–June · all years", icon: "lens-hexagons",
+    query: () => "lens=hex&res=5&taxon=worms:217452&stage=larva&den=per_10m2&q=2" },
+  { q: "Has oxygen at 300 m changed since the 1950s?", how: "Stations · dissolved oxygen · 250–350 m · the years as mean ± se", icon: "lens-stations",
+    query: () => "lens=station&var=oxygen_ml_l&depth=250-350&strip=mean" },
+  { q: "Which cruises went out last year, and where did they go?", how: "Cruises · last year · the year × month calendar", icon: "lens-cruises",
+    query: (yearMax) => `lens=cruise&years=${yearMax - 1}-${yearMax - 1}&strip=cruises` },
+];
+const fmtN = (v: number) => v.toLocaleString();
+/** the welcome (2026-09-06): a card floating over the live map, no dim — two doors, four real questions, one primary
+ *  action. The citation norm is one sentence with a link: by continuing, a visitor accepts it (no checkbox, no
+ *  promise-as-button). Esc, × and every door out enter the app; Help → Start here brings the card back. */
+export function Welcome(p: { release: string; yearMax: number; nOrganisms: number; nVariables: number; onStart: () => void; onTour: () => void; onDoor: (realm: "bio" | "env") => void; onQuestion: (query: string) => void; onCite: () => void; onClose: () => void }) {
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    ref.current?.focus();
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); p.onClose(); } };
+    document.addEventListener("keydown", key);
+    return () => document.removeEventListener("keydown", key);
+  }, []);
   return (
-    <Modal id="welcome" title="CalCOFI Explorer" icon="realm-env" onClose={p.onClose}
-      actions={<><button type="button" className="btn" onClick={p.onTour} data-tour="welcome-tour"><Icon name="ui-help" /> Take the tour</button><button type="button" className="btn primary" onClick={p.onAgree} data-tour="welcome-cite"><Icon name="ui-cite" /> {CITE_ACK_LABEL}</button></>}>
-      <p>One integrated database, one frozen release (<b className="mono">{p.release}</b>). Pick an <b>organism</b> or an <b>ocean variable</b>, and watch
-        the 1949–present CalCOFI station grid regroup — by hexagon, cruise, region or section — with the water column and the years as brushes.
-        Every view is a URL you can share, and every download carries the SQL that made it.</p>
-      <p>These data were collected and curated by people who depend on being cited for it — sixteen datasets from CalCOFI, NOAA SWFSC,
-        CCE LTER, Scripps, the Farallon Institute and CDFW. A view usually pools several of them, so one number can rest on several
-        citations. <b>Please cite the datasets you use, and the integrated database.</b></p>
-      <p className="hint cite-note">Downloads and figures name their datasets; <i>Cite this data</i> gives you the citations.</p>
-      <p className="hint">Better on a computer; nothing should fail on a phone — if it does, the feedback button tells us.</p>
-    </Modal>
+    <section ref={ref} className="welcome modal-welcome" role="dialog" aria-labelledby="welcome-title" tabIndex={-1} data-tour="welcome">
+      <IconButton icon="ui-close" label="Close (Esc) — I know my way around" className="welcome-x" onClick={p.onClose} />
+      <div className="eyebrow">CalCOFI Explorer · 16 datasets · 1949–{p.yearMax} · release {p.release}</div>
+      <h1 id="welcome-title">What would you like to explore?</h1>
+      <p className="lede">{p.yearMax - 1949} years of the California Current, one organism or one ocean variable at a time.</p>
+      <div className="doors">
+        <button type="button" className="door" onClick={() => p.onDoor("bio")} data-tour="welcome-bio"><Icon name="realm-bio" /><span><b>An organism</b><span className="b">Fish eggs and larvae, krill, plankton, seabirds and mammals — from the net tows and the censuses.</span><span className="go">Browse {p.nOrganisms ? fmtN(p.nOrganisms) : "the"} organisms <Icon name="ui-arrow-right" /></span></span></button>
+        <button type="button" className="door" onClick={() => p.onDoor("env")} data-tour="welcome-env"><Icon name="realm-env" /><span><b>An ocean variable</b><span className="b">Temperature, salinity, oxygen, nutrients, carbon and weather — from the bottle, CTD and underway series.</span><span className="go">Browse {p.nVariables ? fmtN(p.nVariables) : "the"} variables <Icon name="ui-arrow-right" /></span></span></button>
+      </div>
+      <div className="lab">Or start from a question</div>
+      <div className="qs">
+        {QUESTIONS.map((q) => <button key={q.q} type="button" className="q" onClick={() => p.onQuestion(q.query(p.yearMax))}><span className="t">{q.q}</span><span className="o"><Icon name={q.icon} />{q.how}</span></button>)}
+      </div>
+      <div className="foot">
+        <button type="button" className="btn cta" onClick={p.onStart} data-tour="welcome-start">Start exploring <Icon name="ui-arrow-right" /></button>
+        <button type="button" className="btn quiet" onClick={p.onTour} data-tour="welcome-tour"><Icon name="ui-play" /> Take the tour</button>
+        <p className="norm">These data are free to use and are cited when used: every view names its datasets, and <button type="button" className="linkish" onClick={p.onCite}>Share → Cite</button> writes the citation for you.</p>
+      </div>
+    </section>
   );
 }
 
@@ -93,8 +124,8 @@ export function About(p: { release: string; nTables?: number; datasets: Row[]; c
         {!ds.length && <tr><td colSpan={3} className="hint">the dataset table loads with the engine…</td></tr>}
       </tbody></table>
       <h5><Icon name="ui-keyboard" /> Keyboard</h5>
-      <p className="hint"><kbd>?</kbd> tour · <kbd>Esc</kbd> closes a dialog or restores a maximized panel · <kbd>↑</kbd><kbd>↓</kbd> <kbd>Enter</kbd> in the lists, <kbd>A</kbd>–<kbd>Z</kbd> strip to jump ·
-        drag on the water column or the years to brush; a folded rail is a pill, click it to expand.</p>
+      <p className="hint"><kbd>?</kbd> tour · <kbd>Esc</kbd> closes a dialog, the welcome or a chip's popover, or restores an expanded panel · <kbd>↑</kbd><kbd>↓</kbd> <kbd>Enter</kbd> in the lists, <kbd>A</kbd>–<kbd>Z</kbd> strip to jump ·
+        drag on the water column or the years to brush · every panel moves by its bar (double-click sends it home), collapses to a pill on the map's edge, expands to fill the map and resizes from its edges.</p>
       <h5><Icon name="ui-open" /> Credits</h5>
       <p className="hint">Data: CalCOFI (SIO, NOAA SWFSC, CDFW), CCE LTER, the Farallon Institute and the providers above, each with its own citation in <button type="button" className="linkish" onClick={p.onSources}>Data Sources &amp; Attribution</button> and in the download bundle.
         Built by Ben Best (EcoQuants) for CalCOFI with MapLibre GL, deck.gl, DuckDB-WASM and Plotly; basemap © CARTO © OpenStreetMap contributors.

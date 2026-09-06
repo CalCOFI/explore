@@ -42,7 +42,9 @@ export interface Sel {
   layers: LayerStyle[] | null; // visible boundary layers in DRAW ORDER, first on top (`layers=slug[:colour][:fill_opacity][:line_width],…`); null = none
   view3d: boolean;             // `view=3d`: the Sections lens (env) as a deck-only curtain scene (D28 reshaped)
   exag: number | null;         // vertical exaggeration for the 3-D scene, 10–150 (`exag=90`); null = 60
+  strip: StripMode | null;     // the years strip's mode (`strip=mean|cruises`); null = observations. A welcome question needs it.
 }
+export type StripMode = "n" | "mean" | "cruises";
 /** one visible boundary layer's style (D24/D26): null field = the registry default */
 export interface LayerStyle {
   id: string;                  // the registry dataset_id (unknown slugs are kept in state and ignored by the style — an older link survives a rename)
@@ -86,8 +88,18 @@ export const roundMap = (v: [number, number, number]): [number, number, number] 
 const sameMap = (a: [number, number, number] | null, b: [number, number, number] | null) => (!a && !b) || (!!a && !!b && roundMap(a).join() === roundMap(b).join());
 export type PanelId = "select" | "depth" | "years" | "section" | "cruise" | "station" | "timing" | "layers";
 export const PANEL_IDS: PanelId[] = ["select", "depth", "years", "section", "cruise", "station", "timing", "layers"];
-/** the folds a visit starts with (D11 rule 3, once per visit): ≥ 1200 px all open; 900–1200 the depth rail folded */
-export const DEFAULT_HIDE: PanelId[] = typeof innerWidth === "number" && innerWidth < 1200 ? ["depth"] : [];
+/** the folds a visit starts with: Depth is folded to its pill by default and SIGNALS when a pick is sampled at depth —
+ *  it never opens itself (2026-09-06). The URL says `show=depth` for a visit that opened it, `hide=…` for the others. */
+export const DEFAULT_HIDE: PanelId[] = ["depth"];
+/** the folds as the URL carries them: `show=` opens a default fold, `hide=` folds an open one; a `depth=` band with
+ *  neither opens the Depth panel, because whoever shared the link had it open to brush it */
+export function hideFromUrl(p: URLSearchParams): PanelId[] {
+  const ok = (x: string): x is PanelId => (PANEL_IDS as string[]).includes(x);
+  const list = (k: string) => (p.get(k) ?? "").split(",").filter(ok);
+  if (!p.has("hide") && !p.has("show")) return p.has("depth") ? DEFAULT_HIDE.filter((x) => x !== "depth") : DEFAULT_HIDE;
+  const show = new Set(list("show")), hide = new Set(list("hide"));
+  return [...new Set([...DEFAULT_HIDE.filter((x) => !show.has(x)), ...hide])];
+}
 
 export const LENSES: Lens[] = ["station", "hex", "cruise", "region", "section"];
 export const LENS_TITLE: Record<Lens, string> = {
@@ -100,6 +112,16 @@ export const LENS_TITLE: Record<Lens, string> = {
 export const LENS_SHORT: Record<Lens, string> = {
   station: "Stations", hex: "Hexagons", cruise: "Cruises", region: "Regions", section: "Sections",
 };
+/** one plain line under the active lens (the light layout, 2026-09-06) */
+export const LENS_DESC: Record<Lens, string> = {
+  station: "what has been collected where — one dot per station, coloured by the summary",
+  hex: "pooled into hexagons — smooths the sampling; pick the size",
+  cruise: "one voyage at a time, along its track",
+  region: "averaged within a sanctuary, county or basin",
+  section: "a line through the water column, station by station — offshore on the left, the coast on the right",
+};
+/** the statistic as the title sentence says it */
+export const STAT_WORD: Record<Stat, string> = { mean: "mean", med: "median", n: "count of observations" };
 export const LAYERS = ["Marine Protected Areas", "National Marine Sanctuaries", "CDFW Regions", "CA Counties"];
 export const ENV_VARS_FALLBACK: Record<string, string> = { temperature: "Temperature (°C)", oxygen_ml_l: "Oxygen (ml/L)" };
 export const VAL_COL: Record<Den, string> = { per_10m2: "density_per_10m2", per_1000m3: "density_per_1000m3", raw: "value" };
@@ -128,7 +150,7 @@ export const DEFAULTS: Sel = {
   lens: "station", res: 5, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature",
   stage: null, den: null, zeros: true, years: [1949, YEAR_OPEN], months: null, q: null, yview: null, depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
   line: 90, cruise: null, stat: "mean", anom: false, tour: true, tourOn: false, modal: null, theme: null, release: null, station: null, datasets: null,
-  hide: DEFAULT_HIDE, max: null, map: null, bathy: null, bathyo: null, layers: null, view3d: false, exag: null,
+  hide: DEFAULT_HIDE, max: null, map: null, bathy: null, bathyo: null, layers: null, view3d: false, exag: null, strip: null,
 };
 
 const num = (v: string | null, d: number) => (v != null && v !== "" && !isNaN(+v) ? +v : d);
@@ -192,7 +214,7 @@ export function fromUrl(): Sel {
     station: p.get("station"),
     datasets: p.get("datasets") ? p.get("datasets")!.split(",").filter(Boolean) : null,
     theme: (p.get("theme") as Sel["theme"]) ?? null,
-    hide: p.has("hide") ? (p.get("hide")!.split(",").filter((x): x is PanelId => (PANEL_IDS as string[]).includes(x))) : DEFAULT_HIDE,
+    hide: hideFromUrl(p),
     max: (PANEL_IDS as string[]).includes(p.get("max") ?? "") ? (p.get("max") as PanelId) : null,
     map: parseMap(p.get("map")),
     bathy: parseBathyParts(p.get("bathy")),
@@ -200,6 +222,7 @@ export function fromUrl(): Sel {
     layers: parseLayerStyles(p.get("layers")),
     view3d: p.get("view") === "3d",
     exag: (v => v != null && isFinite(+v) && +v >= 10 && +v <= 150 ? Math.round(+v) : null)(p.get("exag")),
+    strip: p.get("strip") === "mean" || p.get("strip") === "cruises" ? (p.get("strip") as StripMode) : null,
   };
 }
 
@@ -228,7 +251,10 @@ export function toUrl(s: Sel) {
   if (s.station) p.set("station", s.station);
   if (s.datasets?.length) p.set("datasets", s.datasets.join(","));
   if (s.theme) p.set("theme", s.theme);
-  if (s.hide.slice().sort().join(",") !== DEFAULT_HIDE.slice().sort().join(",")) p.set("hide", s.hide.join(","));
+  const shown = DEFAULT_HIDE.filter((x) => !s.hide.includes(x)), hidden = s.hide.filter((x) => !DEFAULT_HIDE.includes(x));
+  if (hidden.length) p.set("hide", hidden.join(","));
+  // a `depth=` band alone already means "Depth open"; say `show=depth` only when the band is the default
+  if (shown.length && !(shown.length === 1 && shown[0] === "depth" && p.has("depth"))) p.set("show", shown.join(","));
   if (s.max) p.set("max", s.max);
   if (s.map && !sameMap(s.map, MAP_HOME)) p.set("map", roundMap(s.map).join(","));
   if (s.bathy !== null) p.set("bathy", s.bathy.length ? s.bathy.join(",") : "off");
@@ -236,6 +262,7 @@ export function toUrl(s: Sel) {
   if (s.layers?.length) p.set("layers", fmtLayerStyles(s.layers));
   if (s.view3d) p.set("view", "3d");
   if (s.exag != null) p.set("exag", String(s.exag));
+  if (s.strip) p.set("strip", s.strip);
   const url = `${location.pathname}?${p.toString()}`;
   if (url !== location.pathname + location.search) history.replaceState(null, "", url);
 }

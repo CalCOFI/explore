@@ -53,7 +53,7 @@ async function assertLayout(name) {
     const de = document.documentElement;
     const vw = innerWidth, vh = innerHeight;
     const off = [];
-    for (const el of document.querySelectorAll("[data-tour], .lenses button, .picker-btn, .pill.act, .rail-head button, .card-head button, .pill-row button, .sheet-handle")) {
+    for (const el of document.querySelectorAll("[data-tour], .lenses button, .picker-btn, .pill.act, .rail-head button, .card-head button, .pill-row button, .edge-pill button, .sentence button, .sheet-handle")) {
       const b = el.getBoundingClientRect();
       if (b.width === 0 && b.height === 0) continue; // display:none = not offered in this state
       if (getComputedStyle(el).visibility === "hidden" || el.closest(".sheet.detent-peek .sheet-body")) continue; // a sheet's body at the peek detent is folded away, not offered
@@ -83,7 +83,8 @@ const click = async (sel) => { await page.click(sel); };
 const clickText = async (scope, txt) => page.click(`${scope}::-p-text(${txt})`);
 const clickLens = async (txt) => { await clickText(".lenses button", txt); await waitMark(/^grain_switch:/); };
 // FILTERS and EXPORT start folded (U7): a step that reaches into one expands it first
-const expandGroup = async (name) => { const open = await page.$(`.group[data-group="${name}"].open`); if (!open) { await click(`.group[data-group="${name}"] .group-toggle`); await sleep(250); } };
+// the light layout (2026-09-06): Share and Refine are tabs of the Select panel, More options a disclosure that remembers its state
+const expandGroup = async (name) => { if (name === "export") await clickText(".tabs button", "Share"); else if (name === "filters") await clickText(".tabs button", "Refine"); else { const open = await page.$(".more-toggle[aria-expanded=true]"); if (!open) await click(".more-toggle"); } await sleep(250); };
 async function ready(url, viewport = DESKTOP, until = "lens") {
   await page.setViewport(viewport);
   await page.goto(url, { waitUntil: "domcontentloaded" });
@@ -109,18 +110,18 @@ const STATES = [
   { name: "u0_light", url: "?tour=off&theme=light", steps: async () => {} },
   { name: "u0_native", url: "?tour=off&native=1", steps: async () => {} },
   // U1 — rails, cards, z-order (the two layering-bug URLs), viewport defaults
-  { name: "u1_default", url: "?tour=off", steps: async () => {}, assert: async () => { const n = await page.$$eval(".rail", (r) => r.length); if (n !== 3) fail(`u1_default: ${n} rails open (expected 3)`); } },
-  { name: "u1_fold_depth_years", url: "?tour=off&hide=depth,years", steps: async () => {}, assert: async () => { const n = await page.$$eval(".rail-pill", (r) => r.length); if (n !== 2) fail(`u1_fold: ${n} pills (expected 2)`); } },
+  { name: "u1_default", url: "?tour=off", steps: async () => {}, assert: async () => { const n = await page.$$eval(".card-select, .card-years", (r) => r.length); if (n !== 2) fail(`u1_default: ${n} of the Select + Years panels open (expected 2)`); if (!(await page.$(".edge-pill.pill-depth"))) fail("u1_default: Depth is not folded to its pill by default"); } },
+  { name: "u1_fold_depth_years", url: "?tour=off&hide=depth,years", steps: async () => {}, assert: async () => { const n = await page.$$eval(".edge-pill", (r) => r.length); if (n !== 2) fail(`u1_fold: ${n} pills (expected 2)`); } },
   { name: "u1_fold_all", url: "?tour=off&hide=select,depth,years", steps: async () => {} },
-  { name: "u1_fold_click", url: "?tour=off", steps: async () => { await click(".rail-years .rail-head button[aria-label^='Fold']"); await sleep(400); await click(".rail-select .rail-head button[aria-label^='Fold']"); await sleep(500); },
+  { name: "u1_fold_click", url: "?tour=off", steps: async () => { await click(".card-years .card-head button[aria-label^='Collapse']"); await sleep(400); await click(".card-select .card-head button[aria-label^='Collapse']"); await sleep(500); },
     assert: async () => { const u = await page.evaluate(() => location.search); if (!/hide=/.test(u)) fail(`u1_fold_click: URL has no hide= (${u})`); } },
-  { name: "u1_unfold_click", url: "?tour=off&hide=depth", steps: async () => { await click(".rail-pill.rail-depth"); await sleep(500); }, assert: async () => { const u = await page.evaluate(() => location.search); if (/hide=/.test(u)) fail(`u1_unfold_click: URL still has hide= (${u})`); } },
+  { name: "u1_unfold_click", url: "?tour=off", steps: async () => { await click(".edge-pill.pill-depth .edge-restore"); await sleep(500); }, assert: async () => { const u = await page.evaluate(() => location.search); if (!/show=depth/.test(u)) fail(`u1_unfold_click: URL lacks show=depth (${u})`); if (!(await page.$(".card-depth"))) fail("u1_unfold_click: the Depth panel did not open"); } },
   { name: "u1_max_years", url: "?tour=off&max=years", steps: async () => {} },
   { name: "u1_max_depth", url: "?var=temperature&tour=off&max=depth", steps: async () => { await sleep(1200); } },
   { name: "u1_max_select", url: "?tour=off&max=select", steps: async () => {} },
   { name: "u1_max_esc", url: "?tour=off&max=years", steps: async () => { await page.keyboard.press("Escape"); await sleep(400); }, assert: async () => { const u = await page.evaluate(() => location.search); if (/max=/.test(u)) fail(`u1_max_esc: URL still has max= (${u})`); } },
   { name: "u1_section_bug", url: "?lens=section&taxon=worms:217452&stage=larva&den=per_10m2&line=90&cruise=2009-04-OIFS&tour=off", steps: async () => {} },
-  { name: "u1_section_min", url: "?lens=section&var=temperature&line=90&tour=off", steps: async () => { await click(".card-section .card-head button[aria-label^='Minimize']"); await sleep(400); }, assert: async () => { const n = await page.$$eval(".pill.mini", (r) => r.length); if (n !== 1) fail(`u1_section_min: ${n} pills (expected 1)`); } },
+  { name: "u1_section_min", url: "?lens=section&var=temperature&line=90&tour=off", steps: async () => { await click(".card-section .card-head button[aria-label^='Collapse']"); await sleep(400); }, assert: async () => { const n = await page.$$eval(".edge-pill.pill-section", (r) => r.length); if (n !== 1) fail(`u1_section_min: ${n} section pills (expected 1)`); } },
   { name: "u1_section_max", url: "?lens=section&var=temperature&line=90&tour=off&max=section", steps: async () => {} },
   { name: "u1_cruise_timing_bug", url: "?lens=cruise&timing=1&tour=off", steps: async () => {} },
   { name: "u1_station_card", url: "?tour=off&station=st90-ln90", steps: async () => { await sleep(800); } },
@@ -128,7 +129,7 @@ const STATES = [
       await sleep(600); const h = await page.$(".card-station .card-head"); const b = await h.boundingBox();
       await page.mouse.move(b.x + 60, b.y + b.height / 2); await page.mouse.down(); await page.mouse.move(b.x - 300, b.y + 200, { steps: 8 }); await page.mouse.up(); await sleep(300); },
     assert: async () => { const st = await page.$eval(".card-station", (el) => el.style.left); if (!st) fail("u1_station_drag: the card did not move"); } },
-  { name: "u1_1000px", url: "?tour=off", viewport: { width: 1000, height: 700 }, steps: async () => {}, assert: async () => { const n = await page.$$eval(".rail-pill.rail-depth", (r) => r.length); if (n !== 1) fail(`u1_1000px: depth rail not folded by default`); } },
+  { name: "u1_1000px", url: "?tour=off", viewport: { width: 1000, height: 700 }, steps: async () => {}, assert: async () => { const n = await page.$$eval(".edge-pill.pill-depth", (r) => r.length); if (n !== 1) fail(`u1_1000px: depth not folded by default`); } },
   { name: "u1_light_section", url: "?lens=section&var=temperature&line=90&tour=off&theme=light", steps: async () => {} },
   // U1 · D18 — the phone: bottom sheet detents, pills, a lens switch, the full-screen picker
   { name: "p_peek", url: "?tour=off", viewport: PHONE, steps: async () => {}, assert: async () => { const h = await page.$eval(".sheet", (el) => el.getBoundingClientRect().height); if (h < 80 || h > 140) fail(`p_peek: sheet ${h}px`); } },
@@ -143,21 +144,21 @@ const STATES = [
   { name: "p_hex", url: "?lens=hex&res=5&tour=off", viewport: PHONE, steps: async () => {} },
   { name: "p_light", url: "?tour=off&theme=light", viewport: PHONE, steps: async () => { await click(".sheet-summary"); await sleep(400); } },
   // U3 — help: the welcome card (?tour=on), about, feedback, and every tour step resolving in the state its before() makes
-  { name: "u3_welcome", url: "?tour=on", steps: async () => {}, assert: async () => { if (!(await page.$(".modal-welcome"))) fail("u3_welcome: no welcome card"); } },
+  { name: "u3_welcome", url: "?tour=on", steps: async () => {}, assert: async () => { if (!(await page.$(".welcome"))) fail("u3_welcome: no welcome card"); } },
   // the primary button is the agreement (WS-A3); the secondary is Take the tour, so this state clicks the primary
-  { name: "u3_no_welcome_after_seen", url: "?tour=on", steps: async () => { await click(".modal-welcome .btn.primary"); await sleep(300); await page.goto(base + "?lens=hex&res=5", { waitUntil: "domcontentloaded" }); await waitMark(/^first_lens_ready$/); await sleep(800); },
+  { name: "u3_no_welcome_after_seen", url: "?tour=on", steps: async () => { await click(".welcome .btn.cta"); await sleep(300); await page.goto(base + "?lens=hex&res=5", { waitUntil: "domcontentloaded" }); await waitMark(/^first_lens_ready$/); await sleep(800); },
     assert: async () => { if (await page.$(".modal-welcome")) fail("u3: the welcome card came back after Explore"); } },
-  { name: "u3_about", url: "?tour=off", steps: async () => { await click('[data-tour="about"]'); await sleep(500); }, assert: async () => { const n = await page.$$eval(".about-datasets tr", (r) => r.length); if (n < 10) fail(`u3_about: ${n} dataset rows`); } },
+  { name: "u3_about", url: "?tour=off", steps: async () => { await click('[data-tour="help"] button'); await sleep(200); await clickText(".menu-item", "About"); await sleep(500); }, assert: async () => { const n = await page.$$eval(".about-datasets tr", (r) => r.length); if (n < 10) fail(`u3_about: ${n} dataset rows`); } },
   { name: "u3_feedback", url: "?tour=off", steps: async () => { await click('[data-tour="feedback"]'); await sleep(400); }, assert: async () => { const href = await page.$eval(".modal-feedback a.btn", (a) => a.href); if (!/github\.com\/CalCOFI\/explore\/issues\/new/.test(href)) fail(`u3_feedback: issue link ${href}`); } },
-  { name: "u3_about_light", url: "?tour=off&theme=light", steps: async () => { await click('[data-tour="about"]'); await sleep(500); } },
+  { name: "u3_about_light", url: "?tour=off&theme=light", steps: async () => { await click('[data-tour="help"] button'); await sleep(200); await clickText(".menu-item", "About"); await sleep(500); } },
   { name: "u3_tour", url: "?tour=off", steps: async () => { await page.evaluate(() => window.__tour()); await sleep(900); }, tour: true },
   { name: "p3_welcome", url: "?tour=on", viewport: PHONE, steps: async () => {} },
-  { name: "p3_about", url: "?tour=off", viewport: PHONE, steps: async () => { await click('[data-tour="more"] button'); await sleep(300); await clickText(".menu-item", "About"); await sleep(500); } },
+  { name: "p3_about", url: "?tour=off", viewport: PHONE, steps: async () => { await click('[data-tour="help"] button'); await sleep(300); await clickText(".menu-item", "About"); await sleep(500); } },
   { name: "p3_tour", url: "?tour=off", viewport: PHONE, steps: async () => { await page.evaluate(() => window.__tour()); await sleep(900); }, tour: true },
   // U6 — the year strip: zoom (yview=) by URL, wheel and double-click; brush → years=; zoom-to-selection; month LOD + month brush; season; the cruise calendar
   { name: "u6_yview_url", url: "?tour=off&yview=2000-2012", steps: async () => { await sleep(1500); },
-    assert: async () => { if (!(await page.$(".context-bar"))) fail("u6_yview_url: no context bar"); const n = await page.$$eval(".rail-years .plot .bars .point", (r) => r.length); if (n < 100) fail(`u6_yview_url: ${n} bars (expected month bins, > 100)`); } },
-  { name: "u6_wheel", url: "?tour=off", steps: async () => { const b = await (await page.$(".rail-years .plot")).boundingBox(); await page.mouse.move(b.x + b.width * 0.6, b.y + b.height * 0.5); await page.mouse.wheel({ deltaY: -400 }); await sleep(300); await page.mouse.wheel({ deltaY: -400 }); await sleep(700); },
+    assert: async () => { if (!(await page.$(".context-bar"))) fail("u6_yview_url: no context bar"); const n = await page.$$eval(".card-years .plot .bars .point", (r) => r.length); if (n < 100) fail(`u6_yview_url: ${n} bars (expected month bins, > 100)`); } },
+  { name: "u6_wheel", url: "?tour=off", steps: async () => { const b = await (await page.$(".card-years .plot")).boundingBox(); await page.mouse.move(b.x + b.width * 0.6, b.y + b.height * 0.5); await page.mouse.wheel({ deltaY: -400 }); await sleep(300); await page.mouse.wheel({ deltaY: -400 }); await sleep(700); },
     assert: async () => { const u = await page.evaluate(() => location.search); if (!/yview=/.test(u)) fail(`u6_wheel: no yview= after wheel (${u})`); } },
   // Plotly counts a double-click from its own mousedown timing, which puppeteer's synthetic clicks never satisfy; the context bar's
   // dblclick and the header's reset button are the verifiable paths (a real mouse also resets on the strip itself)
@@ -168,32 +169,32 @@ const STATES = [
     assert: async () => { const u = await page.evaluate(() => location.search); if (/yview=/.test(u)) fail(`u6_dblclick_reset: yview= survived a double-click on the context bar (${u})`); } },
   { name: "u6_reset_button", url: "?tour=off&yview=2000-2012", steps: async () => { await sleep(800); await click('[data-tour="zoom-reset"]'); await sleep(700); },
     assert: async () => { const u = await page.evaluate(() => location.search); if (/yview=/.test(u)) fail(`u6_reset_button: yview= survived the reset button (${u})`); if (await page.$(".context-bar")) fail("u6_reset_button: the context bar is still there"); } },
-  { name: "u6_brush", url: "?tour=off", steps: async () => { const b = await (await page.$(".rail-years .plot")).boundingBox(); const y = b.y + b.height * 0.45; await page.mouse.move(b.x + b.width * 0.5, y); await page.mouse.down(); await page.mouse.move(b.x + b.width * 0.7, y, { steps: 6 }); await page.mouse.up(); await sleep(900); },
+  { name: "u6_brush", url: "?tour=off", steps: async () => { const b = await (await page.$(".card-years .plot")).boundingBox(); const y = b.y + b.height * 0.45; await page.mouse.move(b.x + b.width * 0.5, y); await page.mouse.down(); await page.mouse.move(b.x + b.width * 0.7, y, { steps: 6 }); await page.mouse.up(); await sleep(900); },
     assert: async () => { const u = await page.evaluate(() => location.search); if (!/years=\d{4}-\d{4}/.test(u)) fail(`u6_brush: no whole-year years= after a brush (${u})`); if (!(await page.$(".brush-handle"))) fail("u6_brush: no zoom-to-selection handle"); } },
   { name: "u6_zoom_to_selection", url: "?tour=off&years=1990-2005", steps: async () => { await sleep(600); await click(".brush-handle button[aria-label='zoom to selection']"); await sleep(1200); },
     assert: async () => { const u = await page.evaluate(() => location.search); if (!/yview=19(8|9)\d/.test(u)) fail(`u6_zoom_to_selection: yview= not on the selection (${u})`); if (!/years=1990-2005/.test(u)) fail(`u6_zoom_to_selection: the filter moved (${u})`); } },
-  { name: "u6_month_brush", url: "?tour=off&yview=2008-2013", steps: async () => { await sleep(1500); const b = await (await page.$(".rail-years .plot")).boundingBox(); const y = b.y + b.height * 0.45; await page.mouse.move(b.x + b.width * 0.4, y); await page.mouse.down(); await page.mouse.move(b.x + b.width * 0.6, y, { steps: 6 }); await page.mouse.up(); await sleep(900); },
+  { name: "u6_month_brush", url: "?tour=off&yview=2008-2013", steps: async () => { await sleep(1500); const b = await (await page.$(".card-years .plot")).boundingBox(); const y = b.y + b.height * 0.45; await page.mouse.move(b.x + b.width * 0.4, y); await page.mouse.down(); await page.mouse.move(b.x + b.width * 0.6, y, { steps: 6 }); await page.mouse.up(); await sleep(900); },
     assert: async () => { const u = await page.evaluate(() => location.search); if (!/years=\d{4}-\d{2}%3A\d{4}-\d{2}|years=\d{4}-\d{2}:\d{4}-\d{2}/.test(u)) fail(`u6_month_brush: no month-resolved years= (${u})`); } },
-  { name: "u6_positive_only", url: "?tour=off&zeros=0", steps: async () => { await sleep(600); },
-    assert: async () => { if (!(await page.$(".den .zeros .chip.on"))) fail("u6_positive_only: the chip is not on for zeros=0"); await click(".den .zeros .chip"); await sleep(400); const u = await page.evaluate(() => location.search); if (/zeros=/.test(u)) fail(`u6_positive_only: zeros= survived the toggle (${u})`); } },
-  { name: "u6_log", url: "?tour=off", steps: async () => { await clickText(".rail-years .seg button", "mean ± se"); await sleep(900); await clickText(".rail-years ~ * button.chip, .rail-years button.chip, .panel-actions button.chip", "log").catch(() => clickText("button.chip", "log")); await sleep(900); },
-    assert: async () => { const ttl = await page.$eval(".rail-years .plot .ytitle", (el) => el.textContent).catch(() => ""); if (!/log/.test(ttl)) fail(`u6_log: axis title without (log): ${ttl}`); } },
-  { name: "u6_season", url: "?tour=off&q=2,3", steps: async () => { await expandGroup("filters"); await click(".chip::-p-text(season)"); await sleep(300); },
-    assert: async () => { const t = await page.$eval(".chip::-p-text(season)", (el) => el.textContent); if (!/Q2 Q3/.test(t)) fail(`u6_season: chip reads ${t}`); } },
-  { name: "u6_cruises", url: "?tour=off", steps: async () => { await clickText(".rail-years .seg button", "cruises"); await sleep(1800); },
-    assert: async () => { const n = await page.$$eval(".rail-years .plot .bars .point", (r) => r.length); if (n < 100) fail(`u6_cruises: ${n} cruise cells`); const t = await page.$$eval(".rail-years .plot .ytick text", (r) => r.map((x) => x.textContent)); if (!t.includes("Jan") || !t.includes("Oct")) fail(`u6_cruises: month rows not labelled (${t.join(" ")})`); else console.log(`  ${n} cells · rows ${t.join(" ")}`); } },
-  { name: "u6_cruises_zoomed", url: "?tour=off&yview=2009.1-2009.9&lens=cruise", steps: async () => { await clickText(".rail-years .seg button", "cruises"); await sleep(1800); },
-    assert: async () => { const n = await page.$$eval(".rail-years .plot .annotation-text", (r) => r.length); if (n < 1) fail(`u6_cruises_zoomed: ${n} cruise codes visible (expected >= 1 over 0.8 years: a 3-week cruise is ~50 px)`); else console.log(`  ${n} cruise code(s) labelled`); } },
-  { name: "u6_cruise_pick", url: "?tour=off&yview=2006-2011&lens=cruise", steps: async () => { await clickText(".rail-years .seg button", "cruises"); await sleep(1800); const before = await page.evaluate(() => new URLSearchParams(location.search).get("cruise"));
-      const boxes = await page.$$eval(".rail-years .plot .bars .point path", (ps) => { const pl = document.querySelector(".rail-years .js-plotly-plot .nsewdrag").getBoundingClientRect(); return ps.map((p) => { const b = p.getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2, b.width]; }).filter((b) => b[2] > 6 && b[0] > pl.left + 4 && b[0] < pl.right - 4); }); const b = boxes[Math.floor(boxes.length / 2)]; await page.mouse.click(b[0], b[1]); await sleep(1200);
+  { name: "u6_positive_only", url: "?tour=off&zeros=0", steps: async () => { await sleep(600); await expandGroup("denominator"); await sleep(300); },
+    assert: async () => { const on = await page.$eval(".den .zeros .chip", (el) => el.getAttribute("aria-pressed")); if (on !== "false") fail(`u6_positive_only: "zeros counted" reads pressed=${on} for zeros=0`); await click(".den .zeros .chip"); await sleep(400); const u = await page.evaluate(() => location.search); if (/zeros=/.test(u)) fail(`u6_positive_only: zeros= survived the toggle (${u})`); } },
+  { name: "u6_log", url: "?tour=off", steps: async () => { await clickText(".card-years .seg button", "mean ± se"); await sleep(900); await clickText(".card-years ~ * button.chip, .card-years button.chip, .panel-actions button.chip", "log").catch(() => clickText("button.chip", "log")); await sleep(900); },
+    assert: async () => { const ttl = await page.$eval(".card-years .plot .ytitle", (el) => el.textContent).catch(() => ""); if (!/log/.test(ttl)) fail(`u6_log: axis title without (log): ${ttl}`); } },
+  { name: "u6_season", url: "?tour=off&q=2,3", steps: async () => { await expandGroup("filters"); await sleep(300); },
+    assert: async () => { const on = await page.$$eval(".card-select .season-row .seg button.on", (bs) => bs.map((b) => b.textContent).join(" ")); if (on !== "Q2 Q3") fail(`u6_season: quarters on = ${on}`); const t = await page.$eval(".sentence .ts-text", (el) => el.textContent); if (!/Apr–Jun, Jul–Sep/.test(t)) fail(`u6_season: the title reads ${t}`); } },
+  { name: "u6_cruises", url: "?tour=off", steps: async () => { await clickText(".card-years .seg button", "cruises"); await sleep(1800); },
+    assert: async () => { const n = await page.$$eval(".card-years .plot .bars .point", (r) => r.length); if (n < 100) fail(`u6_cruises: ${n} cruise cells`); const t = await page.$$eval(".card-years .plot .ytick text", (r) => r.map((x) => x.textContent)); if (!t.includes("Jan") || !t.includes("Oct")) fail(`u6_cruises: month rows not labelled (${t.join(" ")})`); else console.log(`  ${n} cells · rows ${t.join(" ")}`); } },
+  { name: "u6_cruises_zoomed", url: "?tour=off&yview=2009.1-2009.9&lens=cruise", steps: async () => { await clickText(".card-years .seg button", "cruises"); await sleep(1800); },
+    assert: async () => { const n = await page.$$eval(".card-years .plot .annotation-text", (r) => r.length); if (n < 1) fail(`u6_cruises_zoomed: ${n} cruise codes visible (expected >= 1 over 0.8 years: a 3-week cruise is ~50 px)`); else console.log(`  ${n} cruise code(s) labelled`); } },
+  { name: "u6_cruise_pick", url: "?tour=off&yview=2006-2011&lens=cruise", steps: async () => { await clickText(".card-years .seg button", "cruises"); await sleep(1800); const before = await page.evaluate(() => new URLSearchParams(location.search).get("cruise"));
+      const boxes = await page.$$eval(".card-years .plot .bars .point path", (ps) => { const pl = document.querySelector(".card-years .js-plotly-plot .nsewdrag").getBoundingClientRect(); return ps.map((p) => { const b = p.getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2, b.width]; }).filter((b) => b[2] > 6 && b[0] > pl.left + 4 && b[0] < pl.right - 4); }); const b = boxes[Math.floor(boxes.length / 2)]; await page.mouse.click(b[0], b[1]); await sleep(1200);
       const after = await page.evaluate(() => new URLSearchParams(location.search).get("cruise")); if (after === before) fail(`u6_cruise_pick: cruise stayed ${before}`); else console.log(`  picked ${before} → ${after}`); } },
   { name: "u6_max_cruises", url: "?tour=off&max=years&yview=1995-2015", steps: async () => { await clickText(".max-panel .seg button", "cruises"); await sleep(1800); } },
-  { name: "u6_light_mean_zoomed", url: "?tour=off&var=temperature&yview=2010-2016&theme=light", steps: async () => { await clickText(".rail-years .seg button", "mean ± se"); await sleep(1500); } },
+  { name: "u6_light_mean_zoomed", url: "?tour=off&var=temperature&yview=2010-2016&theme=light", steps: async () => { await clickText(".card-years .seg button", "mean ± se"); await sleep(1500); } },
   { name: "p6_years_cruises", url: "?tour=off", viewport: PHONE, steps: async () => { await click(".phone-pills button[data-tour=years]"); await sleep(900); await clickText(".sheet .seg button", "cruises"); await sleep(1800); } },
   // U4a — share + figures: the whole-view capture is not blank (spread + non-background fraction, since a dark map and a blank
   // dark canvas share a mean), every panel exports PNG / SVG / CSV, the maximized panel at its larger size
-  { name: "u4_share_menu", url: "?tour=off", steps: async () => { await expandGroup("export"); await clickText(".menu-btn", "Share"); await sleep(300); } },
-  { name: "u4_export_menu", url: "?tour=off", steps: async () => { await click(".rail-years .export-menu .menu-btn"); await sleep(300); } },
+  { name: "u4_share_menu", url: "?tour=off", steps: async () => { await expandGroup("export"); await sleep(300); }, assert: async () => { for (const t of ["Copy link", "Copy image", "Download PNG", "Register a product", "Send feedback"]) if (!(await page.$(`.share-col button::-p-text(${t})`))) fail(`u4_share_menu: the Share tab has no "${t}"`); } },
+  { name: "u4_export_menu", url: "?tour=off", steps: async () => { await click(".card-years .export-menu .menu-btn"); await sleep(300); } },
   { name: "u4_capture", url: "?tour=off", steps: async () => {}, assert: async () => {
       const r = await page.evaluate(() => window.__captureView());
       fs.writeFileSync(path.join(out, "u4_capture_export.png"), Buffer.from(r.dataUrl.split(",")[1], "base64"));
@@ -202,7 +203,7 @@ const STATES = [
   { name: "u4_capture_section_light", url: "?lens=section&var=temperature&line=90&tour=off&theme=light", steps: async () => {}, assert: async () => {
       const r = await page.evaluate(() => window.__captureView()); fs.writeFileSync(path.join(out, "u4_capture_section_light_export.png"), Buffer.from(r.dataUrl.split(",")[1], "base64"));
       console.log(`  capture ${r.w}×${r.h} · mean ${r.mean.toFixed(1)} sd ${r.sd.toFixed(1)} non-bg ${(r.nonBg * 100).toFixed(0)} %`); if (r.sd < 15 || r.nonBg < 0.15) fail("u4_capture_section_light: looks blank"); } },
-  { name: "u4_figures", url: "?lens=section&var=temperature&line=90&station=st90-ln90&tour=off", steps: async () => { await sleep(1200); }, assert: async () => {
+  { name: "u4_figures", url: "?lens=section&var=temperature&line=90&station=st90-ln90&show=depth&tour=off", steps: async () => { await sleep(1200); }, assert: async () => {
       for (const [id, kind] of [["years", "png"], ["years", "svg"], ["years", "csv"], ["depth", "png"], ["depth", "csv"], ["section", "png"], ["section", "svg"], ["section", "csv"], ["station", "png"], ["station", "csv"], ["timing", "csv"]]) {
         try { const r = await page.evaluate((id, kind) => window.__figure(id, kind), id, kind);
           const ok = kind === "png" ? (r.sd >= 8 && r.nonBg >= 0.03) : kind === "svg" ? /<svg/.test(r.text) && r.stamped : r.bytes > 20 && r.lines > 2;
@@ -221,15 +222,14 @@ const STATES = [
     assert: async () => {
       if (await page.$(".cc-header .cc-links")) fail("u7_header: the query / schema / docs links are still in the header");
       const r = await page.evaluate(() => { const rel = document.querySelector('[data-tour="release"]').getBoundingClientRect(), t = document.querySelector(".cc-title").getBoundingClientRect(); return { rel: rel.left, title: t.right, vw: innerWidth }; });
-      if (r.rel < r.vw * 0.55) fail(`u7_header: the release chip sits at x=${Math.round(r.rel)} of ${r.vw} (expected on the right)`);
-      const groups = await page.$$eval(".group.folded", (g) => g.map((x) => x.dataset.group)); if (!groups.includes("filters") || !groups.includes("export")) fail(`u7_header: folded groups = ${groups.join(",")} (expected filters + export)`);
-      if (await page.$(".den-list")) fail("u7_header: the denominator radios are open by default");
-      const den = await page.$eval(".den-toggle b", (el) => el.textContent); if (!/per 10 m²|per 1000 m³|raw count/.test(den)) fail(`u7_header: the denominator line reads "${den}"`);
-      if (await page.$(".rail-select .rail-body > .hint")) fail("u7_header: the rail's footer sentence (the lens title + DuckDB) is still there — the header carries the lens title"); } },
-  { name: "u7_den_open", url: "?tour=off", steps: async () => { await click(".den-toggle"); await sleep(300); },
+      if (r.rel < r.vw * 0.5) fail(`u7_header: the release chip is not at the right (${r.rel} of ${r.vw})`);
+      const tabs = await page.$$eval(".card-select .tabs button", (b) => b.map((x) => x.textContent)); if (tabs.join(" ") !== "Select Refine Share") fail(`u7_header: the Select panel's tabs read ${tabs.join(" ")}`);
+      if (!(await page.$(".more-toggle"))) fail("u7_header: no More options disclosure");
+      const help = await page.$$eval('[data-tour="help"]', (r) => r.length); if (help !== 1) fail(`u7_header: ${help} Help menus`); } },
+  { name: "u7_den_open", url: "?tour=off", steps: async () => { await expandGroup("denominator"); await sleep(300); },
     assert: async () => { const n = await page.$$eval(".den-list input[name=den]", (r) => r.length); if (n !== 3) fail(`u7_den_open: ${n} radios`); const t = await page.$eval(".den-list", (el) => el.textContent); if (!/standard haul factor/.test(t)) fail("u7_den_open: no standard-haul-factor note"); } },
   { name: "u7_filters_open", url: "?tour=off&years=1990-2005&q=1,2", steps: async () => {},
-    assert: async () => { const t = await page.$eval('.group[data-group="filters"] .group-right', (el) => el.textContent).catch(() => ""); if (!/1990–2005/.test(t) || !/Q1 Q2/.test(t)) fail(`u7_filters_open: the folded FILTERS summary reads "${t}"`); await expandGroup("filters"); const n = await page.$$eval(".chips .chip", (r) => r.length); if (n < 4) fail(`u7_filters_open: ${n} chips after expanding`); } },
+    assert: async () => { const t = await page.$eval(".sentence .ts-text", (el) => el.textContent); if (!/1990–2005/.test(t) || !/Jan–Mar, Apr–Jun/.test(t)) fail(`u7_filters_open: the title reads "${t}"`); await expandGroup("filters"); const n = await page.$$eval(".card-select .tab-refine .group", (r) => r.length); if (n !== 4) fail(`u7_filters_open: ${n} Refine groups (expected 4)`); const v = await page.$$eval(".card-select .tab-refine input[type=number]", (r) => r.map((x) => x.value)); if (v[0] !== "1990" || v[1] !== "2005") fail(`u7_filters_open: the year inputs read ${v.slice(0, 2).join("–")}`); } },
   { name: "u7_map_extent", url: "?tour=off", steps: async () => { await page.evaluate(() => window.__map.easeTo({ center: [-118.5, 32.5], zoom: 7.2, duration: 0 })); await sleep(600); },
     assert: async () => { const u = await page.evaluate(() => location.search); if (!/map=-118\.5(,|%2C)32\.5(,|%2C)7\.2/.test(u)) fail(`u7_map_extent: the URL has no map= after a move (${u})`); } },
   { name: "u7_map_extent_reopen", url: "?tour=off&map=-118.5,32.5,7.2", steps: async () => {},
@@ -250,20 +250,20 @@ const STATES = [
   { name: "u7_stale_dataset_filter", url: "?lens=hex&res=5&var=temperature&q=3&datasets=swfsc_ichthyo&hide=depth&tour=off", steps: async () => { await sleep(800); },
     assert: async () => {
       const u = await page.evaluate(() => location.search); if (/datasets=/.test(u)) fail(`u7_stale_dataset_filter: datasets= survived (${u})`);
-      const ttl = await page.$eval(".legend .ttl", (el) => el.textContent); if (/coverage\.json/.test(ttl)) fail(`u7_stale_dataset_filter: the legend is the pre-engine text: ${ttl}`);
-      const st = await page.$eval(".status", (el) => el.textContent); const n = +(st.match(/([\d,]+) observations/)?.[1] ?? "0").replace(/,/g, ""); if (!(n > 0)) fail(`u7_stale_dataset_filter: status "${st}"`); else console.log(`  ${st}`);
+      const ttl = await page.$eval(".sentence .ts-text", (el) => el.textContent); if (/coverage\.json/.test(ttl)) fail(`u7_stale_dataset_filter: the legend is the pre-engine text: ${ttl}`);
+      const st = await page.$eval(".sentence .ts-legend", (el) => el.textContent); const n = +(st.match(/([\d,]+) observations/)?.[1] ?? "0").replace(/,/g, ""); if (!(n > 0)) fail(`u7_stale_dataset_filter: legend "${st}"`); else console.log(`  ${st}`);
       const hexes = await page.evaluate(() => (window.__overlay?._deck?.props.layers ?? []).find((l) => l.id === "hexes")?.props.data?.length ?? 0); if (hexes < 10) fail(`u7_stale_dataset_filter: ${hexes} hexagons drawn`); } },
   { name: "u7_realm_switch_drops_filter", url: "?lens=hex&res=5&datasets=swfsc_ichthyo&tour=off", steps: async () => { await clickText(".seg.realm button", "Environment"); await waitMark(/^slice:env/); await sleep(1500); },
-    assert: async () => { const u = await page.evaluate(() => location.search); if (/datasets=/.test(u)) fail(`u7_realm_switch_drops_filter: datasets= survived the realm switch (${u})`); const st = await page.$eval(".status", (el) => el.textContent); if (/ 0 observations/.test(st)) fail(`u7_realm_switch_drops_filter: ${st}`); } },
+    assert: async () => { const u = await page.evaluate(() => location.search); if (/datasets=/.test(u)) fail(`u7_realm_switch_drops_filter: datasets= survived the realm switch (${u})`); const st = await page.$eval(".sentence .ts-legend", (el) => el.textContent); if (/ 0 observations/.test(st)) fail(`u7_realm_switch_drops_filter: ${st}`); } },
   // Ben's second screenshot: a hexagon view whose FIRST lens answer was empty (a filter with nothing in it) kept the pre-engine legend and a
   // count-mode colour domain after the filter was cleared — the station table is fetched once at open on a non-station lens, and
   // preSlice was keyed on it being empty. Now it is keyed on the first lens having answered.
   { name: "u7_empty_then_filled", url: "?lens=hex&res=5&var=temperature&years=2030-2031&tour=off", steps: async () => { await sleep(600);
-      const ttl0 = await page.$eval(".legend .ttl", (el) => el.textContent); const empty = await page.$(".legend-empty"); console.log(`  before: "${ttl0.slice(0, 40)}…" empty-note ${!!empty}`); if (/coverage\.json/.test(ttl0)) fail(`u7_empty_then_filled: empty result shown under the pre-engine legend: ${ttl0}`); if (!empty) fail("u7_empty_then_filled: no 'nothing in the selection' note");
-      await expandGroup("filters"); await click(".chip::-p-text(years) .x"); await waitMark(/^query:hex$/); await sleep(1500); },
+      const ttl0 = await page.$eval(".sentence .ts-text", (el) => el.textContent); const empty = await page.$(".legend-empty"); console.log(`  before: "${ttl0.slice(0, 40)}…" empty-note ${!!empty}`); if (/coverage\.json/.test(ttl0)) fail(`u7_empty_then_filled: empty result shown under the pre-engine legend: ${ttl0}`); if (!empty) fail("u7_empty_then_filled: no 'nothing in the selection' note");
+      await expandGroup("filters"); await clickText(".card-select .tab-refine button", "all years"); await waitMark(/^query:hex$/); await sleep(1500); },
     assert: async () => {
-      const ttl = await page.$eval(".legend .ttl", (el) => el.textContent); if (/coverage\.json/.test(ttl)) fail(`u7_empty_then_filled: still the pre-engine legend after the filter cleared: ${ttl}`);
-      const ticks = await page.$$eval(".legend .ticks span", (r) => r.map((x) => x.textContent)); const lo = parseFloat(ticks[0].replace(/,/g, "")); if (!(lo > 0)) fail(`u7_empty_then_filled: colour domain ${ticks.join(" ")} — count mode (0 …), not the 5–95 % of the mean`); else console.log(`  legend "${ttl.slice(0, 50)}" · domain ${ticks[0]}–${ticks[2]}`);
+      const ttl = await page.$eval(".sentence .ts-text", (el) => el.textContent); if (/coverage\.json/.test(ttl)) fail(`u7_empty_then_filled: still the pre-engine legend after the filter cleared: ${ttl}`);
+      const ticks = await page.$$eval(".sentence .ts-legend > span", (r) => r.map((x) => x.textContent)); const lo = parseFloat(ticks[0].replace(/,/g, "")); if (!(lo > 0)) fail(`u7_empty_then_filled: colour domain ${ticks.join(" ")} — count mode (0 …), not the 5–95 % of the mean`); else console.log(`  legend "${ttl.slice(0, 50)}" · domain ${ticks[0]}–${ticks[2]}`);
       if (await page.$(".legend-empty")) fail("u7_empty_then_filled: the empty note survived"); } },
   // U7c — the picker opens on the folded category tree: the pick's category open to it + "… N more", every other category one row; typing searches within the tree
   { name: "u7_picker_tree", url: "?tour=off", steps: async () => { await click("#organism-btn"); await sleep(400); },
@@ -418,41 +418,44 @@ const STATES = [
   // because the URL asked for it by name.
   { name: "a3_welcome", url: "?tour=on&theme=dark", steps: async () => { await page.evaluate(() => { try { localStorage.removeItem("explore_cite_ack"); } catch {} }); await sleep(200); },
     assert: async () => {
-      const b = await page.$eval(".modal-welcome .modal-actions .btn.primary", (el) => el.textContent.trim());
-      if (!/I will cite the datasets I use/.test(b)) fail(`a3_welcome: the primary button reads "${b}"`);
-      const t = await page.$eval(".modal-welcome .modal-body", (el) => el.textContent);
-      if (!/Downloads and figures name their datasets; Cite this data gives you the citations\./.test(t)) fail("a3_welcome: no agreement note under the button");
-      if (!/Take the tour/.test(await page.$eval(".modal-welcome .modal-actions", (el) => el.textContent))) fail("a3_welcome: Take the tour is gone"); } },
+      const b = await page.$eval(".welcome .btn.cta", (el) => el.textContent.trim());
+      if (!/Start exploring/.test(b)) fail(`a3_welcome: the primary button reads "${b}"`);
+      const t = await page.$eval(".welcome", (el) => el.textContent);
+      if (!/cited when used/.test(t)) fail("a3_welcome: no citation norm on the card");
+      if (!/Take the tour/.test(t)) fail("a3_welcome: Take the tour is gone");
+      const q = await page.$$eval(".welcome .q", (r) => r.length); if (q !== 4) fail(`a3_welcome: ${q} questions (expected 4)`);
+      if (await page.$(".modal-backdrop")) fail("a3_welcome: the welcome dims the map"); } },
   { name: "a3_welcome_agree", url: "?tour=on", steps: async () => { await page.evaluate(() => { try { localStorage.removeItem("explore_cite_ack"); } catch {} }); await sleep(200); },
     assert: async () => {
-      await click(".modal-welcome .modal-actions .btn.primary"); await sleep(400);
+      await click(".welcome .btn.cta"); await sleep(400);
       const ls = await page.evaluate(() => [localStorage.getItem("explore_cite_ack"), localStorage.getItem("explore_welcome")]);
       if (ls[0] !== "1" || ls[1] !== "1") fail(`a3_welcome: after agreeing localStorage is ${JSON.stringify(ls)}`);
-      if (await page.$(".modal-backdrop")) fail("a3_welcome: the card survived the agreement");
+      if (await page.$(".welcome")) fail("a3_welcome: the card survived Start exploring");
       await page.goto(base + "?lens=hex&res=5", { waitUntil: "domcontentloaded" }); await waitMark(/^first_lens_ready$/); await sleep(700);
-      if (await page.$(".modal-welcome")) fail("a3_welcome: the card came back after agreeing"); } },
+      if (await page.$(".welcome")) fail("a3_welcome: the card came back after Start exploring"); } },
   { name: "a3_welcome_light", url: "?tour=on&theme=light", steps: async () => { await sleep(200); } },
   { name: "a3_tour_off_no_modal", url: "?tour=off", steps: async () => { await page.evaluate(() => { try { localStorage.clear(); } catch {} }); await page.goto(base + "?tour=off", { waitUntil: "domcontentloaded" }); await waitMark(/^first_lens_ready$/); await sleep(900); },
     assert: async () => { if (await page.$(".modal-backdrop")) fail("a3_tour_off_no_modal: ?tour=off opened a modal on a first visit"); } },
-  { name: "a3_sources_line", url: "?tour=off&theme=dark", steps: async () => { await sleep(600); },
+  { name: "a3_sources_line", url: "?tour=off&theme=dark", steps: async () => { await sleep(600); await expandGroup("denominator"); await sleep(300); },
     assert: async () => {
       const r = await page.evaluate(() => ({
         chips: [...document.querySelectorAll(".sources .chip.src")].map((c) => c.textContent.trim()),
-        pills: [...document.querySelectorAll(".group[data-group='data'] .pills .pill:not(.off)")].length,
-        hint: [...document.querySelectorAll(".group[data-group='data'] .hint")].map((h) => h.textContent).find((t) => /observations in view/.test(t)) ?? "",
+        pills: [...document.querySelectorAll(".more-body .pills .pill:not(.off)")].length,
+        hint: [...document.querySelectorAll(".more-body .hint")].map((h) => h.textContent).find((t) => /observations in view/.test(t)) ?? "",
         all: !!document.querySelector(".sources .linkish") }));
       console.log(`  Sources: ${r.chips.join(" | ")}`);
       if (!r.chips.length) fail("a3_sources_line: no dataset chips under the pills");
       if (!r.all) fail("a3_sources_line: no 'all sources' link");
-      if (!/averaged across datasets that share this life stage and denominator; never across denominators or life stages/.test(r.hint))
+      if (!/averaged across datasets that share this life stage and standardization; never across them/.test(r.hint))
         fail(`a3_sources_line: the averaging line still reads "${r.hint}"`);
-      // the citation opens with a copy button
+      // the citation opens with a copy button (the line sits low in More options: bring it to the middle of the panel's scroll first)
+      await page.$eval(".sources .chip.src .src-btn", (el) => el.scrollIntoView({ block: "center" })); await sleep(150);
       await click(".sources .chip.src .src-btn"); await sleep(250);
       const cite = await page.$eval(".src-cite .txt", (el) => el.textContent.trim());
       console.log(`  first citation: "${cite.slice(0, 70)}…"`);
       if (!cite) fail("a3_sources_line: the chip opened an empty citation box"); } },
-  { name: "a3_sources_line_light", url: "?tour=off&theme=light", steps: async () => { await sleep(500); await click(".sources .chip.src .src-btn"); await sleep(250); } },
-  { name: "a3_sources_line_env", url: "?var=temperature&tour=off&theme=dark", steps: async () => { await sleep(600); },
+  { name: "a3_sources_line_light", url: "?tour=off&theme=light", steps: async () => { await sleep(500); await expandGroup("denominator"); await sleep(300); await click(".sources .chip.src .src-btn"); await sleep(250); } },
+  { name: "a3_sources_line_env", url: "?var=temperature&tour=off&theme=dark", steps: async () => { await sleep(600); await expandGroup("denominator"); await sleep(300); },
     assert: async () => { const c = await page.$$eval(".sources .chip.src", (r) => r.map((x) => x.textContent.trim())); console.log(`  env Sources: ${c.join(" | ")}`);
       if (c.length < 2) fail(`a3_sources_line_env: ${c.length} chips for temperature (bottle + CTD expected)`); } },
   { name: "a3_sources_modal", url: "?tour=off&modal=sources&theme=dark", steps: async () => { await page.waitForSelector(".modal-sources", { timeout: 20000 }); await sleep(700); },
@@ -479,7 +482,7 @@ const STATES = [
       if (await page.$(".modal-sources")) fail("a3_sources_modal_url: the modal survived the close box");
       const u2 = await page.evaluate(() => location.search); if (/modal=/.test(u2)) fail(`a3_sources_modal_url: modal= survived the close (${u2})`); } },
   { name: "a3_sources_modal_light", url: "?tour=off&modal=sources&theme=light", steps: async () => { await page.waitForSelector(".modal-sources", { timeout: 20000 }); await sleep(700); } },
-  { name: "a3_sources_from_header", url: "?tour=off", steps: async () => { await click('[data-tour="sources-btn"]'); await sleep(500); },
+  { name: "a3_sources_from_header", url: "?tour=off", steps: async () => { await click('[data-tour="help"] button'); await sleep(200); await clickText(".menu-item", "Data Sources"); await sleep(500); },
     assert: async () => { if (!(await page.$(".modal-sources"))) fail("a3_sources_from_header: the header button did not open the modal"); } },
   { name: "a3_cite_menu", url: "?tour=off&theme=dark", steps: async () => { await expandGroup("export"); await clickText(".menu-btn", "Cite this data"); await sleep(300); },
     assert: async () => { const items = await page.$$eval('[data-tour="cite"] .menu-item', (r) => r.map((x) => x.textContent.trim())); console.log(`  ${items.join(" · ")}`);

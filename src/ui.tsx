@@ -33,7 +33,7 @@ export function IconButton(p: { icon: IconName; label: string; onClick?: (e: Rea
   );
 }
 
-export interface MenuItem { label: string; icon?: IconName; onSelect?: () => void; hint?: string; disabled?: boolean; href?: string }
+export interface MenuItem { label: string; icon?: IconName; onSelect?: () => void; hint?: string; disabled?: boolean; href?: string; selected?: boolean }
 /** a button that opens a small menu below it; closes on a choice, outside click or Esc */
 export function Menu(p: { label: ReactNode; items: MenuItem[]; className?: string; icon?: IconName; title?: string; align?: "left" | "right"; "data-tour"?: string }) {
   const [open, setOpen] = useState(false);
@@ -55,7 +55,7 @@ export function Menu(p: { label: ReactNode; items: MenuItem[]; className?: strin
       {open && <div className={`menu-list ${p.align ?? "left"}`} role="menu" style={box ?? undefined}>
         {p.items.map((it, i) => it.href
           ? <a key={i} role="menuitem" className="menu-item" href={it.href} target="_blank" rel="noopener" onClick={() => setOpen(false)}>{it.icon && <Icon name={it.icon} />}<span>{it.label}{it.hint && <small>{it.hint}</small>}</span></a>
-          : <button key={i} type="button" role="menuitem" className="menu-item" disabled={it.disabled} onClick={() => { setOpen(false); it.onSelect?.(); }}>{it.icon && <Icon name={it.icon} />}<span>{it.label}{it.hint && <small>{it.hint}</small>}</span></button>)}
+          : <button key={i} type="button" role="menuitem" className={`menu-item${it.selected ? " sel" : ""}`} aria-checked={it.selected} disabled={it.disabled} onClick={() => { setOpen(false); it.onSelect?.(); }}>{it.icon && <Icon name={it.icon} />}<span>{it.label}{it.hint && <small>{it.hint}</small>}</span>{it.selected && <Icon name="ui-check" className="sel-check" />}</button>)}
       </div>}
     </span>
   );
