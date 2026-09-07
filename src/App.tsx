@@ -58,6 +58,8 @@ const fmt = (v: number | null | undefined, d = 2) => (v == null || !Number.isFin
 const fmtN = (v: number) => v.toLocaleString();
 const fmtYear = (v: number) => String(Math.round(v)); // a year reads 1951, not 1,951.27
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+// the query the page OPENED with, before toUrl rewrites it: a dataset page's link is `?datasets=<key>` and nothing else
+const BOOT = new URLSearchParams(location.search);
 const native = new URLSearchParams(location.search).get("native") === "1"; // D13: the plain <select> fallback, one release
 const phoneQuery = matchMedia("(max-width: 899px)");
 
@@ -227,6 +229,26 @@ export function App() {
       for (const x of cv.variables) if (x.realm === "env" && x.variable) (byVar.get(x.variable) ?? byVar.set(x.variable, new Set()).get(x.variable)!).add(x.measurement_type);
       const defs = [...byVar.entries()].filter(([, m]) => m.size > 1).map(([key, m]) => ({ key, label: UNIFIED.find((u) => u.key === key)?.label ?? key, members: [...m].sort() }));
       if (defs.length) { setUnified(defs); timing.add("variables:release", 0, `${defs.length} unified variables from coverage.json`); }
+      // a dataset deep link (`?datasets=<key>` with no organism or variable named) opens on what THAT dataset holds — its
+      // most-observed variable, or its most-observed taxon — never on the default sardine, which the dataset may not have
+      // (calcofi.io/datasets/sio_mesopelagic-fish → Explorer landed on sardine and dropped the filter; Ben, 2026-09-07)
+      const bootDs = BOOT.get("datasets")?.split(",").filter(Boolean) ?? [];
+      if (bootDs.length && !BOOT.has("taxon") && !BOOT.has("var")) {
+        const inDs = (k: string) => bootDs.includes(k);
+        const envVars = (cv.variables ?? []).filter((x) => x.realm === "env" && inDs(x.dataset_key)); // coverage lists the bio count types too
+        // the dataset's headline variable: a unified one (temperature, salinity, oxygen …) before a bare type, never a
+        // depth / pressure / flag / id column — calcofi_bottle's most-observed type is "reported depth from pressure"
+        const bookkeeping = /depth|pressure|_qual|flag|_cnt|_id$|time|lat|lon|bottle|cast/i;
+        const isUnified = (mt: string) => unifiedDefs().some((d) => d.members.includes(mt));
+        const envVar = envVars.slice().sort((a, b) => (Number(isUnified(b.measurement_type)) - Number(isUnified(a.measurement_type))) || (Number(bookkeeping.test(a.measurement_type)) - Number(bookkeeping.test(b.measurement_type))) || b.n_obs - a.n_obs)[0];
+        const envN = envVars.reduce((a, x) => a + x.n_obs, 0);
+        const unid = (t: any) => /unidentif|unid\b|unknown|indeterm/i.test(`${t.scientific_name ?? ""} ${t.common_name ?? ""}`); // ichthyo's most-observed "taxon" is unidentified eggs
+        const taxa = (cv.taxa ?? []).map((t) => ({ t, n: (t.datasets ?? []).filter((d) => inDs(d.dataset_key)).reduce((a, d) => a + d.n_obs, 0) })).filter((x) => x.n > 0).sort((a, b) => (Number(unid(a.t)) - Number(unid(b.t))) || b.n - a.n);
+        const bioN = taxa.reduce((a, x) => a + x.n, 0);
+        const varKey = envVar ? (unifiedDefs().find((d) => d.members.includes(envVar.measurement_type))?.key ?? envVar.measurement_type) : null; // the picker's key: the unified variable when the type belongs to one
+        if (envVar && envN >= bioN) setSelRaw((s) => ({ ...s, realm: "env", var: varKey!, cruise: null, datasets: bootDs }));
+        else if (taxa.length) setSelRaw((s) => ({ ...s, realm: "bio", taxon: taxa[0].t.taxon_key, stage: null, den: null, cruise: null, datasets: bootDs }));
+      }
       timing.add("fetch:sidecars", performance.now() - t, `${cells.length} cells · coverage ${cv.datasets.length} datasets`);
       // the engine + the objects every lens needs, in parallel with the paint
       setStatus("engine warming…");
@@ -292,9 +314,13 @@ export function App() {
       const present = new Set(rows.map((r) => r.dataset_key));
       const prune = (ds: string[] | null) => { if (!ds) return null; const kept = ds.filter((d) => present.has(d)); return kept.length && kept.length < present.size ? kept : null; };
       if (sel.realm === "bio") {
-        const stages = new Set(rows.map((r) => r.life_stage));
-        const stage = sel.stage != null && stages.has(sel.stage) ? sel.stage : defaultStage(rows);
-        const den = sel.den ?? defaultDen(rows, stage);
+        // the stage and denominator default from the datasets IN VIEW: a dataset link to CUFES (eggs, no effort) must not
+        // inherit ichthyo's larva · per 10 m² and open on 0 observations (Ben, 2026-09-07)
+        const inView = sel.datasets ? rows.filter((r) => sel.datasets!.includes(r.dataset_key)) : rows;
+        const base = inView.length ? inView : rows;
+        const stages = new Set(base.map((r) => r.life_stage));
+        const stage = sel.stage != null && stages.has(sel.stage) ? sel.stage : defaultStage(base);
+        const den = sel.den ?? defaultDen(base, stage);
         setSelRaw((s) => ({ ...s, stage, den, datasets: prune(s.datasets) }));
       } else setSelRaw((s) => { const d = prune(s.datasets); return d === s.datasets ? s : { ...s, datasets: d }; });
       setSliceKey(key);
