@@ -2,8 +2,8 @@
 
 Live at **https://calcofi.io/explore/**.
 
-One web app for looking at the integrated CalCOFI database through five *lenses* — **stations**,
-**hexagons**, **cruises**, **regions** and **sections** — for one **organism** (a taxon, from the net tows
+One web app for looking at the integrated CalCOFI database through six *lenses* — **stations**,
+**hexagons**, **contours**, **cruises**, **regions** and **sections** — for one **organism** (a taxon, from the net tows
 and censuses) or one **ocean variable** (from the bottle, CTD, carbonate and weather series) at a time.
 Everything runs in your browser: the SQL executes in DuckDB-WASM against the frozen release, so there is
 no server between you and the data, and the same bytes `calcofi4r` / `calcofi4py` read.
@@ -45,6 +45,30 @@ says what the app does and how to work on it without needing them.
   which is in force, for which datasets, and how many observations it excludes; open it for the formulas.
   One pill per dataset × stage; a ⚠ pill is a raw count with no effort in the release. The default stage
   and denominator follow the same rule as `calcofi4r::cc_default_stage()` / `cc_default_denominator()`.
+- **A contour is a rendering of the station grain, computed in the browser, and it shows its own error.** The
+  *Contours* lens interpolates the station summary the *Stations* lens draws — the same rows, the same filters — into
+  a surface in a Web Worker (`src/contour.worker.ts`, plain typed arrays, no library): **IDW** (power 1.3, what the
+  superseded Contour Explorer drew with `terra::interpIDW`), **ordinary kriging** (an exponential variogram fitted by
+  weighted least squares) or a **thin-plate spline** (mgcv's `s(lon, lat)` basis, the smoothing picked by GCV — the
+  GAM `calcofi4r::pts_to_contours_gam()` fits). The *surface* menu draws the statistic itself, **its error** (the
+  kriging standard deviation, or the spline's standard error — IDW has none, it is a weighted average, not a model),
+  the **observation density**, the **first / last year sampled**, the **5th / 95th percentiles** or their
+  **spread** — each interpolated the same way from the station table (`sql/station.sql` now carries `p05` / `p95`).
+  The white dots are the inputs, sized by how many observations they hold; the fit line under the method reports the
+  **leave-one-out RMSE**, the variogram (nugget · sill · range) or the effective degrees of freedom, and the time it
+  took (≈ 0.4 s for 213 stations at 0.06° cells; the error surface ≈ 3 s more). A cell farther than 60 km from any
+  station is blank — the map never extrapolates. `interp=` and `surface=` are in the URL; the map's CSV is the
+  station table the surface interpolates. The station grain is a `grid_key` cell (2–4 real stations nearshore), so
+  the surface is only as fine as that grid. **One algorithm, three runtimes:** `calcofi4r::cc_interpolate()` and
+  `calcofi4py.interpolate()` are the same code by hand, pinned by `scripts/parity/contour_fixture.json` — written by
+  the worker itself (`node scripts/parity/contour_fixture.mjs`) and copied byte-for-byte into both packages'
+  test fixtures — so a surface made in R or Python matches the map cell for cell.
+- **The data layer has its own row in the Layers card**: on/off (`data=off` leaves the sea floor and boundaries
+  alone), opacity (`datao=`), and the **colour ramp** (`ramp=thermal`, `_r` reverses): cmocean's 22 ramps (Thyng et
+  al. 2016), viridis and oce's GEBCO ramp, in `src/ramps.ts`; with no `ramp=` the variable picks its cmocean
+  convention (thermal for temperature, haline for salinity, algae for chlorophyll, dense for density, tempo for
+  nutrients, ice for oxygen; viridis for biology). The data layer draws in deck.gl's canvas above every MapLibre
+  layer; ordering it *below* a boundary layer needs the interleaved overlay (plan 2026-09-07, D36) and is not there yet.
 - **A section is laid out like the map, and carries both rulers.** *Sections* draws **offshore on the left,
   the coast on the right** — a CalCOFI line runs west-south-west off the coast — and labels the x-axis
   **station number above, distance offshore below**. The two are one ruler: `+proj=calcofi` is equidistant
@@ -61,7 +85,7 @@ says what the app does and how to work on it without needing them.
   across cruises); the datasets in view are pooled weighted by their observation counts. Red is above
   normal, blue below, the scale symmetric about zero; a cell with no baseline is blank, never zero.
 - **The URL is the whole view.** Lens, organism or variable, stage, denominator, years, season, depth,
-  dataset filter, region, line, cruise, summary statistic, theme, the sea floor (`bathy=`, `bathyo=`), which panels are folded or maximized (`hide=` · `show=` · `max=`), the years strip's mode (`strip=`),
+  dataset filter, region, line, cruise, summary statistic, the contour method and surface (`interp=`, `surface=`), the data layer (`data=`, `datao=`, `ramp=`), theme, the sea floor (`bathy=`, `bathyo=`), which panels are folded or maximized (`hide=` · `show=` · `max=`), the years strip's mode (`strip=`),
   and the **map extent** (`map=lon,lat,zoom`) are all in it — so *Share → Copy link*, a bookmark and a
   feedback report all reopen at exactly the same place. `?tour=off` suppresses the welcome card and tour
   (and opens no modal at all); `?modal=sources` opens *Data Sources &amp; Attribution*, the one modal the URL
@@ -220,7 +244,7 @@ screenshot in the mail). Usage analytics go through the fleet's GA4 snippet in `
 
 - **Stack:** Vite + React 18 + TypeScript · MapLibre GL (keyless CARTO basemap, swapped on the brand's
   `cc:theme` event) · deck.gl `MapboxOverlay` (`ScatterplotLayer` carries the station dots between
-  lenses, `H3HexagonLayer`, `GeoJsonLayer`, `TripsLayer`) · DuckDB-WASM self-hosted in a Web Worker,
+  lenses, `H3HexagonLayer`, `GeoJsonLayer`, `TripsLayer`, `BitmapLayer` for the contoured surface) · DuckDB-WASM self-hosted in a Web Worker,
   no extensions, objects fetched whole and registered as buffers · Plotly for the depth strip, year
   strip, section and cruise series · `h3-js` · the brand from `calcofi.io/brand/<VITE_BRAND>/` — v2, the SIO look
   (light default, Source Sans 3, the lockup at 28 px, `data-cc-scale="app"`), since the flip on
@@ -240,7 +264,7 @@ screenshot in the mail). Usage analytics go through the fleet's GA4 snippet in `
   filter in `_filters.sql`; `density.sql` is the denominator fixture shared with calcofi4r /
   calcofi4py) · `src/engine.ts` renders and times them · `src/state.ts` is the URL selection model
   (`fromUrl` / `toUrl`), the stage/denominator defaults and the denominator formulas · `src/App.tsx` the
-  shell · `src/map.tsx` the layers and the lens-to-lens morph · `src/charts.tsx` the Plotly panels ·
+  shell · `src/map.tsx` the layers and the lens-to-lens morph · `src/contour.ts` + `src/contour.worker.ts` the Contours lens's interpolators, isolines and bitmap · `src/ramps.ts` the colour ramps · `src/charts.tsx` the Plotly panels ·
   `src/picker.tsx` the organism / variable / cruise picker (tree + flat list) · `src/panels.tsx` the
   rails, floating cards and phone sheet · `src/export.ts` per-panel PNG/SVG/CSV and the footer stamp ·
   `src/capture.ts` the whole-view figure (one `html-to-image` composite; MapLibre runs with

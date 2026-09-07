@@ -7,6 +7,7 @@ import { useRef, useState } from "react";
 import { Icon } from "./icons";
 import { BATHY_PARTS, type BathyPart, type LayerStyle, type Sel } from "./state";
 import { PALETTES, bathyDefaultOpacity, isPalette, type SpatialLayerDef } from "./basemap";
+import { RAMPS, RAMP_IDS, parseRamp, rampCss, defaultRamp } from "./ramps";
 
 const LABELS: Record<BathyPart, string> = { relief: "shaded relief", depth: "depth colour", contours: "contours" };
 // the one-colour strip: mid-tone Material shades in the registry's families — they read on dark and light alike
@@ -52,8 +53,36 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
       : <span className="swatch" style={{ background: st.color ? `#${st.color}` : (d.fill_color || d.line_color || "#9aa0a6") }} />;
 
   const groups = [...new Set(p.defs.map((d) => d.group))];
+  // the data layer (Ben, 2026-09-07): on/off, opacity, the colour ramp (+ reversed). It draws in deck's own canvas, above
+  // every MapLibre layer — moving it BELOW a boundary layer needs the interleaved overlay (plan 2026-09-07 D36, spike-gated)
+  const ramp = parseRamp(p.sel.ramp ?? defaultRamp(p.sel.realm, p.sel.var, p.sel.anom && p.sel.lens === "section"));
+  const rampId = `${ramp.base}${ramp.reversed ? "_r" : ""}`;
+  const setRamp = (base: string, reversed: boolean) => { const id = `${base}${reversed ? "_r" : ""}`; p.setSel({ ramp: id === defaultRamp(p.sel.realm, p.sel.var) ? null : id }); };
+  const dOpacity = p.sel.datao ?? 1;
+  const families: ("cmocean" | "viridis" | "oce")[] = ["cmocean", "viridis", "oce"];
   return (
     <div className="layers-body">
+      <label className="layers-row layers-main">
+        <input type="checkbox" checked={p.sel.data} onChange={() => p.setSel({ data: !p.sel.data })} />
+        <b>Data</b> <span className="hint">the selection, as the lens draws it</span>
+      </label>
+      <label className="layers-row layers-opacity">
+        <span className="hint">opacity</span>
+        <input type="range" min={0.1} max={1} step={0.05} disabled={!p.sel.data} value={dOpacity}
+          onChange={(e) => { const v = Math.round(+e.target.value * 100) / 100; p.setSel({ datao: v >= 1 ? null : v }); }} />
+        <span className="hint">{dOpacity.toFixed(2)}</span>
+      </label>
+      <div className="layers-row ramp-row">
+        <span className="hint">colours</span>
+        <select value={ramp.base} disabled={!p.sel.data} onChange={(e) => setRamp(e.target.value, ramp.reversed)} title="cmocean (Thyng et al. 2016), viridis, and oce's GEBCO ramp">
+          {families.map((f) => <optgroup key={f} label={f === "oce" ? "oce (R)" : f}>{RAMP_IDS.filter((k) => RAMPS[k].family === f).map((k) => <option key={k} value={k}>{RAMPS[k].label}{RAMPS[k].kind !== "sequential" ? ` (${RAMPS[k].kind})` : ""}</option>)}</optgroup>)}
+        </select>
+        <span className="ramp-strip" style={{ background: rampCss(rampId) }} />
+        <label className="hint rev"><input type="checkbox" checked={ramp.reversed} disabled={!p.sel.data} onChange={(e) => setRamp(ramp.base, e.target.checked)} /> reverse</label>
+        {p.sel.ramp && <button type="button" className="linkish" onClick={() => p.setSel({ ramp: null })}>default</button>}
+      </div>
+      <div className="hint layers-note">draws above the sea floor and the boundary layers — ordering it below one is planned (needs the interleaved map overlay)</div>
+
       <label className="layers-row layers-main">
         <input type="checkbox" checked={on} onChange={() => setBathy(on ? [] : [...BATHY_PARTS])} />
         <b>Sea floor</b> <span className="hint">GEBCO 2025</span>

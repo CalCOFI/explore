@@ -635,7 +635,7 @@ if (opt.timing != null) {
     fs.writeFileSync(path.join(out, "results.json"), JSON.stringify(results, null, 1)); // keep what has been measured if a later run throws
   }
   const runSafe = async (...a) => { try { await run(...a); } catch (e) { fail(`timing ${a[0]}: ${e.message}`); await freshPage(); } };
-  const lenses = [["station", async () => {}], ["hex", () => clickLens("Hexagons")], ["cruise", () => clickLens("Cruises")], ["region", () => clickLens("Regions")], ["section", () => clickLens("Sections")]];
+  const lenses = [["station", async () => {}], ["hex", () => clickLens("Hexagons")], ["contour", () => clickLens("Contours")], ["cruise", () => clickLens("Cruises")], ["region", () => clickLens("Regions")], ["section", () => clickLens("Sections")]];
   await runSafe("cold", base + "?tour=off", lenses);
   await runSafe("env", base + "?var=temperature&tour=off", [["station", async () => {}], ["section", () => clickLens("Sections")], ["section_anom", async () => { await page.click("input[type=checkbox]"); await sleep(300); }]]);
   await runSafe("warm", base + "?lens=hex&res=5", [["hex", async () => { await sleep(1500); }], ["station", () => clickLens("Stations")], ["hex", () => clickLens("Hexagons")]]);

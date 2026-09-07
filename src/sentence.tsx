@@ -7,7 +7,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "./icons";
 import { IconButton, Menu, useAnchor, type MenuItem } from "./ui";
 import { Picker, type PickerItem, type GroupOpt } from "./picker";
-import { DEN_LABEL, DEN_HOW, LENSES, LENS_SHORT, LENS_DESC, LENS_ICON, RES_KM, STAT_WORD, STAT_LABEL, YEAR_OPEN, type Sel, type Den, type Stat, type Lens } from "./state";
+import { DEN_LABEL, DEN_HOW, LENSES, LENS_SHORT, LENS_DESC, LENS_ICON, RES_KM, STAT_WORD, STAT_LABEL, YEAR_OPEN, INTERPS, INTERP_LABEL, INTERP_WORD, INTERP_HOW, SURFACES, SURFACE_LABEL, SURFACE_WORD, type Sel, type Den, type Stat, type Lens } from "./state";
 
 const fmtN = (v: number) => v.toLocaleString();
 export const Q_LABEL = ["Jan–Mar", "Apr–Jun", "Jul–Sep", "Oct–Dec"];
@@ -79,6 +79,8 @@ export function Sentence(c: SentenceCtx) {
   const denMenu = () => <ChipMenu label={sel.den ? DEN_LABEL[sel.den] : "…"} title="how counts are standardized" items={(["per_10m2", "per_1000m3", "raw"] as Den[]).map((d) => ({ label: DEN_LABEL[d], hint: DEN_HOW[d], disabled: c.denRows(d) === 0, selected: d === sel.den, onSelect: () => setSel({ den: d }) }))} />;
   const lensMenu = (label: string) => <ChipMenu label={label} icon={LENS_ICON[sel.lens]} title="how the observations are gathered on the map" items={LENSES.map((l) => ({ label: LENS_SHORT[l], icon: LENS_ICON[l], hint: LENS_DESC[l], selected: l === sel.lens, onSelect: () => c.onLens(l) }))} />;
   const resMenu = () => <ChipMenu label={RES_KM[sel.res]} title="hexagon size" items={[3, 4, 5, 6, 7].map((r) => ({ label: RES_KM[r], hint: `H3 resolution ${r}`, selected: r === sel.res, onSelect: () => setSel({ res: r }) }))} />;
+  const interpMenu = () => <ChipMenu label={INTERP_WORD[sel.interp]} title="the interpolator" items={INTERPS.map((m) => ({ label: INTERP_LABEL[m], hint: INTERP_HOW[m], selected: m === sel.interp, onSelect: () => setSel({ interp: m }) }))} />;
+  const surfaceMenu = () => <ChipMenu label={SURFACE_WORD[sel.surface] || "the statistic itself"} title="which surface is drawn" items={SURFACES.map((s) => ({ label: SURFACE_LABEL[s], disabled: s === "se" && sel.interp === "idw", selected: s === sel.surface, onSelect: () => setSel({ surface: s }) }))} />;
   const layerMenu = () => <ChipMenu label={sel.layer} title="the boundary layer" items={c.layerNames.map((n) => ({ label: n, selected: n === sel.layer, onSelect: () => setSel({ layer: n, region: null }) }))} />;
   const regionMenu = () => <ChipMenu label={c.regionName ?? ""} title="the selected region — click a polygon on the map to pick another" items={[{ label: "every region", hint: "clear the selection", onSelect: () => setSel({ region: null }) }]} />;
   const lineMenu = () => <ChipMenu label={String(sel.line)} title="the CalCOFI line" items={c.lines.map((l) => ({ label: `line ${l}`, selected: l === sel.line, onSelect: () => setSel({ line: l, cruise: null }) }))} />;
@@ -115,6 +117,7 @@ export function Sentence(c: SentenceCtx) {
   w(" ");
   if (sel.lens === "station") chip("lens", "at each station", () => lensMenu("at each station"));
   else if (sel.lens === "hex") { chip("lens", "in hexagons", () => lensMenu("in hexagons")); w(" of "); chip("res", RES_KM[sel.res], resMenu); }
+  else if (sel.lens === "contour") { chip("lens", "as a contoured surface", () => lensMenu("as a contoured surface")); w(" by "); chip("interp", INTERP_WORD[sel.interp], interpMenu); if (sel.surface !== "value" || c.open) { w(", showing "); chip("surface", SURFACE_WORD[sel.surface] || "the statistic itself", surfaceMenu); } }
   else if (sel.lens === "cruise") { chip("lens", "along a cruise track", () => lensMenu("along a cruise track")); w(": "); chip("cruise", cruiseLabel(c.cruiseItems), () => cruiseChip(c.cruiseItems, "ts-cruise")); }
   else if (sel.lens === "region") { chip("lens", "within regions", () => lensMenu("within regions")); w(": "); chip("layer", sel.layer, layerMenu); if (c.regionName) { w(" · "); chip("region", c.regionName, regionMenu); } }
   else {

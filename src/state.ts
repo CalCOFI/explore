@@ -1,6 +1,8 @@
 // selection model = the URL (plan § Architecture). every lens is a pure function of the slice + this.
 import type { IconName } from "./icons";
-export type Lens = "station" | "hex" | "cruise" | "region" | "section";
+export type Lens = "station" | "hex" | "contour" | "cruise" | "region" | "section";
+export type Interp = "idw" | "ok" | "tps";
+export type Surface = "value" | "se" | "n" | "y0" | "y1" | "p05" | "p95" | "spread";
 export type Realm = "bio" | "env";
 export type Den = "per_10m2" | "per_1000m3" | "raw";
 export type Stat = "mean" | "med" | "n";
@@ -8,6 +10,8 @@ export type Stat = "mean" | "med" | "n";
 export interface Sel {
   lens: Lens;
   res: number;                 // hex resolution 3..7
+  interp: Interp;              // contour lens: the interpolator (`interp=idw|ok|tps`; plan 2026-09-07 D31)
+  surface: Surface;            // contour lens: which surface is drawn (`surface=value|se|n|y0|y1|p05|p95|spread`; D32)
   realm: Realm;
   taxon: string;               // bio: worms:217452
   var: string;                 // env: temperature | oxygen_ml_l
@@ -42,6 +46,9 @@ export interface Sel {
   layers: LayerStyle[] | null; // visible boundary layers in DRAW ORDER, first on top (`layers=slug[:colour][:fill_opacity][:line_width],…`); null = none
   view3d: boolean;             // `view=3d`: the Sections lens (env) as a deck-only curtain scene (D28 reshaped)
   exag: number | null;         // vertical exaggeration for the 3-D scene, 10–150 (`exag=90`); null = 60
+  ramp: string | null;         // the data layer's colour ramp (`ramp=thermal`, `_r` reverses; src/ramps.ts); null = the variable's default
+  data: boolean;               // `data=off`: the data layer hidden — the basemap, sea floor and boundaries alone
+  datao: number | null;        // the data layer's opacity 0–1 (`datao=0.6`); null = 1
   strip: StripMode | null;     // the years strip's mode (`strip=mean|cruises`); null = observations. A welcome question needs it.
 }
 export type StripMode = "n" | "mean" | "cruises";
@@ -101,21 +108,23 @@ export function hideFromUrl(p: URLSearchParams): PanelId[] {
   return [...new Set([...DEFAULT_HIDE.filter((x) => !show.has(x)), ...hide])];
 }
 
-export const LENSES: Lens[] = ["station", "hex", "cruise", "region", "section"];
+export const LENSES: Lens[] = ["station", "hex", "contour", "cruise", "region", "section"];
 export const LENS_TITLE: Record<Lens, string> = {
   station: "Stations — what has been collected where",
   hex: "Hexagons — larval fish and oceanography by area",
+  contour: "Contours — a surface interpolated between the stations, with its error",
   cruise: "Cruises — the ship steaming the grid",
   region: "Regions — summaries within management areas",
   section: "Sections — a line through the water column",
 };
 export const LENS_SHORT: Record<Lens, string> = {
-  station: "Stations", hex: "Hexagons", cruise: "Cruises", region: "Regions", section: "Sections",
+  station: "Stations", hex: "Hexagons", contour: "Contours", cruise: "Cruises", region: "Regions", section: "Sections",
 };
 /** one plain line under the active lens (the light layout, 2026-09-06) */
 export const LENS_DESC: Record<Lens, string> = {
   station: "what has been collected where — one dot per station, coloured by the summary",
   hex: "pooled into hexagons — smooths the sampling; pick the size",
+  contour: "a surface between the stations — pick the method; see its error, its inputs and their years",
   cruise: "one voyage at a time, along its track",
   region: "averaged within a sanctuary, county or basin",
   section: "a line through the water column, station by station — offshore on the left, the coast on the right",
@@ -140,17 +149,35 @@ export const DEN_HOW: Record<Den, string> = {
 export const SHF_NOTE = "standard haul factor = 10 × tow depth (m) ÷ volume strained (m³): SWFSC's per-tow multiplier, carried per tow in the release (obs_bio.std_haul_factor) and kept in the download bundle's observations";
 export const STAT_LABEL: Record<Stat, string> = { mean: "mean", med: "median", n: "observations" }; // "rows" is database-speak (D12)
 // H3 mean edge length per resolution (km) — what "hexagon size" shows; `res` stays in the URL (D12)
+export const INTERPS: Interp[] = ["idw", "ok", "tps"];
+export const INTERP_LABEL: Record<Interp, string> = { idw: "IDW", ok: "kriging", tps: "spline" };
+export const INTERP_WORD: Record<Interp, string> = { idw: "inverse-distance weighting", ok: "ordinary kriging", tps: "a thin-plate spline" };
+export const INTERP_HOW: Record<Interp, string> = {
+  idw: "inverse-distance weighting, power 1.3 — what the superseded Contour Explorer drew (terra::interpIDW); a weighted average, so no error surface",
+  ok: "ordinary kriging — an exponential variogram fitted to the stations; the kriging standard deviation is the error surface",
+  tps: "a thin-plate spline, mgcv's s(lon, lat) basis, the smoothing chosen by GCV — the GAM that calcofi4r::pts_to_contours_gam() fits; its standard error is the error surface",
+};
+export const SURFACES: Surface[] = ["value", "se", "n", "y0", "y1", "p05", "p95", "spread"];
+export const SURFACE_LABEL: Record<Surface, string> = {
+  value: "the statistic", se: "its error (SD of the estimate)", n: "observation density", y0: "first year sampled", y1: "last year sampled",
+  p05: "5th percentile", p95: "95th percentile", spread: "spread (95th − 5th)",
+};
+/** the surface as the title sentence says it, after "showing" */
+export const SURFACE_WORD: Record<Surface, string> = {
+  value: "", se: "the error of the estimate", n: "how many observations each station holds", y0: "the first year each station was sampled", y1: "the last year each station was sampled",
+  p05: "the 5th percentile at each station", p95: "the 95th percentile at each station", spread: "the spread between the 5th and 95th percentiles",
+};
 export const RES_KM: Record<number, string> = { 3: "~60 km", 4: "~23 km", 5: "~8.5 km", 6: "~3.2 km", 7: "~1.2 km" };
-export const LENS_ICON: Record<Lens, IconName> = { station: "lens-stations", hex: "lens-hexagons", cruise: "lens-cruises", region: "lens-regions", section: "lens-sections" };
+export const LENS_ICON: Record<Lens, IconName> = { station: "lens-stations", hex: "lens-hexagons", contour: "lens-contours", cruise: "lens-cruises", region: "lens-regions", section: "lens-sections" };
 export const RELEASE = "v2026.08.25";
 export const DEFAULT_TAXON = "worms:217452"; // Pacific sardine
 export const YEAR_OPEN = 9999; // "through the latest year in the release" until coverage.json says which
 
 export const DEFAULTS: Sel = {
-  lens: "station", res: 5, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature",
+  lens: "station", res: 5, interp: "ok", surface: "value", realm: "bio", taxon: DEFAULT_TAXON, var: "temperature",
   stage: null, den: null, zeros: true, years: [1949, YEAR_OPEN], months: null, q: null, yview: null, depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
   line: 90, cruise: null, stat: "mean", anom: false, tour: true, tourOn: false, modal: null, theme: null, release: null, station: null, datasets: null,
-  hide: DEFAULT_HIDE, max: null, map: null, bathy: null, bathyo: null, layers: null, view3d: false, exag: null, strip: null,
+  hide: DEFAULT_HIDE, max: null, map: null, bathy: null, bathyo: null, layers: null, view3d: false, exag: null, strip: null, ramp: null, data: true, datao: null,
 };
 
 const num = (v: string | null, d: number) => (v != null && v !== "" && !isNaN(+v) ? +v : d);
@@ -191,6 +218,8 @@ export function fromUrl(): Sel {
     ...DEFAULTS,
     lens,
     res: Math.min(7, Math.max(3, num(p.get("res"), DEFAULTS.res))),
+    interp: (INTERPS as string[]).includes(p.get("interp") ?? "") ? (p.get("interp") as Interp) : DEFAULTS.interp,
+    surface: (SURFACES as string[]).includes(p.get("surface") ?? "") ? (p.get("surface") as Surface) : DEFAULTS.surface,
     realm: v ? "env" : "bio",
     taxon: p.get("taxon") ?? DEFAULTS.taxon,
     var: v ?? DEFAULTS.var,
@@ -223,6 +252,9 @@ export function fromUrl(): Sel {
     view3d: p.get("view") === "3d",
     exag: (v => v != null && isFinite(+v) && +v >= 10 && +v <= 150 ? Math.round(+v) : null)(p.get("exag")),
     strip: p.get("strip") === "mean" || p.get("strip") === "cruises" ? (p.get("strip") as StripMode) : null,
+    ramp: p.get("ramp") || null,
+    data: p.get("data") !== "off",
+    datao: (v => v != null && v !== "" && isFinite(+v) && +v >= 0 && +v < 1 ? Math.round(+v * 100) / 100 : null)(p.get("datao")),
   };
 }
 
@@ -230,6 +262,7 @@ export function toUrl(s: Sel) {
   const p = new URLSearchParams();
   p.set("lens", s.lens);
   if (s.lens === "hex") p.set("res", String(s.res));
+  if (s.lens === "contour") { if (s.interp !== DEFAULTS.interp) p.set("interp", s.interp); if (s.surface !== DEFAULTS.surface) p.set("surface", s.surface); }
   if (s.realm === "env") p.set("var", s.var);
   else {
     p.set("taxon", s.taxon);
@@ -263,6 +296,9 @@ export function toUrl(s: Sel) {
   if (s.view3d) p.set("view", "3d");
   if (s.exag != null) p.set("exag", String(s.exag));
   if (s.strip) p.set("strip", s.strip);
+  if (s.ramp) p.set("ramp", s.ramp);
+  if (!s.data) p.set("data", "off");
+  if (s.datao != null) p.set("datao", s.datao.toFixed(2));
   const url = `${location.pathname}?${p.toString()}`;
   if (url !== location.pathname + location.search) history.replaceState(null, "", url);
 }

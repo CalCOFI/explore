@@ -4,12 +4,13 @@ import { useEffect, useRef } from "react";
 import * as maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { MapboxOverlay } from "@deck.gl/mapbox";
-import { ScatterplotLayer, GeoJsonLayer, PathLayer } from "@deck.gl/layers";
+import { ScatterplotLayer, GeoJsonLayer, PathLayer, BitmapLayer } from "@deck.gl/layers";
 import { H3HexagonLayer, TripsLayer } from "@deck.gl/geo-layers";
 import type { Layer, PickingInfo } from "@deck.gl/core";
 import { latLngToCell, cellToLatLng } from "h3-js";
 import type { Lens, Stat } from "./state";
 import { baseStyle, composeStyle, warmBaseStyles, type BathyState, type BoundaryState } from "./basemap";
+import { rampColors, rampCss } from "./ramps";
 
 export const STYLE = {
   dark: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
@@ -17,18 +18,15 @@ export const STYLE = {
 };
 
 // ── colour ────────────────────────────────────────────────────────────────────
-const VIRIDIS: [number, number, number][] = [
-  [68, 1, 84], [72, 40, 120], [62, 74, 137], [49, 104, 142], [38, 130, 142],
-  [31, 158, 137], [53, 183, 121], [109, 205, 89], [180, 222, 44], [253, 231, 37],
-];
+// the ramp is view state (`ramp=`; src/ramps.ts): viridis unless the URL or the variable's cmocean convention says otherwise
 export const NODATA: [number, number, number, number] = [140, 140, 140, 70];
-export function colorScale(domain: [number, number], alpha = 220) {
-  const [lo, hi] = domain;
+export function colorScale(domain: [number, number], alpha = 220, ramp: string | null = null) {
+  const [lo, hi] = domain, R = rampColors(ramp);
   return (v: number | null | undefined): [number, number, number, number] => {
     if (v == null || !Number.isFinite(v)) return NODATA;
     const t = hi > lo ? Math.min(1, Math.max(0, (v - lo) / (hi - lo))) : 0.5;
-    const x = t * (VIRIDIS.length - 1), i = Math.min(VIRIDIS.length - 2, Math.floor(x)), f = x - i;
-    const a = VIRIDIS[i], b = VIRIDIS[i + 1];
+    const x = t * (R.length - 1), i = Math.min(R.length - 2, Math.floor(x)), f = x - i;
+    const a = R[i], b = R[i + 1];
     return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f, alpha];
   };
 }
@@ -39,7 +37,7 @@ export function quantileDomain(vals: number[], stat: Stat): [number, number] {
   // densities and counts are heavy-tailed: colour on a 5–95 % window (n on 0–95 %)
   return stat === "n" ? [0, q(0.95)] : [q(0.05), q(0.95)];
 }
-export const viridisCss = `linear-gradient(90deg, ${VIRIDIS.map((c) => `rgb(${c.join(",")})`).join(",")})`;
+export const viridisCss = rampCss("viridis");
 
 // ── layer inputs ──────────────────────────────────────────────────────────────
 export interface GridCell { grid_key: string; line: number; station: number; home: [number, number] }
@@ -54,8 +52,12 @@ export interface LayerInputs {
   region: { features: any[]; stats: Map<string, StatRow & { spatial_name: string }>; stationTo: Map<string, string>; centroid: Map<string, [number, number]>; selected: string | null };
   cruise: { track: { path: [number, number][]; ts: number[] } | null; samples: (StatRow & { latitude: number; longitude: number; grid_key: string })[]; time: number };
   section: { line: number; cruiseStations: Set<string> };
+  contour: { image: HTMLCanvasElement; bounds: [number, number, number, number]; lines: { path: [number, number][]; level: number }[] } | null; // the interpolated surface (lens = contour)
   duration: number;
   domain: [number, number];
+  ramp: string | null;        // the colour ramp id (ramps.ts); null = viridis
+  dataOn: boolean;            // the Layers card's "Data" switch (`data=off`): every deck data layer off, the basemap and boundaries stay
+  dataOpacity: number;        // the data layer's opacity 0–1 (`datao=`)
   selectedStation?: string | null;
 }
 
@@ -66,7 +68,9 @@ function statOf(r: StatRow | undefined, stat: Stat): number | null {
 
 export function buildLayers(inp: LayerInputs): Layer[] {
   const { lens, stat, duration } = inp;
-  const color = colorScale(inp.domain);
+  const color = colorScale(inp.domain, 220, inp.ramp);
+  const opacity = inp.dataOpacity;
+  if (!inp.dataOn) return [];
   const trans = (enterTransparent = false) => ({
     getPosition: { duration, easing: (t: number) => 1 - Math.pow(1 - t, 3) },
     getFillColor: enterTransparent ? { duration, enter: () => [0, 0, 0, 0] } : duration,
@@ -106,6 +110,8 @@ export function buildLayers(inp: LayerInputs): Layer[] {
     if (lens === "cruise") {
       return inp.section.cruiseStations.has(c.grid_key) ? [230, 230, 230, 120] : [140, 140, 140, 35];
     }
+    // contour: the surface carries the colour; a dot is an input — white, sized by how much it holds, faint when it holds nothing
+    if (lens === "contour") return inp.station.get(c.grid_key) ? [255, 255, 255, 210] : [140, 140, 140, 40];
     // section: the line's stations highlight, the rest dim
     return c.line === inp.section.line ? [255, 214, 10, 230] : [140, 140, 140, 35];
   };
@@ -115,6 +121,7 @@ export function buildLayers(inp: LayerInputs): Layer[] {
       return r ? 3 + Math.min(7, Math.sqrt(r.n) / 4) : 2;
     }
     if (lens === "section") return c.line === inp.section.line ? 6 : 2;
+    if (lens === "contour") { const r = inp.station.get(c.grid_key); return r ? 2 + Math.min(4, Math.sqrt(r.n) / 5) : 1.5; }
     if (lens === "cruise") return inp.section.cruiseStations.has(c.grid_key) ? 4 : 2;
     return 3;
   };
@@ -122,7 +129,7 @@ export function buildLayers(inp: LayerInputs): Layer[] {
   // regions: polygons under the dots
   if (lens === "region") {
     layers.push(new GeoJsonLayer({
-      id: "regions",
+      id: "regions", opacity,
       data: inp.region.features,
       filled: true, stroked: true, pickable: true,
       lineWidthMinPixels: 1,
@@ -133,7 +140,7 @@ export function buildLayers(inp: LayerInputs): Layer[] {
         if (!s) return [0, 0, 0, 0]; // unsampled: outline + "no data", never zero
         const c = color(statOf(s, stat)); return [c[0], c[1], c[2], 150];
       },
-      updateTriggers: { getFillColor: [stat, inp.domain, inp.region.stats], getLineColor: [inp.region.selected], getLineWidth: [inp.region.selected] },
+      updateTriggers: { getFillColor: [stat, inp.domain, inp.ramp, inp.region.stats], getLineColor: [inp.region.selected], getLineWidth: [inp.region.selected] },
       transitions: { getFillColor: { duration, enter: () => [0, 0, 0, 0] } },
     }));
   }
@@ -141,14 +148,25 @@ export function buildLayers(inp: LayerInputs): Layer[] {
   // hexagons cross-fade in under the travelling dots
   if (lens === "hex") {
     layers.push(new H3HexagonLayer({
-      id: "hexes",
+      id: "hexes", opacity,
       data: inp.hex,
       getHexagon: (d: any) => d.hex,
       filled: true, stroked: false, extruded: false, pickable: true,
       highPrecision: "auto",
       getFillColor: (d: any) => { const c = color(statOf(d, stat)); return [c[0], c[1], c[2], 170]; },
-      updateTriggers: { getFillColor: [stat, inp.domain] },
+      updateTriggers: { getFillColor: [stat, inp.domain, inp.ramp] },
       transitions: { getFillColor: { duration, enter: () => [0, 0, 0, 0] } },
+    }));
+  }
+
+  // the contoured surface: one bitmap stretched between its Mercator-regular bounds, isolines over it, the input dots on top
+  if (lens === "contour" && inp.contour) {
+    layers.push(new BitmapLayer({
+      id: "surface", image: inp.contour.image, bounds: inp.contour.bounds, opacity: 0.88 * opacity, pickable: true,
+    }));
+    layers.push(new PathLayer({
+      id: "isolines", opacity, data: inp.contour.lines, getPath: (d: any) => d.path, getColor: [20, 20, 30, 140],
+      widthMinPixels: 1, widthUnits: "pixels", getWidth: 1, capRounded: true,
     }));
   }
 
@@ -156,7 +174,7 @@ export function buildLayers(inp: LayerInputs): Layer[] {
   if (lens === "section") {
     const pts = inp.grid.filter((c) => c.line === inp.section.line).sort((a, b) => a.station - b.station).map((c) => c.home);
     if (pts.length > 1) layers.push(new PathLayer({
-      id: "section-line", data: [{ path: pts }], getPath: (d: any) => d.path,
+      id: "section-line", opacity, data: [{ path: pts }], getPath: (d: any) => d.path,
       getColor: [255, 214, 10, 200], widthMinPixels: 2, widthUnits: "pixels", getWidth: 2,
     }));
   }
@@ -165,26 +183,26 @@ export function buildLayers(inp: LayerInputs): Layer[] {
   if (lens === "cruise" && inp.cruise.track) {
     const tr = inp.cruise.track;
     layers.push(new PathLayer({
-      id: "track-all", data: [tr], getPath: (d: any) => d.path, getColor: [160, 160, 160, 90], widthMinPixels: 1,
+      id: "track-all", opacity, data: [tr], getPath: (d: any) => d.path, getColor: [160, 160, 160, 90], widthMinPixels: 1,
     }));
     layers.push(new TripsLayer({
-      id: "track-trip", data: [tr], getPath: (d: any) => d.path, getTimestamps: (d: any) => d.ts,
+      id: "track-trip", opacity, data: [tr], getPath: (d: any) => d.path, getTimestamps: (d: any) => d.ts,
       getColor: [77, 171, 247, 255], widthMinPixels: 3, trailLength: 180, currentTime: inp.cruise.time, fadeTrail: true,
     }));
     layers.push(new ScatterplotLayer({
-      id: "cruise-samples", data: inp.cruise.samples, pickable: true,
+      id: "cruise-samples", opacity, data: inp.cruise.samples, pickable: true,
       getPosition: (d: any) => [d.longitude, d.latitude], radiusUnits: "pixels",
       getRadius: (d: any) => 3 + Math.min(6, Math.sqrt(d.n)), getFillColor: (d: any) => color(statOf(d, stat)),
       stroked: true, getLineColor: [0, 0, 0, 120], lineWidthMinPixels: 0.5,
-      updateTriggers: { getFillColor: [stat, inp.domain] },
+      updateTriggers: { getFillColor: [stat, inp.domain, inp.ramp] },
       transitions: { getFillColor: { duration, enter: () => [0, 0, 0, 0] }, getRadius: duration },
     }));
   }
 
   layers.push(new ScatterplotLayer({
-    id: "stations",
+    id: "stations", opacity,
     data: inp.grid,
-    pickable: lens === "station" || lens === "section",
+    pickable: lens === "station" || lens === "section" || lens === "contour",
     radiusUnits: "pixels",
     getPosition: dotTarget,
     getFillColor: dotColor,
@@ -192,7 +210,7 @@ export function buildLayers(inp: LayerInputs): Layer[] {
     stroked: true, lineWidthMinPixels: 0.5,
     getLineColor: (c: GridCell) => (c.grid_key === inp.selectedStation ? [255, 214, 10, 255] : [0, 0, 0, 90]),
     getLineWidth: (c: GridCell) => (c.grid_key === inp.selectedStation ? 3 : 1), lineWidthUnits: "pixels",
-    updateTriggers: { getPosition: [lens, inp.res, inp.region.stationTo], getFillColor: [lens, inp.res, stat, inp.domain, inp.station, inp.hex, inp.region.stats, inp.section], getRadius: [lens, inp.station, inp.section], getLineColor: [inp.selectedStation], getLineWidth: [inp.selectedStation] },
+    updateTriggers: { getPosition: [lens, inp.res, inp.region.stationTo], getFillColor: [lens, inp.res, stat, inp.domain, inp.ramp, inp.station, inp.hex, inp.region.stats, inp.section], getRadius: [lens, inp.station, inp.section], getLineColor: [inp.selectedStation], getLineWidth: [inp.selectedStation] },
     transitions: trans(),
   }));
   return layers;

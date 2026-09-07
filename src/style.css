@@ -553,7 +553,7 @@ a.lic:hover { color: var(--accent); border-color: var(--accent); }
 .tabs button .cc-icon { font-size: 15px; }
 .tabs button:hover { color: var(--fg); }
 .tabs button.on { color: var(--accent); border-bottom-color: var(--accent); }
-.lens5 { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+.lens5 { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
 .lens5 button { all: unset; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 2px; border-radius: 6px; font-size: 10.5px; color: var(--muted); border: 1px solid transparent; cursor: pointer; text-align: center; }
 .lens5 button .cc-icon { font-size: 20px; color: var(--fg); }
 .lens5 button:hover { background: var(--panel); }
@@ -622,3 +622,19 @@ a.lic:hover { color: var(--accent); border-color: var(--accent); }
   .cc-header .cc-help .menu-btn .label { display: none; }
   .cc-header .hdr-feedback { display: inline-flex; }   /* feedback stays in the phone header: Help ▾ has the rest */
 }
+
+/* the hexagon size: a small slider with one tick per H3 resolution (3..7) and the rough size it means beside it */
+.hexres { display: flex; align-items: center; gap: 8px; flex-direction: row; }
+.hexres input[type=range] { width: 110px; margin: 0; accent-color: var(--accent, #4a90d9); }
+.hexres .val { min-width: 5.5em; color: var(--fg); white-space: nowrap; }
+.hexres .val .dim { color: var(--muted); }
+
+/* the contour lens's options: the method as a small segment, the surface as a select, one fit line under them */
+.contour-opt .seg button { padding: 2px 7px; font-size: var(--fs-sm, 11px); }
+.contour-opt .fit { line-height: 1.35; }
+/* the Layers card's Data section: the ramp select beside a strip of the ramp and a reverse toggle */
+.ramp-row { gap: 6px; flex-wrap: wrap; }
+.ramp-row select { max-width: 120px; }
+.ramp-strip { display: inline-block; width: 64px; height: 10px; border-radius: 3px; border: 1px solid var(--border); }
+.ramp-row .rev { display: inline-flex; align-items: center; gap: 3px; }
+.layers-note { margin: 2px 0 8px; }

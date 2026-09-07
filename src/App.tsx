@@ -5,7 +5,9 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { PickingInfo } from "@deck.gl/core";
 import { engine, timing, hexExpr, datasetFilterSql, type Mark, type Row } from "./engine";
 import { UNIFIED, members, setUnified, unifiedDefs } from "./variables";
-import { buildLayers, MapView, quantileDomain, viridisCss, type GridCell, type StatRow } from "./map";
+import { buildLayers, MapView, quantileDomain, colorScale, type GridCell, type StatRow } from "./map";
+import { computeSurface, surfaceImage, isolines, niceLevels, cellToLonLat, cellValue, MASK_KM, type Surface as SurfaceResult } from "./contour";
+import { defaultRamp, rampCss } from "./ramps";
 import { DepthStrip, YearStrip, SectionPlot, CruiseSeries, StationCard, MONTH_LOD_YEARS, type DepthRow, type YearRow, type SectionCell, type CruiseRow, type GanttRow, type StripMode } from "./charts";
 import { resolveVersion, fetchCatalog, fetchVersions, sources, sidecarUrl, earlySidecar, type Catalog } from "./release";
 import { buildBundle, saveBlob, copyAs } from "./bundle";
@@ -32,7 +34,7 @@ import { track as trackEvent } from "./track";
 import { BRAND, LOGO, DEFAULT_THEME, fontEmbedCss } from "./brand";
 import { categoryRank, categoryIcon, envCategory, DATASET_CATEGORY_FALLBACK } from "./categories";
 import {
-  fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LENS_DESC, LENS_ICON, RES_KM, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, DEN_HOW, SHF_NOTE, STAT_LABEL, YEAR_OPEN, MAP_HOME,
+  fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LENS_DESC, LENS_ICON, RES_KM, INTERPS, INTERP_LABEL, INTERP_WORD, INTERP_HOW, SURFACES, SURFACE_LABEL, type Surface, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, DEN_HOW, SHF_NOTE, STAT_LABEL, YEAR_OPEN, MAP_HOME,
   type Sel, type Lens, type Den, type Stat, type PickerRow, type PanelId,
 } from "./state";
 type FigureId = PanelId | "map"; // what exports PNG · SVG · CSV from a header: every panel, and the map from its own ⬇
@@ -52,6 +54,7 @@ const ICON_SUN = "M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m
 const ICON_MOON = "M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z";
 const fmt = (v: number | null | undefined, d = 2) => (v == null || !Number.isFinite(v) ? "–" : v.toLocaleString(undefined, { maximumFractionDigits: d }));
 const fmtN = (v: number) => v.toLocaleString();
+const fmtYear = (v: number) => String(Math.round(v)); // a year reads 1951, not 1,951.27
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const native = new URLSearchParams(location.search).get("native") === "1"; // D13: the plain <select> fallback, one release
 const phoneQuery = matchMedia("(max-width: 899px)");
@@ -120,7 +123,7 @@ export function App() {
   const [regionRows, setRegionRows] = useState<Row[]>([]);
   const [regionStation, setRegionStation] = useState<Map<string, string>>(new Map());
   const [cruiseRows, setCruiseRows] = useState<CruiseRow[]>([]);
-  const [track, setTrack] = useState<{ path: [number, number][]; ts: number[] } | null>(null);
+  const [track, setTrack] = useState<{ path: [number, number][]; ts: number[]; events: number } | null>(null);
   const [cruiseSamples, setCruiseSamples] = useState<Row[]>([]);
   const [sectionCells, setSectionCells] = useState<SectionCell[]>([]);
   const [climCells, setClimCells] = useState<SectionCell[] | null>(null);
@@ -129,6 +132,8 @@ export function App() {
   const [depthRows, setDepthRows] = useState<DepthRow[]>([]);
   const [yearRows, setYearRows] = useState<YearRow[]>([]);
   const [time, setTime] = useState(0);
+  const [surf, setSurf] = useState<SurfaceResult | null>(null); // the contour lens's interpolated surface (contour.worker.ts)
+  const surfGen = useRef(0);
   const [lastSql, setLastSql] = useState("");
   const [bundling, setBundling] = useState<string | null>(null);
   const [ylog, setYlog] = useState(false);
@@ -311,7 +316,7 @@ export function App() {
     const lens = sel.lens;
     (async () => {
       const t = performance.now();
-      const need_station = !opened.current || lens === "station";
+      const need_station = !opened.current || lens === "station" || lens === "contour"; // the contour lens interpolates the station summary
       if (need_station) { const r = await engine.query("station", params); if (stale()) return; setStationRows(r); }
       if (lens === "hex") { const r = await engine.query("hex", { ...params, hex: hexExpr(sel.res) }); if (stale()) return; setHexRows(r); }
       if (lens === "region") {
@@ -336,7 +341,7 @@ export function App() {
           if (stale()) return;
           if (tr.length > 1) {
             const t0 = tr[0].t, t1 = tr[tr.length - 1].t || t0 + 1;
-            setTrack({ path: tr.map((r) => [r.longitude, r.latitude]), ts: tr.map((r) => ((r.t - t0) / (t1 - t0)) * 1000) });
+            setTrack({ path: tr.map((r) => [r.longitude, r.latitude]), ts: tr.map((r) => ((r.t - t0) / (t1 - t0)) * 1000), events: tr.reduce((a, r) => a + Number(r.n_events), 0) });
           } else setTrack(null);
           setCruiseSamples(cs2);
         }
@@ -404,6 +409,27 @@ export function App() {
   // ── derived ────────────────────────────────────────────────────────────────
   const stat: Stat = sel.stat;
   const statOf = (r: Row) => (stat === "n" ? r.n : r[stat]);
+
+  // the contour lens: interpolate one field of the station summary in a worker; the error surface follows when the
+  // method has one. A new selection, method or field supersedes an answer still in flight (surfGen).
+  const surfaceField = sel.surface === "value" || sel.surface === "se" ? "stat" : sel.surface;
+  const gridHome = useMemo(() => new Map<string, [number, number]>(grid.map((c) => [c.grid_key, c.home])), [grid]);
+  const wantSe = sel.surface === "se";
+  useEffect(() => {
+    if (sel.lens !== "contour" || !lensReady) return;
+    const pts: { lon: number; lat: number; z: number }[] = [];
+    for (const r of stationRows) {
+      const h = gridHome.get(r.grid_key);
+      const z = surfaceField === "stat" ? statOf(r) : surfaceField === "spread" ? (r.p95 != null && r.p05 != null ? r.p95 - r.p05 : null) : r[surfaceField];
+      if (h && z != null && Number.isFinite(+z)) pts.push({ lon: h[0], lat: h[1], z: +z });
+    }
+    const g = ++surfGen.current;
+    if (pts.length < 4) { setSurf(null); return; }
+    const t = performance.now();
+    computeSurface(pts, sel.interp, { wantSe, onSe: (se, ms) => { if (g === surfGen.current) setSurf((s) => (s ? { ...s, se, seMs: ms } : s)); } })
+      .then((s) => { if (g !== surfGen.current) return; setSurf(s); timing.add(`contour:${sel.interp}`, performance.now() - t, `${s.fit.n} stations · ${s.fit.nCells} cells · LOO RMSE ${s.fit.loo.toFixed(3)}`); })
+      .catch((e) => { console.error(e); setStatus(`contour failed: ${e.message}`); });
+  }, [sel.lens, lensReady, stationRows, gridHome, sel.interp, surfaceField, wantSe, stat]);
   // before the slice answers, the station dots carry the coverage cube (root samples, all datasets)
   const covStation = useMemo(() => {
     const m = new Map<string, StatRow>();
@@ -424,13 +450,32 @@ export function App() {
     return quantileDomain(rows.map(preSlice && displayLens === "station" ? (r) => r.n : statOf), preSlice ? "n" : stat);
   }, [displayLens, lensRows, covStation, stat, preSlice]);
 
+  // what the contour lens draws: the chosen surface coloured on its own 5–95 % window (the statistic itself shares the
+  // station dots' window, so the two lenses agree), pretty isolines, and the legend's unit
+  const rampId = sel.ramp ?? defaultRamp(sel.realm, sel.var, sel.anom && sel.lens === "section" && sel.realm === "env");
+  const surfVals = surf ? (wantSe ? surf.se : surf.values) : null;
+  const legendDomain: [number, number] = useMemo(() => {
+    if (displayLens !== "contour" || sel.surface === "value" || !surfVals) return domain;
+    const v: number[] = []; for (let i = 0; i < surfVals.length; i++) if (Number.isFinite(surfVals[i])) v.push(surfVals[i]);
+    return quantileDomain(v, sel.surface === "n" || sel.surface === "se" || sel.surface === "spread" ? "n" : "mean");
+  }, [displayLens, sel.surface, surfVals, domain]);
+  const contourInputs = useMemo(() => {
+    if (displayLens !== "contour" || !surf || !surfVals) return null;
+    const g = surf.grid, image = surfaceImage(surfVals, g.nx, g.ny, colorScale(legendDomain, 255, rampId));
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < surfVals.length; i++) { const x = surfVals[i]; if (Number.isFinite(x)) { lo = Math.min(lo, x); hi = Math.max(hi, x); } }
+    const lines = isolines(surfVals, g.nx, g.ny, niceLevels(lo, hi, 8)).flatMap((l) => l.segs.map((s) => ({ path: [cellToLonLat(g, s[0], s[1]), cellToLonLat(g, s[2], s[3])], level: l.level })));
+    return { image, bounds: [g.lon0, g.latS, g.lon1, g.latN] as [number, number, number, number], lines };
+  }, [displayLens, surf, surfVals, legendDomain, rampId]);
+
   const layers = useMemo(() => buildLayers({
     lens: displayLens, res: sel.res, stat: preSlice ? "n" : stat, grid, station: stationMap, hex: hexRows as any,
     region: { features: layerFeatures, stats: regionStats, stationTo: regionStation, centroid: centroids, selected: sel.region },
     cruise: { track, samples: cruiseSamples as any, time },
     section: { line: sel.line, cruiseStations },
-    duration, domain, selectedStation: sel.station,
-  }), [displayLens, sel.res, stat, preSlice, grid, stationMap, hexRows, layerFeatures, regionStats, regionStation, centroids, sel.region, track, cruiseSamples, time, sel.line, cruiseStations, domain, sel.station]);
+    contour: contourInputs,
+    duration, domain, ramp: rampId, dataOn: sel.data, dataOpacity: sel.datao ?? 1, selectedStation: sel.station,
+  }), [displayLens, sel.res, stat, preSlice, grid, stationMap, hexRows, layerFeatures, regionStats, regionStation, centroids, sel.region, track, cruiseSamples, time, sel.line, cruiseStations, domain, sel.station, contourInputs, rampId, sel.data, sel.datao]);
 
   // picker derivations (D8 rule 4)
   const stages = useMemo(() => {
@@ -624,6 +669,7 @@ export function App() {
   const yearsSpark = useMemo(() => { const m = new Map(yearRows.map((r) => [r.year, r.n])); const out: number[] = []; for (let y = 1949; y <= yearMax; y++) out.push(m.get(y) ?? 0); return out; }, [yearRows, yearMax]);
   const nFilled = useMemo(() => picker.filter((r) => r.life_stage === sel.stage && dsOn(r.dataset_key)).reduce((a, r) => a + (r.n_filled ?? 0), 0), [picker, sel.stage, sel.datasets]);
   const zerosNote = sel.realm === "bio" && !sel.zeros ? " · positive tows only" : "";
+  const legendUnit = sel.lens === "contour" && sel.surface === "n" ? "observations" : sel.lens === "contour" && (sel.surface === "y0" || sel.surface === "y1") ? "year" : undefined as string | undefined; // filled below once unitLabel exists
   const unitLabel = sel.realm === "bio" ? (sel.den === "raw" ? "count" : sel.den === "per_10m2" ? "per 10 m²" : "per 1000 m³") : (picker[0]?.units ?? sel.var);
   const taxonRow = taxa.find((t) => t.taxon_key === sel.taxon);
   const legendTitle = preSlice ? "root samples · all datasets (coverage.json, before the engine is warm)" : sel.realm === "bio"
@@ -683,6 +729,7 @@ export function App() {
     }
     const id = info.layer?.id;
     if (id === "stations") { const s = stationMap.get(o.grid_key); return { text: `${o.grid_key} · line ${o.line} station ${o.station}\n${s ? (preSlice ? `${fmtN(s.n)} root samples, all datasets` : `${STAT_LABEL[stat]} ${fmt(statOf(s))} · ${fmtN(s.n)} observations · ${s.n_samples} samples · ${s.y0}–${s.y1}`) : "no observations in selection"}\nclick for the station's coverage card` }; }
+    if (id === "surface") { const px = (info as any).bitmap?.pixel; const v = px && surf && surfVals ? cellValue(surfVals, surf.grid, px[0], px[1]) : null; return v == null ? null : { text: `${SURFACE_LABEL[sel.surface]}: ${fmt(v)} ${legendUnit}\n${INTERP_WORD[sel.interp]} over ${surf!.fit.n} stations · leave-one-out RMSE ${fmt(surf!.fit.loo)}` }; }
     if (id === "hexes") return { text: `${o.hex}\n${STAT_LABEL[stat]} ${fmt(statOf(o))} · ${fmtN(o.n)} observations · ${o.n_samples} samples` };
     if (id === "regions") { const s = regionStats.get(o.properties.spatial_key); return { text: `${o.properties.name}\n${s ? `${STAT_LABEL[stat]} ${fmt(statOf(s))} · ${fmtN(s.n)} observations · ${s.n_samples} samples · ${s.y0}–${s.y1}` : "no data"}` }; }
     if (id === "cruise-samples") return { text: `${o.grid_key ?? "—"} · ${new Date(o.t * 1000).toISOString().slice(0, 10)}\n${STAT_LABEL[stat]} ${fmt(statOf(o))} · ${fmtN(o.n)} observations` };
@@ -725,7 +772,18 @@ export function App() {
   const stdWord = sel.den ? DEN_LABEL[sel.den] : "…";
   // what the active lens asks for, under its line: the hexagon size, the boundary layer, the line + cruise, the cruise
   const lensOptions = <>
-    {sel.lens === "hex" && <div className="row opt"><span className="hint">hexagon size</span><span className="seg">{[3, 4, 5, 6, 7].map((r) => <button key={r} className={sel.res === r ? "on" : ""} title={`H3 resolution ${r} · mean edge ${RES_KM[r]}`} onClick={() => { lensClickAt.current = performance.now(); setSel({ res: r }); }}>{RES_KM[r]}</button>)}</span></div>}
+    {sel.lens === "hex" && <label className="row opt hexres" title={`H3 resolution ${sel.res} · mean edge ${RES_KM[sel.res]}`}>
+      <span className="hint">hexagon size</span>
+      <input type="range" min={3} max={7} step={1} list="h3res" value={sel.res} aria-label="hexagon size (H3 resolution)"
+        onChange={(e) => { const r = +e.target.value; if (r !== sel.res) { lensClickAt.current = performance.now(); setSel({ res: r }); } }} />
+      <datalist id="h3res">{[3, 4, 5, 6, 7].map((r) => <option key={r} value={r} label={String(r)} />)}</datalist>
+      <span className="hint val">{RES_KM[sel.res]} <span className="dim">· H3 {sel.res}</span></span>
+    </label>}
+    {sel.lens === "contour" && <div className="opt contour-opt">
+      <div className="row"><span className="hint">method</span><span className="seg">{INTERPS.map((m) => <button key={m} type="button" className={sel.interp === m ? "on" : ""} title={INTERP_HOW[m]} onClick={() => setSel({ interp: m, surface: m === "idw" && sel.surface === "se" ? "value" : sel.surface })}>{INTERP_LABEL[m]}</button>)}</span></div>
+      <label className="f">surface<select value={sel.surface} onChange={(e) => setSel({ surface: e.target.value as Surface })}>{SURFACES.map((s) => <option key={s} value={s} disabled={s === "se" && sel.interp === "idw"}>{SURFACE_LABEL[s]}{s === "se" && sel.interp === "idw" ? " — not for IDW" : ""}</option>)}</select></label>
+      <div className="hint fit">{surf ? <>{surf.fit.n} stations → {fmtN(surf.fit.nCells)} cells of {surf.grid.cellDeg}° · leave-one-out RMSE <b>{fmt(surf.fit.loo)}</b> {legendUnit === "year" ? "years" : legendUnit ?? unitLabel}{surf.fit.vg ? ` · variogram: nugget ${fmt(surf.fit.vg.nugget)} · sill ${fmt(surf.fit.vg.nugget + surf.fit.vg.psill)} · range ${Math.round(surf.fit.vg.range)} km` : ""}{surf.fit.edf != null ? ` · ${surf.fit.edf.toFixed(1)} effective df` : ""} · {Math.round(surf.fit.ms)} ms{surf.seMs != null ? ` (+${Math.round(surf.seMs)} ms for the error surface)` : ""}</> : sel.lens === "contour" && lensReady ? "computing the surface…" : "…"} · blank beyond {MASK_KM} km of a station · dots are the inputs, sized by their observations</div>
+    </div>}
     {sel.lens === "region" && <div className="opt">
       <label className="f">boundary layer<select value={sel.layer} onChange={(e) => setSel({ layer: e.target.value, region: null })}>{layerNames.map((l) => <option key={l}>{l}</option>)}</select></label>
       <div className="pills">{regionRows.slice().sort((a, b) => b.n - a.n).slice(0, 10).map((r) => <span key={r.spatial_key} className={`pill ${sel.region === r.spatial_key ? "" : "off"}`} onClick={() => setSel({ region: sel.region === r.spatial_key ? null : r.spatial_key })} style={{ cursor: "pointer" }}>{r.spatial_name} · {fmt(statOf(r))} ({fmtN(r.n)})</span>)}</div>
@@ -740,7 +798,7 @@ export function App() {
     </div>}
     {sel.lens === "cruise" && <div className="opt">
       <Picker id="cruise" label="cruise" hint="newest first" value={sel.cruise ?? ""} items={cruiseItems} onChange={(k) => setSel({ cruise: k })} sorts={["recent", "n"]} placeholder="search YYYY-MM-NODC…" loading={cruiseRows.length ? null : "…"} native={native} sheet={phone} />
-      <div className="hint">{track ? `${track.path.length} root sampling events on the track` : "no track"}</div>
+      <div className="hint">{track ? `${track.path.length} station visits on the track · ${track.events} sampling events` : "no track"}</div>
     </div>}
   </>;
   const moreSummary = sel.realm === "bio"
@@ -1004,7 +1062,7 @@ export function App() {
   const sentence = !phone && <Sentence sel={sel} setSel={setSel} onLens={onLens} organismItems={organismItems} organismGroups={organismGroups} variableItems={variableItems} variableGroups={variableGroups}
     sectionCruiseItems={sectionCruiseItems} cruiseItems={cruiseItems} lines={lines} layerNames={layerNames} regionName={regionName} stages={stages} denRows={(d) => denInfo(d).rows} defaultDen={(s) => defaultDen(picker, s)}
     years={years} yearMax={yearMax} hasDepthAxis={depthAvail} hasClim={hasClim(catalog)} climWindow={climWindow} datasetsInSlice={datasetsInSlice} dsOn={dsOn} toggleDataset={toggleDataset} dsColor={dsColor} short={short}
-    subject={subject} unit={preSlice ? "root samples" : unitLabel} domain={[fmt(domain[0]), fmt(domain[1])]} bar={viridisCss} count={inView} status={status} ready={!!sliceKey} seaFloor={seaFloorOn}
+    subject={subject} unit={preSlice ? "root samples" : (legendUnit ?? unitLabel)} domain={[(legendUnit === "year" ? fmtYear : fmt)(legendDomain[0]), (legendUnit === "year" ? fmtYear : fmt)(legendDomain[1])]} bar={rampCss(rampId)} count={inView} status={status} ready={!!sliceKey} seaFloor={seaFloorOn}
     native={native} phone={phone} loading={status} open={sentenceOpen} onToggle={toggleSentence} extra={legendExtra}
     band={{ left: selectOpen ? 340 : 48, right: Math.max(displayLens === "section" && sel.realm === "env" ? 200 : 160, rightBand + (stationUp ? 350 : 0) + (cardOpen.timing && !minCards.timing ? 430 : cardOpen.layers && !minCards.layers ? 280 : 0)) }} />;
 
@@ -1072,7 +1130,7 @@ export function App() {
           {phone && <div className="map-tl">
             <div className="legend" data-tour="legend">
               <div className="ttl">{legendTitle}</div>
-              <div className="bar" style={{ background: viridisCss }} />
+              <div className="bar" style={{ background: rampCss(rampId) }} />
               <div className="ticks"><span>{fmt(domain[0])}</span><span>5–95 %</span><span>{fmt(domain[1])}</span></div>
               <div className="hint">{status}{sliceKey ? ` · ${fmtN(inView)} observations` : ""}</div>
               {legendExtra}

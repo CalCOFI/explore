@@ -1,6 +1,7 @@
 -- n counts RECORDS (obs_id IS NOT NULL: a zero-filled tow of slice_bio.sql is not one); the statistics run over every row
 SELECT grid_key, count(obs_id) AS n, count(DISTINCT root_id) AS n_samples,
-       avg({{val}}) AS mean, median({{val}}) AS med, min(year) AS y0, max(year) AS y1
+       avg({{val}}) AS mean, median({{val}}) AS med, min(year) AS y0, max(year) AS y1,
+       quantile_cont({{val}}, 0.05) AS p05, quantile_cont({{val}}, 0.95) AS p95
 FROM slice
 WHERE grid_key IS NOT NULL AND {{where}}
 GROUP BY grid_key
