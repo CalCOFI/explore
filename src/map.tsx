@@ -52,7 +52,7 @@ export interface LayerInputs {
   region: { features: any[]; stats: Map<string, StatRow & { spatial_name: string }>; stationTo: Map<string, string>; centroid: Map<string, [number, number]>; selected: string | null };
   cruise: { track: { path: [number, number][]; ts: number[] } | null; samples: (StatRow & { latitude: number; longitude: number; grid_key: string })[]; time: number };
   section: { line: number; cruiseStations: Set<string> };
-  contour: { image: HTMLCanvasElement; bounds: [number, number, number, number]; lines: { path: [number, number][]; level: number }[]; casts: { longitude: number; latitude: number; n: number }[] | null } | null; // the interpolated surface (lens = contour); casts = the inputs at the site grain
+  contour: { image: HTMLCanvasElement; bounds: [number, number, number, number]; lines: { path: [number, number][]; level: number }[]; casts: { longitude: number; latitude: number; n: number }[] | null; inputs: boolean } | null; // the interpolated surface (lens = contour); inputs = draw the fitted points at all (D43); casts = the inputs at the site grain
   duration: number;
   domain: [number, number];
   ramp: string | null;        // the colour ramp id (ramps.ts); null = viridis
@@ -111,7 +111,7 @@ export function buildLayers(inp: LayerInputs): Layer[] {
       return inp.section.cruiseStations.has(c.grid_key) ? [230, 230, 230, 120] : [140, 140, 140, 35];
     }
     // contour: the surface carries the colour; a dot is an input — white, sized by how much it holds, faint when it holds nothing
-    if (lens === "contour") return inp.contour?.casts ? [140, 140, 140, 50] : inp.station.get(c.grid_key) ? [255, 255, 255, 210] : [140, 140, 140, 40];
+    if (lens === "contour") return !inp.contour?.inputs || inp.contour?.casts ? [0, 0, 0, 0] : inp.station.get(c.grid_key) ? [255, 255, 255, 210] : [140, 140, 140, 40];
     // section: the line's stations highlight, the rest dim
     return c.line === inp.section.line ? [255, 214, 10, 230] : [140, 140, 140, 35];
   };
@@ -121,7 +121,7 @@ export function buildLayers(inp: LayerInputs): Layer[] {
       return r ? 3 + Math.min(7, Math.sqrt(r.n) / 4) : 2;
     }
     if (lens === "section") return c.line === inp.section.line ? 6 : 2;
-    if (lens === "contour") { if (inp.contour?.casts) return 1.2; const r = inp.station.get(c.grid_key); return r ? 2 + Math.min(4, Math.sqrt(r.n) / 5) : 1.5; }
+    if (lens === "contour") { if (!inp.contour?.inputs || inp.contour?.casts) return 0; const r = inp.station.get(c.grid_key); return r ? 2 + Math.min(4, Math.sqrt(r.n) / 5) : 1.5; }
     if (lens === "cruise") return inp.section.cruiseStations.has(c.grid_key) ? 4 : 2;
     return 3;
   };
@@ -169,7 +169,7 @@ export function buildLayers(inp: LayerInputs): Layer[] {
       widthMinPixels: 1, widthUnits: "pixels", getWidth: 1, capRounded: true,
     }));
     // the site grain: every input at its own position, a pinprick each — where the surface has evidence
-    if (inp.contour.casts) layers.push(new ScatterplotLayer({
+    if (inp.contour.inputs && inp.contour.casts) layers.push(new ScatterplotLayer({
       id: "casts", opacity, data: inp.contour.casts, radiusUnits: "pixels", getRadius: 1.4, getPosition: (d: any) => [d.longitude, d.latitude],
       getFillColor: [255, 255, 255, 150], stroked: false, pickable: false,
     }));
@@ -207,15 +207,15 @@ export function buildLayers(inp: LayerInputs): Layer[] {
   layers.push(new ScatterplotLayer({
     id: "stations", opacity,
     data: inp.grid,
-    pickable: lens === "station" || lens === "section" || lens === "contour",
+    pickable: lens === "station" || lens === "section" || (lens === "contour" && !!inp.contour?.inputs && !inp.contour?.casts),
     radiusUnits: "pixels",
     getPosition: dotTarget,
     getFillColor: dotColor,
     getRadius: dotRadius,
-    stroked: true, lineWidthMinPixels: 0.5,
+    stroked: lens !== "contour" || (!!inp.contour?.inputs && !inp.contour?.casts), lineWidthMinPixels: 0.5,
     getLineColor: (c: GridCell) => (c.grid_key === inp.selectedStation ? [255, 214, 10, 255] : [0, 0, 0, 90]),
     getLineWidth: (c: GridCell) => (c.grid_key === inp.selectedStation ? 3 : 1), lineWidthUnits: "pixels",
-    updateTriggers: { getPosition: [lens, inp.res, inp.region.stationTo], getFillColor: [lens, inp.res, stat, inp.domain, inp.ramp, inp.station, inp.hex, inp.region.stats, inp.section], getRadius: [lens, inp.station, inp.section], getLineColor: [inp.selectedStation], getLineWidth: [inp.selectedStation] },
+    updateTriggers: { getPosition: [lens, inp.res, inp.region.stationTo], getFillColor: [lens, inp.res, stat, inp.domain, inp.ramp, inp.station, inp.hex, inp.region.stats, inp.section, inp.contour?.inputs, !!inp.contour?.casts], getRadius: [lens, inp.station, inp.section, inp.contour?.inputs, !!inp.contour?.casts], getLineColor: [inp.selectedStation], getLineWidth: [inp.selectedStation] },
     transitions: trans(),
   }));
   // interleaved (D36): deck draws inside MapLibre's own layer stack; beforeId puts the whole data layer under one boundary

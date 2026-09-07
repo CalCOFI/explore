@@ -436,6 +436,7 @@ export function App() {
   const gridHome = useMemo(() => new Map<string, [number, number]>(grid.map((c) => [c.grid_key, c.home])), [grid]);
   const wantSe = sel.surface === "se";
   const fitGrain: Grain = sel.interp === "tps" ? "station" : sel.grain; // the spline needs every point in one system: station grid only (D40)
+  const showInputs = sel.inputs ?? fitGrain === "station"; // D43: the inputs are a layer of their own — on for 218 station dots, off for thousands of sites
   const CAST_NMAX = 24, CAST_CELL = 0.1; // the site grain: 24 nearest per cell on 0.1° cells (measured 2026-09-07: 32 on 0.06° took 12.8 s for 44,946 casts)
   useEffect(() => {
     if (sel.lens !== "contour" || !lensReady) return;
@@ -497,8 +498,8 @@ export function App() {
     let lo = Infinity, hi = -Infinity;
     for (let i = 0; i < surfVals.length; i++) { const x = surfVals[i]; if (Number.isFinite(x)) { lo = Math.min(lo, x); hi = Math.max(hi, x); } }
     const lines = isolines(surfVals, g.nx, g.ny, niceLevels(lo, hi, 8)).flatMap((l) => l.segs.map((s) => ({ path: [cellToLonLat(g, s[0], s[1]), cellToLonLat(g, s[2], s[3])], level: l.level })));
-    return { image, bounds: [g.lon0, g.latS, g.lon1, g.latN] as [number, number, number, number], lines, casts: surf.fit.nmax > 0 ? (castRows as any[]) : null };
-  }, [displayLens, surf, surfVals, legendDomain, rampId, castRows]);
+    return { image, bounds: [g.lon0, g.latS, g.lon1, g.latN] as [number, number, number, number], lines, casts: surf.fit.nmax > 0 ? (castRows as any[]) : null, inputs: showInputs };
+  }, [displayLens, surf, surfVals, legendDomain, rampId, castRows, showInputs]);
 
   const layerInputs = useMemo((): LayerInputs => ({
     lens: displayLens, res: sel.res, stat: preSlice ? "n" : stat, grid, station: stationMap, hex: hexRows as any,
@@ -815,8 +816,9 @@ export function App() {
     {sel.lens === "contour" && <div className="opt contour-opt">
       <div className="row"><span className="hint">method</span><span className="seg">{INTERPS.map((m) => <button key={m} type="button" className={sel.interp === m ? "on" : ""} title={INTERP_HOW[m]} onClick={() => setSel({ interp: m, surface: m === "idw" && sel.surface === "se" ? "value" : sel.surface })}>{INTERP_LABEL[m]}</button>)}</span></div>
       <div className="row grain"><span className="hint">fitted to</span><span className="seg">{(["site", "station"] as Grain[]).map((g) => <button key={g} type="button" className={fitGrain === g ? "on" : ""} disabled={g === "site" && sel.interp === "tps"} title={GRAIN_HOW[g] + (g === "site" && sel.interp === "tps" ? " — not for the spline" : "")} onClick={() => setSel({ grain: g })}>{GRAIN_LABEL[g]}</button>)}</span></div>
+      <label className="row" style={{ fontSize: 12 }} title="the points the surface was fitted to, drawn over it — every site as a pinprick, or the station grid sized by its observations (D43); also a row in the Layers card"><input type="checkbox" checked={showInputs} onChange={(e) => setSel({ inputs: e.target.checked === (fitGrain === "station") ? null : e.target.checked })} /> show the inputs ({fitGrain === "site" ? `${fmtN(castRows.length)} sites` : `${stationRows.length} stations`})</label>
       <label className="f">surface<select value={sel.surface} onChange={(e) => setSel({ surface: e.target.value as Surface })}>{SURFACES.map((s) => <option key={s} value={s} disabled={s === "se" && sel.interp === "idw"}>{SURFACE_LABEL[s]}{s === "se" && sel.interp === "idw" ? " — not for IDW" : ""}</option>)}</select></label>
-      <div className="hint fit">{surf ? <>{fmtN(surf.fit.n)} {surf.fit.nmax ? `sites (${surf.fit.nmax} nearest per cell)` : "stations"} → {fmtN(surf.fit.nCells)} cells of {surf.grid.cellDeg}° · leave-one-out RMSE <b>{fmt(surf.fit.loo)}</b> {legendUnit === "year" ? "years" : legendUnit ?? unitLabel}{surf.fit.vg ? ` · variogram: nugget ${fmt(surf.fit.vg.nugget)} · sill ${fmt(surf.fit.vg.nugget + surf.fit.vg.psill)} · range ${Math.round(surf.fit.vg.range)} km` : ""}{surf.fit.edf != null ? ` · ${surf.fit.edf.toFixed(1)} effective df` : ""}{surf.fit.nLoo && surf.fit.nLoo < surf.fit.n ? ` (LOO on ${surf.fit.nLoo}${surf.fit.nFit && surf.fit.nFit < surf.fit.n ? `, variogram on ${fmtN(surf.fit.nFit)}` : ""})` : ""} · {Math.round(surf.fit.ms)} ms{surf.seMs != null ? ` (+${Math.round(surf.seMs)} ms for the error surface)` : ""}</> : sel.lens === "contour" && lensReady ? "computing the surface…" : "…"} · blank beyond {MASK_KM} km of a point · the dots are the inputs{fitGrain === "site" ? "" : ", sized by their observations"}</div>
+      <div className="hint fit">{surf ? <>{fmtN(surf.fit.n)} {surf.fit.nmax ? `sites (${surf.fit.nmax} nearest per cell)` : "stations"} → {fmtN(surf.fit.nCells)} cells of {surf.grid.cellDeg}° · leave-one-out RMSE <b>{fmt(surf.fit.loo)}</b> {legendUnit === "year" ? "years" : legendUnit ?? unitLabel}{surf.fit.vg ? ` · variogram: nugget ${fmt(surf.fit.vg.nugget)} · sill ${fmt(surf.fit.vg.nugget + surf.fit.vg.psill)} · range ${Math.round(surf.fit.vg.range)} km` : ""}{surf.fit.edf != null ? ` · ${surf.fit.edf.toFixed(1)} effective df` : ""}{surf.fit.nLoo && surf.fit.nLoo < surf.fit.n ? ` (LOO on ${surf.fit.nLoo}${surf.fit.nFit && surf.fit.nFit < surf.fit.n ? `, variogram on ${fmtN(surf.fit.nFit)}` : ""})` : ""} · {Math.round(surf.fit.ms)} ms{surf.seMs != null ? ` (+${Math.round(surf.seMs)} ms for the error surface)` : ""}</> : sel.lens === "contour" && lensReady ? "computing the surface…" : "…"} · blank beyond {MASK_KM} km of a point, and over land</div>
     </div>}
     {sel.lens === "region" && <div className="opt">
       <label className="f">boundary layer<select value={sel.layer} onChange={(e) => setSel({ layer: e.target.value, region: null })}>{layerNames.map((l) => <option key={l}>{l}</option>)}</select></label>

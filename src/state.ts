@@ -14,6 +14,7 @@ export interface Sel {
   interp: Interp;              // contour lens: the interpolator (`interp=idw|ok|tps`; plan 2026-09-07 D31)
   surface: Surface;            // contour lens: which surface is drawn (`surface=value|se|n|y0|y1|p05|p95|spread`; D32)
   grain: Grain;                // contour lens: the station grid (one cell per grid_key) or every site (casts at their own positions) (`grain=`; D40)
+  inputs: boolean | null;      // contour lens: draw the points the surface was fitted to (`inputs=on|off`); null = on for the station grid, off for the sites (D43)
   realm: Realm;
   taxon: string;               // bio: worms:217452
   var: string;                 // env: temperature | oxygen_ml_l
@@ -181,7 +182,7 @@ export const DEFAULT_TAXON = "worms:217452"; // Pacific sardine
 export const YEAR_OPEN = 9999; // "through the latest year in the release" until coverage.json says which
 
 export const DEFAULTS: Sel = {
-  lens: "station", res: 5, interp: "ok", surface: "value", grain: "site", realm: "bio", taxon: DEFAULT_TAXON, var: "temperature",
+  lens: "station", res: 5, interp: "ok", surface: "value", grain: "site", inputs: null, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature",
   stage: null, den: null, zeros: true, years: [1949, YEAR_OPEN], months: null, q: null, yview: null, depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
   line: 90, cruise: null, stat: "mean", anom: false, tour: true, tourOn: false, modal: null, theme: null, release: null, station: null, datasets: null,
   hide: DEFAULT_HIDE, max: null, map: null, bathy: null, bathyo: null, layers: null, view3d: false, exag: null, strip: null, ramp: null, data: true, datao: null,
@@ -228,6 +229,7 @@ export function fromUrl(): Sel {
     interp: (INTERPS as string[]).includes(p.get("interp") ?? "") ? (p.get("interp") as Interp) : DEFAULTS.interp,
     surface: (SURFACES as string[]).includes(p.get("surface") ?? "") ? (p.get("surface") as Surface) : DEFAULTS.surface,
     grain: p.get("grain") === "station" || p.get("grain") === "site" ? (p.get("grain") as Grain) : DEFAULTS.grain,
+    inputs: p.get("inputs") === "on" ? true : p.get("inputs") === "off" ? false : null,
     realm: v ? "env" : "bio",
     taxon: p.get("taxon") ?? DEFAULTS.taxon,
     var: v ?? DEFAULTS.var,
@@ -270,7 +272,7 @@ export function toUrl(s: Sel) {
   const p = new URLSearchParams();
   p.set("lens", s.lens);
   if (s.lens === "hex") p.set("res", String(s.res));
-  if (s.lens === "contour") { if (s.interp !== DEFAULTS.interp) p.set("interp", s.interp); if (s.surface !== DEFAULTS.surface) p.set("surface", s.surface); if (s.grain !== DEFAULTS.grain) p.set("grain", s.grain); }
+  if (s.lens === "contour") { if (s.interp !== DEFAULTS.interp) p.set("interp", s.interp); if (s.surface !== DEFAULTS.surface) p.set("surface", s.surface); if (s.grain !== DEFAULTS.grain) p.set("grain", s.grain); if (s.inputs != null) p.set("inputs", s.inputs ? "on" : "off"); }
   if (s.realm === "env") p.set("var", s.var);
   else {
     p.set("taxon", s.taxon);

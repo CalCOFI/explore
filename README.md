@@ -57,7 +57,9 @@ says what the app does and how to work on it without needing them.
   kriging standard deviation, or the spline's standard error — IDW has none, it is a weighted average, not a model),
   the **observation density**, the **first / last year sampled**, the **5th / 95th percentiles** or their
   **spread** — each interpolated the same way from the station table (`sql/station.sql` now carries `p05` / `p95`).
-  The white dots are the inputs, sized by how many observations they hold; the fit line under the method reports the
+  The **inputs** (the sites or stations the surface was fitted to) are a layer of their own — *show the inputs* in the
+  options and a row under *Data* in the Layers card, `inputs=on|off`; on by default for the 218 station dots, off for
+  thousands of sites. The fit line under the method reports the
   **leave-one-out RMSE**, the variogram (nugget · sill · range) or the effective degrees of freedom, and the time it
   took. A cell farther than 60 km from any point is blank, the edge fades over the last 15 km, and **land is clipped**
   (Natural Earth 10 m land, bundled as `public/land.geojson`, rasterised onto the grid) — the map never extrapolates, and never over land. `interp=`, `grain=` and `surface=` are in the URL; the map's CSV is the point table the surface
