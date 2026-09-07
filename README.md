@@ -20,7 +20,7 @@ says what the app does and how to work on it without needing them.
   ▾ opens the sentence as the controls: every part becomes a chip whose popover is the same picker the
   *Controls* panel holds, so the two cannot disagree; opening one folds the other. The *Controls* panel
   (top-left) has three tabs — **Select** (Biology or Environment, the organism or variable, *View as* the
-  five lenses with a line under the active one, and *More options* for the summary statistic, how counts
+  six lenses (the active one full size, the others as icon slivers), and *More options* for the summary statistic, how counts
   are standardized, whether zeros are counted, the dataset pills and the sources — a disclosure that
   remembers its state), **Refine** (years, season, depth band, datasets) and **Share**. *Time* floats along
   the bottom and *Depth* starts folded to a pill on the right edge; both are brushes — drag on them to

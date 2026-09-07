@@ -102,7 +102,7 @@ export function About(p: { release: string; nTables?: number; datasets: Row[]; c
       actions={<><button type="button" className="btn" onClick={p.onFeedback}><Icon name="ui-feedback" /> Feedback</button><button type="button" className="btn" onClick={p.onSources} data-tour="about-sources"><Icon name="ui-cite" /> Data Sources &amp; Attribution</button><button type="button" className="btn" onClick={p.onTour}><Icon name="ui-help" /> Tour</button><button type="button" className="btn primary" onClick={p.onClose}>Close</button></>}>
       <p>The explorer is one browser-native app over the <a href="https://calcofi.io/docs/" target="_blank" rel="noopener">integrated CalCOFI database</a>: sixteen datasets —
         hydrography, ichthyoplankton, zooplankton, seabirds and mammals, carbonate chemistry, weather — projected into one <code>obs</code> / <code>sample</code>
-        core and read here through five <b>lenses</b> (stations, hexagons, cruises, regions, sections). The SQL runs in your browser (DuckDB-WASM), so no server
+        core and read here through six <b>lenses</b> (stations, hexagons, contours, cruises, regions, sections). The SQL runs in your browser (DuckDB-WASM), so no server
         stands between you and the release.</p>
       <h5 id="about-layers"><Icon name="ui-map-layers" /> Map layers</h5>
       <p>The sea floor under every lens is <a href="https://www.gebco.net/" target="_blank" rel="noopener">GEBCO 2025</a> — shaded
