@@ -59,8 +59,8 @@ says what the app does and how to work on it without needing them.
   **spread** — each interpolated the same way from the station table (`sql/station.sql` now carries `p05` / `p95`).
   The white dots are the inputs, sized by how many observations they hold; the fit line under the method reports the
   **leave-one-out RMSE**, the variogram (nugget · sill · range) or the effective degrees of freedom, and the time it
-  took. A cell farther than 60 km from any point is blank and the edge fades over the last 15 km — the map never
-  extrapolates. `interp=`, `grain=` and `surface=` are in the URL; the map's CSV is the point table the surface
+  took. A cell farther than 60 km from any point is blank, the edge fades over the last 15 km, and **land is clipped**
+  (Natural Earth 10 m land, bundled as `public/land.geojson`, rasterised onto the grid) — the map never extrapolates, and never over land. `interp=`, `grain=` and `surface=` are in the URL; the map's CSV is the point table the surface
   interpolates. **One algorithm, three runtimes:** `calcofi4r::cc_interpolate()` and
   `calcofi4py.interpolate()` are the same code by hand, pinned by `scripts/parity/contour_fixture.json` — written by
   the worker itself (`node scripts/parity/contour_fixture.mjs`) and copied byte-for-byte into both packages'

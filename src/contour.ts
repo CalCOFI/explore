@@ -34,6 +34,33 @@ export function computeSurface(pts: { lon: number; lat: number; z: number }[], m
     ensureWorker().postMessage(req);
   });
 }
+/** land, clipped from the surface (Ben, 2026-09-07; D42): Natural Earth 10 m land polygons (public/land.geojson, the
+ *  countries unioned and clipped to 170–95° W × 5–55° N, ~270 KB) rasterised onto the grid's own Mercator-regular
+ *  cells with a canvas — complete coverage (the GEBCO terrain tiles stop at the CalCOFI crop, which left Arizona and
+ *  the Gulf of California coloured), no tile fetch, milliseconds. A display mask like the edge fade: the values, the
+ *  CSV and the R / Python parity are untouched (mask a cc_interpolate_rast() with calcofi4r::cc_bathy() in R). The
+ *  CARTO basemap has no land layer to draw over the surface (land is its background colour), so order cannot do this. */
+let landGeo: Promise<any> | null = null;
+export async function landMask(g: SurfaceGrid): Promise<Uint8Array> {
+  landGeo ??= fetch(`${import.meta.env.BASE_URL}land.geojson`).then((r) => { if (!r.ok) throw new Error(`land.geojson ${r.status}`); return r.json(); });
+  const geo = await landGeo;
+  const cv = document.createElement("canvas"); cv.width = g.nx; cv.height = g.ny;
+  const ctx = cv.getContext("2d", { willReadFrequently: true })!;
+  const s = g.cellDeg * R, yN = merc(g.latN);
+  const px = (lon: number) => (lon - g.lon0) / g.cellDeg, py = (lat: number) => (yN - merc(lat)) / s;
+  ctx.fillStyle = "#000";
+  for (const f of geo.features) {
+    const polys = f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.type === "MultiPolygon" ? f.geometry.coordinates : [];
+    for (const rings of polys) {
+      ctx.beginPath();
+      for (const ring of rings) { ring.forEach(([lon, lat]: number[], k: number) => (k ? ctx.lineTo(px(lon), py(lat)) : ctx.moveTo(px(lon), py(lat)))); ctx.closePath(); }
+      ctx.fill("evenodd"); // the holes (lakes) stay sea-coloured — they are not sea, but they are not this surface either
+    }
+  }
+  const d = ctx.getImageData(0, 0, g.nx, g.ny).data, out = new Uint8Array(g.nx * g.ny);
+  for (let o = 0; o < out.length; o++) if (d[o * 4 + 3] > 127) out[o] = 1;
+  return out;
+}
 /** a surface is blank beyond this distance from any station — the map never extrapolates */
 export const MASK_KM = 60;
 

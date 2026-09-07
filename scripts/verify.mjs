@@ -146,7 +146,7 @@ const STATES = [
   { name: "p_full", url: "?tour=off", viewport: PHONE, steps: async () => { await page.focus(".sheet-handle"); await page.keyboard.press("ArrowUp"); await page.keyboard.press("ArrowUp"); await sleep(500); }, assert: async () => { const h = await page.$eval(".sheet", (el) => el.getBoundingClientRect().height); if (Math.abs(h - 760) > 20) fail(`p_full: sheet ${h}px (expected ~760)`); } },
   { name: "p_drag", url: "?tour=off", viewport: PHONE, steps: async () => { const h = await page.$(".sheet-handle"); const b = await h.boundingBox(); await page.touchscreen.touchStart(b.x + b.width / 2, b.y + 5); await page.touchscreen.touchMove(b.x + b.width / 2, b.y - 300); await page.touchscreen.touchEnd(); await sleep(500); },
     assert: async () => { const h = await page.$eval(".sheet", (el) => el.getBoundingClientRect().height); if (h < 380) fail(`p_drag: sheet ${h}px after a 300 px drag up`); } },
-  { name: "p_lens_section", url: "?var=temperature&tour=off", viewport: PHONE, steps: async () => { await click(".lens-strip button::-p-text(Sections)"); await waitMark(/^grain_switch:/); await sleep(1500); } },
+  { name: "p_lens_section", url: "?var=temperature&tour=off", viewport: PHONE, steps: async () => { await click(".lens-strip .lenspick-active"); await sleep(200); await click(".lens-strip .lenspick-item::-p-text(Sections)"); await waitMark(/^grain_switch:/); await sleep(1500); } },
   { name: "p_depth", url: "?var=temperature&tour=off", viewport: PHONE, steps: async () => { await click(".phone-pills button[data-tour=depth]"); await sleep(900); } },
   { name: "p_years", url: "?tour=off", viewport: PHONE, steps: async () => { await click(".phone-pills button[data-tour=years]"); await sleep(900); } },
   { name: "p_organism", url: "?tour=off", viewport: PHONE, steps: async () => { await click(".sheet-summary"); await sleep(400); await click("#organism-btn"); await sleep(500); } },
@@ -309,15 +309,15 @@ const STATES = [
   { name: "layers_card", url: "?tour=off&theme=dark", steps: async () => { await click(".map-layers-btn"); await sleep(400); await clickText(".card-layers label", "contours"); await sleep(700); },
     assert: async () => { const u = decodeURIComponent(await page.evaluate(() => location.search));
       if (!/bathy=relief,depth(&|$)/.test(u)) fail(`layers_card: URL after unchecking contours: ${u}`);
-      const n = await page.$$eval(".card-layers input[type=checkbox]", (r) => r.length); if (n !== 4) fail(`layers_card: ${n} checkboxes`);
+      const n = await page.$$eval(".card-layers input[type=checkbox]", (r) => r.length); if (n !== 6) fail(`layers_card: ${n} checkboxes`); // Data on/off · reverse ramp · sea floor · 3 parts
       const r = await probeMap(); if (r.layers.some((l) => /contour/.test(l))) fail("layers_card: contour layers survived the uncheck");
       await clickText(".card-layers label", "contours"); await sleep(500);
       const u2 = decodeURIComponent(await page.evaluate(() => location.search)); if (/bathy=/.test(u2)) fail(`layers_card: bathy= should leave the URL at the default (${u2})`); } },
   { name: "layers_opacity_url", url: "?tour=off&theme=dark&bathyo=0.40", steps: async () => { await click(".map-layers-btn"); await sleep(400); },
-    assert: async () => { const v = await page.$eval(".card-layers input[type=range]", (el) => el.value); if (+v !== 0.4) fail(`layers_opacity_url: slider at ${v}`);
+    assert: async () => { const v = await page.$$eval(".card-layers input[type=range]", (r) => r[1].value); if (+v !== 0.4) fail(`layers_opacity_url: slider at ${v}`); // [0] is the Data row's opacity
       const op = await page.evaluate(() => window.__map.getPaintProperty("gebco-relief", "color-relief-opacity")); if (Math.abs(op - 0.4) > 1e-6) fail(`layers_opacity_url: relief opacity ${op}`); } },
   { name: "phone_layers_sheet", url: "?tour=off&theme=dark", viewport: PHONE, steps: async () => { await click(".map-layers-pill"); await sleep(700); },
-    assert: async () => { const n = await page.$$eval(".sheet input[type=checkbox]", (r) => r.length); if (n !== 4) fail(`phone_layers_sheet: ${n} checkboxes in the sheet`); } },
+    assert: async () => { const n = await page.$$eval(".sheet input[type=checkbox]", (r) => r.length); if (n !== 6) fail(`phone_layers_sheet: ${n} checkboxes in the sheet`); } },
   // slice 3 (plan 2026-08-31, D23–D26): boundary layers — palette, order (the URL is the draw order), outline rule, hover
   { name: "layers3_default_none", url: "?tour=off&theme=dark", steps: async () => { await waitTiles(); },
     assert: async () => { const n = await page.evaluate(() => (window.__map.getStyle().layers || []).filter((l) => /^sp-/.test(l.id)).length); if (n) fail(`layers3_default_none: ${n} boundary layers with no layers= param`); } },
@@ -330,10 +330,10 @@ const STATES = [
   { name: "layers3_url_roundtrip", url: "?tour=off&theme=dark&layers=noaa_onms_sanctuaries:pal2:0.25:1.5,noaa_maritime_eez,ca_marine_protected_areas:388e3c", steps: async () => { await waitTiles(); await click(".map-layers-btn"); await sleep(500); },
     assert: async () => {
       const rows = await page.$$eval(".onmap-row .onmap-name", (r) => r.map((x) => x.textContent));
-      if (rows.join("|") !== "National Marine Sanctuaries|200NM EEZ|Marine Protected Areas") fail(`layers3_url_roundtrip: rows ${rows.join("|")}`);
+      if (rows.join("|") !== "Data|National Marine Sanctuaries|200NM EEZ|Marine Protected Areas") fail(`layers3_url_roundtrip: rows ${rows.join("|")}`); // the Data row leads when the URL names no place for it (D36)
       const u0 = decodeURIComponent(await page.evaluate(() => location.search));
       if (!/layers=noaa_onms_sanctuaries:pal2:0.25:1.5,noaa_maritime_eez,ca_marine_protected_areas:388e3c/.test(u0)) fail(`layers3_url_roundtrip: URL rewrote to ${u0}`);
-      await page.click(".onmap-row:nth-child(2) button[aria-label^='Move 200NM EEZ up']"); await sleep(500);
+      await page.click(".onmap-row:nth-child(3) button[aria-label^='Move 200NM EEZ up']"); await sleep(500);
       const u1 = decodeURIComponent(await page.evaluate(() => location.search));
       if (!/layers=noaa_maritime_eez,noaa_onms_sanctuaries:pal2:0.25:1.5,/.test(u1)) fail(`layers3_url_roundtrip: ▲ did not flip the order (${u1})`); } },
   { name: "layers3_reorder_pixel", url: "?tour=off&theme=dark&layers=ca_marine_protected_areas:e91e63:0.9,noaa_onms_sanctuaries:1565c0:0.9&map=-119.44,34.0,10", steps: async () => { await waitTiles(); await sleep(600); },
@@ -348,7 +348,7 @@ const STATES = [
         return { lon, lat, px: [b[0], b[1], b[2]] }; });
       if (!probe) { fail("layers3_reorder_pixel: no MPA feature in view"); return; }
       await click(".map-layers-btn"); await sleep(400);
-      await page.click(".onmap-row:nth-child(2) button[aria-label^='Move National Marine Sanctuaries up']"); await sleep(900);
+      await page.click(".onmap-row:nth-child(3) button[aria-label^='Move National Marine Sanctuaries up']"); await sleep(900);
       const px2 = await page.evaluate((pt) => { const m = window.__map; const c = document.querySelector("canvas.maplibregl-canvas"), gl = c.getContext("webgl2") || c.getContext("webgl");
         const q = m.project([pt.lon, pt.lat]); const dpr = c.width / c.clientWidth; const b = new Uint8Array(4);
         gl.readPixels(Math.round(q.x * dpr), Math.round(c.height - q.y * dpr), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, b); return [b[0], b[1], b[2]]; }, probe);
@@ -360,9 +360,11 @@ const STATES = [
     assert: async () => { const op = await page.evaluate(() => window.__map.getPaintProperty("sp-noaa_onms_sanctuaries-fill", "fill-opacity"));
       if (op !== 0) fail(`layers3_region_outline: background fill-opacity ${op} while the Regions lens draws the same layer`); } },
   { name: "layers3_hover", url: "?tour=off&theme=dark&layers=ca_marine_protected_areas:pal1&map=-119.6,33.9,9", steps: async () => { await waitTiles(); await sleep(500);
+      // a feature whose centroid is in the open map (x > 380 clears the Controls panel that floats over the left edge)
       const pt = await page.evaluate(() => { const m = window.__map; const fs = m.queryRenderedFeatures({ layers: ["sp-ca_marine_protected_areas-fill"] }); if (!fs.length) return null;
-        const ring = fs[0].geometry.coordinates[0]; const n = ring.length; const q = m.project([ring.reduce((a, c) => a + c[0], 0) / n, ring.reduce((a, c) => a + c[1], 0) / n]);
-        const r = m.getCanvas().getBoundingClientRect(); return { x: r.left + q.x, y: r.top + q.y }; });
+        const r = m.getCanvas().getBoundingClientRect(); let best = null;
+        for (const f of fs) { const ring = f.geometry.coordinates[0]; const n = ring.length; const q = m.project([ring.reduce((a, c) => a + c[0], 0) / n, ring.reduce((a, c) => a + c[1], 0) / n]); if (q.x > 380 && q.x < r.width - 40 && q.y > 130 && q.y < r.height - 160 && (!best || q.x > best.qx)) best = { x: r.left + q.x, y: r.top + q.y, qx: q.x }; }
+        return best; });
       if (pt) { await page.mouse.move(pt.x, pt.y); await sleep(600); await page.mouse.move(pt.x + 2, pt.y + 2); await sleep(600); } },
     assert: async () => { const t = await page.evaluate(() => document.querySelector(".deck-tooltip")?.textContent ?? ""); console.log(`  tooltip: "${t.trim().slice(0, 60)}"`);
       if (!/· Marine Protected Areas/.test(t)) fail(`layers3_hover: tooltip "${t.trim().slice(0, 60)}"`); } },
@@ -371,7 +373,7 @@ const STATES = [
       const f = await page.evaluate(() => window.__figure("map", "png")); if (!f.bytes || f.bytes < 50000) fail(`layers3_map_png: map png ${f.bytes} bytes`);
       console.log(`  legend rows: ${rows.join(" | ")} · map png ${Math.round(f.bytes / 1024)} KB`); } },
   { name: "phone_layers3_reorder", url: "?tour=off&theme=dark&layers=noaa_maritime_eez,ca_marine_protected_areas", viewport: PHONE, steps: async () => { await click(".map-layers-pill"); await sleep(700);
-      await page.click(".sheet .onmap-row:nth-child(2) button[aria-label^='Move Marine Protected Areas up']"); await sleep(500); },
+      await page.click(".sheet .onmap-row:nth-child(3) button[aria-label^='Move Marine Protected Areas up']"); await sleep(500); },
     assert: async () => { const u = decodeURIComponent(await page.evaluate(() => location.search)); if (!/layers=ca_marine_protected_areas,noaa_maritime_eez/.test(u)) fail(`phone_layers3_reorder: ${u}`); } },
   // slice 4 (D28 reshaped): the Sections lens as a deck-only curtain scene
   { name: "curtain_3d", url: "?tour=off&theme=dark&lens=section&var=temperature&line=90&view=3d", steps: async () => { await sleep(2500);

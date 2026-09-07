@@ -6,7 +6,7 @@ import type { PickingInfo } from "@deck.gl/core";
 import { engine, timing, hexExpr, datasetFilterSql, type Mark, type Row } from "./engine";
 import { UNIFIED, members, setUnified, unifiedDefs } from "./variables";
 import { buildLayers, MapView, quantileDomain, colorScale, type GridCell, type StatRow, type LayerInputs } from "./map";
-import { computeSurface, surfaceImage, isolines, niceLevels, cellToLonLat, cellValue, MASK_KM, type Surface as SurfaceResult } from "./contour";
+import { computeSurface, surfaceImage, isolines, niceLevels, cellToLonLat, cellValue, landMask, MASK_KM, type Surface as SurfaceResult } from "./contour";
 import { LensPicker } from "./lenspicker";
 import type { MapboxOverlay } from "@deck.gl/mapbox";
 import { defaultRamp, rampCss } from "./ramps";
@@ -143,7 +143,8 @@ export function App() {
   const [yearRows, setYearRows] = useState<YearRow[]>([]);
   const [surf, setSurf] = useState<SurfaceResult | null>(null); // the contour lens's interpolated surface (contour.worker.ts)
   const surfGen = useRef(0);
-  const [castRows, setCastRows] = useState<Row[]>([]);          // the site grain: one row per root sample (contour_cast.sql)
+  const [castRows, setCastRows] = useState<Row[]>([]);          // the site grain: one row per site (contour_cast.sql)
+  const [land, setLand] = useState<{ key: string; mask: Uint8Array } | null>(null); // the land clip for the surface's grid (Natural Earth land, D42)
   const overlayRef = useRef<MapboxOverlay | null>(null);        // the deck overlay, driven directly by the cruise playback (D37)
   const [lastSql, setLastSql] = useState("");
   const [bundling, setBundling] = useState<string | null>(null);
@@ -472,7 +473,19 @@ export function App() {
   // what the contour lens draws: the chosen surface coloured on its own 5–95 % window (the statistic itself shares the
   // station dots' window, so the two lenses agree), pretty isolines, and the legend's unit
   const rampId = sel.ramp ?? defaultRamp(sel.realm, sel.var, sel.anom && sel.lens === "section" && sel.realm === "env");
-  const surfVals = surf ? (wantSe ? surf.se : surf.values) : null;
+  // the land clip follows the grid (one fetch per grid extent; the tiles are cached by the curtain's mosaic map)
+  const gridKey = surf ? [surf.grid.lon0, surf.grid.latS, surf.grid.nx, surf.grid.ny].join(",") : null;
+  useEffect(() => {
+    if (!gridKey || !surf) return;
+    let live = true;
+    landMask(surf.grid).then((mask) => { if (live) setLand({ key: gridKey, mask }); }).catch((e) => console.warn("land clip unavailable", e));
+    return () => { live = false; };
+  }, [gridKey]);
+  const surfValsRaw = surf ? (wantSe ? surf.se : surf.values) : null;
+  const surfVals = useMemo(() => {
+    if (!surfValsRaw || !land || land.key !== gridKey) return surfValsRaw;
+    const v = Float32Array.from(surfValsRaw); for (let i = 0; i < v.length; i++) if (land.mask[i]) v[i] = NaN; return v;
+  }, [surfValsRaw, land, gridKey]);
   const legendDomain: [number, number] = useMemo(() => {
     if (displayLens !== "contour" || sel.surface === "value" || !surfVals) return domain;
     const v: number[] = []; for (let i = 0; i < surfVals.length; i++) if (Number.isFinite(surfVals[i])) v.push(surfVals[i]);

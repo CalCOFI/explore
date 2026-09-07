@@ -251,12 +251,21 @@ export function MapView(props: {
     // interleaved (D36, 2026-09-07): deck renders into MapLibre's context as custom layers, so a deck layer can carry a
     // beforeId and sit UNDER a boundary layer; deck re-resolves its layers on every styledata (the composed style's
     // setStyle(diff) on a theme / sea-floor change), and getCanvas() is the map's — one canvas for capture.ts
-    const o = new MapboxOverlay({
-      interleaved: true, layers: props.layers,
-      getTooltip: (i) => cb.current.getTooltip(i),
-      onClick: (i) => cb.current.onClick?.(i),
-    });
+    const o = new MapboxOverlay({ interleaved: true, layers: props.layers });
     m.addControl(o);
+    // interleaved deck forwards no mouse events (its overlaid mode did), so the map's own drive picking: a hover picks
+    // the deck object under the pointer (else the boundary, through getTooltip's MapLibre fallback) into one tooltip
+    // element, a click picks and reports. The tooltip keeps deck's class so the styles and verify.mjs read it.
+    const tip = document.createElement("div"); tip.className = "deck-tooltip"; tip.style.display = "none";
+    el.current!.prepend(tip); // first in the container, so the app's tooltip is the one a querySelector(".deck-tooltip") finds
+    const pick = (x: number, y: number): PickingInfo => (o.pickObject({ x, y, radius: 4 }) ?? ({ x, y, object: null, layer: null, index: -1, picked: false } as unknown as PickingInfo));
+    m.on("mousemove", (e) => {
+      const t = cb.current.getTooltip(pick(e.point.x, e.point.y));
+      if (t && (t.text ?? t.html)) { if (t.html) tip.innerHTML = t.html; else tip.textContent = t.text; tip.style.display = "block"; tip.style.left = `${e.point.x + 12}px`; tip.style.top = `${e.point.y + 12}px`; }
+      else tip.style.display = "none";
+    });
+    m.on("mouseout", () => { tip.style.display = "none"; });
+    m.on("click", (e) => { const i = o.pickObject({ x: e.point.x, y: e.point.y, radius: 4 }); if (i) cb.current.onClick?.(i); });
     map.current = m; overlay.current = o; props.onOverlay?.(o);
     (window as any).__map = m; (window as any).__overlay = o; // spike: reachable from the console
     m.on("error", (e: any) => console.error("maplibre error", e?.error ?? e));

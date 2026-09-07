@@ -662,3 +662,8 @@ a.lic:hover { color: var(--accent); border-color: var(--accent); }
 .contour-opt .grain .seg button { padding: 2px 7px; font-size: var(--fs-sm, 11px); }
 .ramp-strip.sm { width: 28px; height: 8px; }
 .onmap-row.data .onmap-name { font-weight: 600; }
+/* the phone sheet's peek strip: the picker one row tall (the description would push the strip off the viewport) */
+.lens-strip .lenspick-desc { display: none; }
+.lens-strip .lenspick { gap: 0; }
+.lens-strip .lenspick { position: relative; }
+.lens-strip .lenspick-list { position: fixed; left: 8px; right: 8px; bottom: 124px; z-index: var(--z-menu); box-shadow: 0 6px 24px color-mix(in srgb, var(--fg) 25%, transparent); } /* the sheet clips overflow: float the list over the map */

@@ -21,13 +21,15 @@ const mx = (lon: number) => (lon * O) / 180;
 const my = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360)) * (O / Math.PI);
 const inv = (x: number, y: number) => [x * 180 / O, (2 * Math.atan(Math.exp((y * Math.PI) / O)) - Math.PI / 2) * 180 / Math.PI];
 
-interface Mosaic { e: Float32Array; W: number; H: number; x0m: number; y1m: number; res: number }
+export interface Mosaic { e: Float32Array; W: number; H: number; x0m: number; y1m: number; res: number }
 const mosaics = new Map<string, Promise<Mosaic>>(); // per bbox key, decoded once per session
-async function loadMosaic(w: number, s: number, e: number, n: number): Promise<Mosaic> {
-  const key = [w, s, e, n].join(",");
+/** the GEBCO terrain-RGB tiles covering a bbox as one elevation mosaic (metres, negative below sea level); z7 for the
+ *  curtain's sea floor, z6 for the Contours lens's land clip (contour.ts landMask) */
+export async function loadMosaic(w: number, s: number, e: number, n: number, z = Z): Promise<Mosaic> {
+  const key = [w, s, e, n, z].join(",");
   if (!mosaics.has(key)) mosaics.set(key, (async () => {
     const pm = new PMTiles(`${BATHY_URL}gebco_2025_calcofi_terrain.pmtiles`);
-    const span = (2 * O) / 2 ** Z, res = span / TILE;
+    const span = (2 * O) / 2 ** z, res = span / TILE;
     const tx0 = Math.floor((mx(w) + O) / span), tx1 = Math.floor((mx(e) + O) / span);
     const ty0 = Math.floor((O - my(n)) / span), ty1 = Math.floor((O - my(s)) / span);
     const W = (tx1 - tx0 + 1) * TILE, H = (ty1 - ty0 + 1) * TILE;
@@ -35,7 +37,7 @@ async function loadMosaic(w: number, s: number, e: number, n: number): Promise<M
     const cv = new OffscreenCanvas(TILE, TILE), ctx = cv.getContext("2d", { willReadFrequently: true })!;
     await Promise.all(Array.from({ length: (tx1 - tx0 + 1) * (ty1 - ty0 + 1) }, async (_, i) => {
       const x = tx0 + (i % (tx1 - tx0 + 1)), y = ty0 + Math.floor(i / (tx1 - tx0 + 1));
-      const t = await pm.getZxy(Z, x, y); if (!t) return; // outside the core: the far tier is not needed for a line scene
+      const t = await pm.getZxy(z, x, y); if (!t) return; // outside the core: the far tier is not needed for a line scene
       const img = await createImageBitmap(new Blob([t.data], { type: "image/png" }));
       ctx.drawImage(img, 0, 0);
       const d = ctx.getImageData(0, 0, TILE, TILE).data;
@@ -48,6 +50,11 @@ async function loadMosaic(w: number, s: number, e: number, n: number): Promise<M
     return { e: el, W, H, x0m: tx0 * span - O, y1m: O - ty0 * span, res };
   })());
   return mosaics.get(key)!;
+}
+/** the elevation under a lon/lat from a mosaic (NaN outside it) */
+export function mosaicAt(m: Mosaic, lon: number, lat: number): number {
+  const c = Math.floor((mx(lon) - m.x0m) / m.res), r = Math.floor((m.y1m - my(lat)) / m.res);
+  return c < 0 || r < 0 || c >= m.W || r >= m.H ? NaN : m.e[r * m.W + c];
 }
 
 function rampTexture(theme: "dark" | "light"): HTMLCanvasElement {
