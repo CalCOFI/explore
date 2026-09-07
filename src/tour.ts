@@ -30,8 +30,8 @@ export const TOUR_STEPS: TourStep[] = [
   // the phone has no title sentence (the sheet's summary line says the same), so the step anchors there
   { id: "sentence", element: q('[data-tour="sentence"], .sheet-summary'), side: "bottom", title: "What you are looking at",
     description: "The title says what the map shows, in plain words, with the colour scale beside it. Its ▾ opens the same choices as the Controls panel, as a sentence — change any part and the map follows.", before: (a) => { if (a.phone) a.sheet("select", "peek"); } },
-  { id: "lenses", element: q('[data-tour="lenses"]'), side: "right", align: "start", title: "Five ways to view it",
-    description: "Stations, Hexagons, Cruises, Regions and Sections are five shapes of the same data. Switch, and the station dots travel to their new place — hexagon centres, region centroids, the ship's track — so you can see which stations feed which summary.",
+  { id: "lenses", element: q('[data-tour="lenses"]'), side: "right", align: "start", title: "Six ways to view it",
+    description: "Stations, Hexagons, Contours, Cruises, Regions and Sections are six shapes of the same data — the active one reads full size, the others are the small icons beside it; click any to see all six with a line on each. Contours interpolates the stations into a surface and shows its error and its inputs.",
     before: (a) => { rail(a, "select"); if (!a.reducedMotion && a.getLens() === "station") a.setLens("hex"); }, wait: 400 },
   { id: "realm", element: q('[data-tour="realm"]'), side: "right", title: "Biology or Environment",
     description: "One organism (a taxon — a species, a genus, a family) or one ocean variable at a time. Biology reads the net tows and censuses; Environment the bottle, CTD, carbonate and weather series.", before: (a) => rail(a, "select") },

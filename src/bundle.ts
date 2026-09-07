@@ -51,7 +51,9 @@ years       <- run("04_years.sql")`}
 # the same release through calcofi4r (catalog-resolved URLs):
 # cat <- calcofi4r::cc_catalog("${version}"); calcofi4r::cc_read_parquet_sql(calcofi4r::cc_release_sources(cat, "obs_bio"))
 # the quality predicate and the density expression the release used: calcofi4r::cc_qual_ok_sql(), calcofi4r::cc_density_sql()
-${inline ? "" : "head(summary)\n"}`;
+${lens === "contour" ? `# the Contours lens: the same surface the map drew (calcofi4r >= 1.21.0; the point set, method and grain are in selection.json)
+# s <- calcofi4r::cc_interpolate(data.frame(lon = summary$longitude %||% grid$lon, lat = summary$latitude %||% grid$lat, z = summary$mean), method = "ok"); terra::plot(calcofi4r::cc_interpolate_rast(s))
+` : ""}${inline ? "" : "head(summary)\n"}`;
 const pyBody = (version: string, lens: string, sqls: [string, string][], inline: boolean) => `# CalCOFI Explorer · ${lens} · release ${version} — the same SQL the browser ran
 # pip install duckdb calcofi4py
 import re, duckdb
@@ -68,7 +70,9 @@ depth_strip = run("03_depth_strip.sql")
 years = run("04_years.sql")`}
 # the same release through calcofi4py: import calcofi4py as cc; cat = cc.cc_catalog("${version}"); cc.read_parquet_sql(cc.release_sources(cat, "obs_bio"))
 # quality predicate + density expression the release used: cc.qual_ok_sql(), cc.density_sql()
-${inline ? "" : "print(summary.head())\n"}`;
+${lens === "contour" ? `# the Contours lens: the same surface the map drew (calcofi4py >= 0.8.0, pip install "calcofi4py[interp]")
+# s = cc.interpolate(summary.rename(columns={"longitude": "lon", "latitude": "lat", "mean": "z"}), method="ok"); s.values
+` : ""}${inline ? "" : "print(summary.head())\n"}`;
 /** "Copy as…": the whole reproduction as one pasteable text */
 export function copyAs(kind: "sql" | "r" | "py", ctx: Pick<BundleCtx, "sel" | "catalog" | "params" | "lensParams" | "lensTemplate" | "version">): string {
   const sqls = resolvedSql(ctx);
@@ -101,9 +105,9 @@ export async function buildBundle(ctx: BundleCtx): Promise<{ blob: Blob; name: s
   // 3. the summary as shown, plus geometry for map grains
   say("summary…");
   zip.file(`data/summary/${sel.lens}.csv`, csv(ctx.summary));
-  if (sel.lens === "station") {
+  if (sel.lens === "station" || (sel.lens === "contour" && !("latitude" in (ctx.summary[0] ?? {})))) {
     const cells = new Map(ctx.grid.map((c) => [c.grid_key, c]));
-    zip.file("data/summary/station.geojson", JSON.stringify({ type: "FeatureCollection", features: ctx.summary.map((r) => ({ type: "Feature", properties: r, geometry: { type: "Point", coordinates: cells.get(r.grid_key)?.home ?? null } })) }));
+    zip.file(`data/summary/${sel.lens}.geojson`, JSON.stringify({ type: "FeatureCollection", features: ctx.summary.map((r) => ({ type: "Feature", properties: r, geometry: { type: "Point", coordinates: cells.get(r.grid_key)?.home ?? null } })) }));
   } else if (sel.lens === "hex") {
     zip.file("data/summary/hex.geojson", JSON.stringify({ type: "FeatureCollection", features: ctx.summary.map((r) => ({ type: "Feature", properties: r, geometry: { type: "Polygon", coordinates: [cellToBoundary(r.hex, true)] } })) }));
   } else if (sel.lens === "region") {

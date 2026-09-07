@@ -45,30 +45,38 @@ says what the app does and how to work on it without needing them.
   which is in force, for which datasets, and how many observations it excludes; open it for the formulas.
   One pill per dataset × stage; a ⚠ pill is a raw count with no effort in the release. The default stage
   and denominator follow the same rule as `calcofi4r::cc_default_stage()` / `cc_default_denominator()`.
-- **A contour is a rendering of the station grain, computed in the browser, and it shows its own error.** The
-  *Contours* lens interpolates the station summary the *Stations* lens draws — the same rows, the same filters — into
-  a surface in a Web Worker (`src/contour.worker.ts`, plain typed arrays, no library): **IDW** (power 1.3, what the
+- **A contour is computed in the browser, and it shows its own error.** The *Contours* lens interpolates a point
+  summary under the same filters as every other lens — by default **every site** (each cast, tow or site at its own
+  position to 0.01°, repeat occupations pooled; `sql/contour_cast.sql`), or the **station grid** (one point per
+  `grid_key` cell; `grain=station`) — into a surface in a Web Worker (`src/contour.worker.ts`, plain typed arrays, no library): **IDW** (power 1.3, what the
   superseded Contour Explorer drew with `terra::interpIDW`), **ordinary kriging** (an exponential variogram fitted by
   weighted least squares) or a **thin-plate spline** (mgcv's `s(lon, lat)` basis, the smoothing picked by GCV — the
-  GAM `calcofi4r::pts_to_contours_gam()` fits). The *surface* menu draws the statistic itself, **its error** (the
+  GAM `calcofi4r::pts_to_contours_gam()` fits; station grid only). At the site grain kriging and IDW take the **24
+  nearest points within 180 km per cell** (one small solve each, so the error comes free; ≈ 1 s for 12,000 sites);
+  at the station grid every point is in one system (≈ 0.3 s, the error surface ≈ 3 s more). The *surface* menu draws the statistic itself, **its error** (the
   kriging standard deviation, or the spline's standard error — IDW has none, it is a weighted average, not a model),
   the **observation density**, the **first / last year sampled**, the **5th / 95th percentiles** or their
   **spread** — each interpolated the same way from the station table (`sql/station.sql` now carries `p05` / `p95`).
   The white dots are the inputs, sized by how many observations they hold; the fit line under the method reports the
   **leave-one-out RMSE**, the variogram (nugget · sill · range) or the effective degrees of freedom, and the time it
-  took (≈ 0.4 s for 213 stations at 0.06° cells; the error surface ≈ 3 s more). A cell farther than 60 km from any
-  station is blank — the map never extrapolates. `interp=` and `surface=` are in the URL; the map's CSV is the
-  station table the surface interpolates. The station grain is a `grid_key` cell (2–4 real stations nearshore), so
-  the surface is only as fine as that grid. **One algorithm, three runtimes:** `calcofi4r::cc_interpolate()` and
+  took. A cell farther than 60 km from any point is blank and the edge fades over the last 15 km — the map never
+  extrapolates. `interp=`, `grain=` and `surface=` are in the URL; the map's CSV is the point table the surface
+  interpolates. **One algorithm, three runtimes:** `calcofi4r::cc_interpolate()` and
   `calcofi4py.interpolate()` are the same code by hand, pinned by `scripts/parity/contour_fixture.json` — written by
   the worker itself (`node scripts/parity/contour_fixture.mjs`) and copied byte-for-byte into both packages'
   test fixtures — so a surface made in R or Python matches the map cell for cell.
-- **The data layer has its own row in the Layers card**: on/off (`data=off` leaves the sea floor and boundaries
-  alone), opacity (`datao=`), and the **colour ramp** (`ramp=thermal`, `_r` reverses): cmocean's 22 ramps (Thyng et
+- **The data layer has its own rows in the Layers card**: on/off (`data=off` leaves the sea floor and boundaries
+  alone), opacity (`datao=`), the **colour ramp** (`ramp=thermal`, `_r` reverses): cmocean's 22 ramps (Thyng et
   al. 2016), viridis and oce's GEBCO ramp, in `src/ramps.ts`; with no `ramp=` the variable picks its cmocean
   convention (thermal for temperature, haline for salinity, algae for chlorophyll, dense for density, tempo for
-  nutrients, ice for oxygen; viridis for biology). The data layer draws in deck.gl's canvas above every MapLibre
-  layer; ordering it *below* a boundary layer needs the interleaved overlay (plan 2026-09-07, D36) and is not there yet.
+  nutrients, ice for oxygen; viridis for biology) — and its **place among the boundary layers**: the *Data* row under
+  *On the map* drags like any boundary, and `layers=noaa_onms_sanctuaries,data` draws the sanctuaries over the data.
+  deck.gl runs **interleaved** inside MapLibre's own layer stack for this (D36), which also puts the data under the
+  basemap's labels.
+- **One lens at a time in the Controls panel.** *View as* shows the active lens full size with a line under it and
+  the other five as icon slivers; click any of them to open the six as rows with their help text, pick one, and it
+  closes. Switching between Stations and Hexagons still travels the dots (the one morph that shows pooling); every
+  other switch is a short cross-fade.
 - **A section is laid out like the map, and carries both rulers.** *Sections* draws **offshore on the left,
   the coast on the right** — a CalCOFI line runs west-south-west off the coast — and labels the x-axis
   **station number above, distance offshore below**. The two are one ruler: `+proj=calcofi` is equidistant
@@ -264,7 +272,7 @@ screenshot in the mail). Usage analytics go through the fleet's GA4 snippet in `
   filter in `_filters.sql`; `density.sql` is the denominator fixture shared with calcofi4r /
   calcofi4py) · `src/engine.ts` renders and times them · `src/state.ts` is the URL selection model
   (`fromUrl` / `toUrl`), the stage/denominator defaults and the denominator formulas · `src/App.tsx` the
-  shell · `src/map.tsx` the layers and the lens-to-lens morph · `src/contour.ts` + `src/contour.worker.ts` the Contours lens's interpolators, isolines and bitmap · `src/ramps.ts` the colour ramps · `src/charts.tsx` the Plotly panels ·
+  shell · `src/map.tsx` the layers and the lens-to-lens morph · `src/contour.ts` + `src/contour.worker.ts` the Contours lens's interpolators, isolines and bitmap · `src/ramps.ts` the colour ramps · `src/lenspicker.tsx` the lens picker · `src/charts.tsx` the Plotly panels ·
   `src/picker.tsx` the organism / variable / cruise picker (tree + flat list) · `src/panels.tsx` the
   rails, floating cards and phone sheet · `src/export.ts` per-panel PNG/SVG/CSV and the footer stamp ·
   `src/capture.ts` the whole-view figure (one `html-to-image` composite; MapLibre runs with

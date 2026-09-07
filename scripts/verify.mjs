@@ -81,7 +81,7 @@ const expectSeaFloor = async (name, theme) => { const r = await probeMap();
   console.log(`  gebco layers ${r.layers.length} · basin ${r.px.basin} · deep ${r.px.deep} · land ${r.px.land}`); return r; };
 const click = async (sel) => { await page.click(sel); };
 const clickText = async (scope, txt) => page.click(`${scope}::-p-text(${txt})`);
-const clickLens = async (txt) => { await clickText(".lenses button", txt); await waitMark(/^grain_switch:/); };
+const clickLens = async (txt) => { await click(".lenspick-active"); await sleep(150); await clickText(".lenspick-item", txt); await waitMark(/^grain_switch:/, 60000); };
 // FILTERS and EXPORT start folded (U7): a step that reaches into one expands it first
 // the light layout (2026-09-06): Share and Refine are tabs of the Select panel, More options a disclosure that remembers its state
 const expandGroup = async (name) => { if (name === "export") await clickText(".tabs button", "Share"); else if (name === "filters") await clickText(".tabs button", "Refine"); else { const open = await page.$(".more-toggle[aria-expanded=true]"); if (!open) await click(".more-toggle"); } await sleep(250); };
@@ -104,6 +104,15 @@ const STATES = [
   { name: "u0_organism_most", url: "?tour=off", steps: async () => { await click("#organism-btn"); await clickText(".picker-tabs [role=tab]", "Search"); await click(".picker-tools .seg button:nth-child(2)"); await sleep(400); } },
   { name: "u0_variable_open", url: "?var=temperature&tour=off", steps: async () => { await click("#variable-btn"); await sleep(400); } },
   { name: "u0_hex", url: "?lens=hex&res=5&tour=off", steps: async () => {} },
+  // the Contours lens (plan 2026-09-07): kriging at the site grain (the default), the error surface, the spline (station grid), IDW, and the station grid
+  { name: "c_contour_ok", url: "?lens=contour&var=temperature&tour=off", steps: async () => { await waitMark(/^contour:/, 60000); await sleep(600); } },
+  { name: "c_contour_se", url: "?lens=contour&var=temperature&surface=se&tour=off", steps: async () => { await waitMark(/^contour:/, 60000); await sleep(3500); } },
+  { name: "c_contour_tps", url: "?lens=contour&interp=tps&surface=y1&tour=off", steps: async () => { await waitMark(/^contour:/, 60000); await sleep(600); } },
+  { name: "c_contour_station", url: "?lens=contour&var=temperature&grain=station&tour=off", steps: async () => { await waitMark(/^contour:/, 120000); await sleep(800); } },
+  { name: "c_data_under_sanctuaries", url: "?lens=hex&var=temperature&layers=noaa_onms_sanctuaries,data&tour=off", steps: async () => { await sleep(1500); } },
+  { name: "c_contour_idw_bio", url: "?lens=contour&interp=idw&tour=off", steps: async () => { await waitMark(/^contour:/, 60000); await sleep(600); } },
+  { name: "c_layers_data_row", url: "?lens=hex&var=oxygen_ml_l&ramp=thermal_r&datao=0.6&tour=off", steps: async () => { await click(".map-layers-btn"); await sleep(500); } },
+  { name: "c_lens_picker_open", url: "?tour=off", steps: async () => { await click(".lenspick-active"); await sleep(300); } },
   { name: "u0_section_cruise_open", url: "?lens=section&var=temperature&line=90&tour=off", steps: async () => { await click("#section-cruise-btn"); await sleep(400); } },
   { name: "u0_cruise", url: "?lens=cruise&tour=off", steps: async () => { await click("#cruise-btn"); await sleep(400); } },
   { name: "u0_copy_menu", url: "?tour=off", steps: async () => { await expandGroup("export"); await clickText(".menu-btn", "Copy code"); await sleep(300); } },

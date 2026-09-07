@@ -3,6 +3,7 @@ import type { IconName } from "./icons";
 export type Lens = "station" | "hex" | "contour" | "cruise" | "region" | "section";
 export type Interp = "idw" | "ok" | "tps";
 export type Surface = "value" | "se" | "n" | "y0" | "y1" | "p05" | "p95" | "spread";
+export type Grain = "station" | "site";
 export type Realm = "bio" | "env";
 export type Den = "per_10m2" | "per_1000m3" | "raw";
 export type Stat = "mean" | "med" | "n";
@@ -12,6 +13,7 @@ export interface Sel {
   res: number;                 // hex resolution 3..7
   interp: Interp;              // contour lens: the interpolator (`interp=idw|ok|tps`; plan 2026-09-07 D31)
   surface: Surface;            // contour lens: which surface is drawn (`surface=value|se|n|y0|y1|p05|p95|spread`; D32)
+  grain: Grain;                // contour lens: the station grid (one cell per grid_key) or every site (casts at their own positions) (`grain=`; D40)
   realm: Realm;
   taxon: string;               // bio: worms:217452
   var: string;                 // env: temperature | oxygen_ml_l
@@ -155,7 +157,12 @@ export const INTERP_WORD: Record<Interp, string> = { idw: "inverse-distance weig
 export const INTERP_HOW: Record<Interp, string> = {
   idw: "inverse-distance weighting, power 1.3 — what the superseded Contour Explorer drew (terra::interpIDW); a weighted average, so no error surface",
   ok: "ordinary kriging — an exponential variogram fitted to the stations; the kriging standard deviation is the error surface",
-  tps: "a thin-plate spline, mgcv's s(lon, lat) basis, the smoothing chosen by GCV — the GAM that calcofi4r::pts_to_contours_gam() fits; its standard error is the error surface",
+  tps: "a thin-plate spline, mgcv's s(lon, lat) basis, the smoothing chosen by GCV — the GAM that calcofi4r::pts_to_contours_gam() fits; its standard error is the error surface (station grid only)",
+};
+export const GRAIN_LABEL: Record<Grain, string> = { station: "station grid", site: "every site" };
+export const GRAIN_HOW: Record<Grain, string> = {
+  station: "one point per grid cell (a nearshore cell holds 2–4 real stations) — the smallest solve, every method",
+  site: "one point per site — every cast, tow or site at its own position (to 0.01°), repeat occupations pooled — so the surface sees where the ship actually was; kriging and IDW use the 24 nearest per cell on 0.1° cells (a few seconds)",
 };
 export const SURFACES: Surface[] = ["value", "se", "n", "y0", "y1", "p05", "p95", "spread"];
 export const SURFACE_LABEL: Record<Surface, string> = {
@@ -174,7 +181,7 @@ export const DEFAULT_TAXON = "worms:217452"; // Pacific sardine
 export const YEAR_OPEN = 9999; // "through the latest year in the release" until coverage.json says which
 
 export const DEFAULTS: Sel = {
-  lens: "station", res: 5, interp: "ok", surface: "value", realm: "bio", taxon: DEFAULT_TAXON, var: "temperature",
+  lens: "station", res: 5, interp: "ok", surface: "value", grain: "site", realm: "bio", taxon: DEFAULT_TAXON, var: "temperature",
   stage: null, den: null, zeros: true, years: [1949, YEAR_OPEN], months: null, q: null, yview: null, depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
   line: 90, cruise: null, stat: "mean", anom: false, tour: true, tourOn: false, modal: null, theme: null, release: null, station: null, datasets: null,
   hide: DEFAULT_HIDE, max: null, map: null, bathy: null, bathyo: null, layers: null, view3d: false, exag: null, strip: null, ramp: null, data: true, datao: null,
@@ -220,6 +227,7 @@ export function fromUrl(): Sel {
     res: Math.min(7, Math.max(3, num(p.get("res"), DEFAULTS.res))),
     interp: (INTERPS as string[]).includes(p.get("interp") ?? "") ? (p.get("interp") as Interp) : DEFAULTS.interp,
     surface: (SURFACES as string[]).includes(p.get("surface") ?? "") ? (p.get("surface") as Surface) : DEFAULTS.surface,
+    grain: p.get("grain") === "station" || p.get("grain") === "site" ? (p.get("grain") as Grain) : DEFAULTS.grain,
     realm: v ? "env" : "bio",
     taxon: p.get("taxon") ?? DEFAULTS.taxon,
     var: v ?? DEFAULTS.var,
@@ -262,7 +270,7 @@ export function toUrl(s: Sel) {
   const p = new URLSearchParams();
   p.set("lens", s.lens);
   if (s.lens === "hex") p.set("res", String(s.res));
-  if (s.lens === "contour") { if (s.interp !== DEFAULTS.interp) p.set("interp", s.interp); if (s.surface !== DEFAULTS.surface) p.set("surface", s.surface); }
+  if (s.lens === "contour") { if (s.interp !== DEFAULTS.interp) p.set("interp", s.interp); if (s.surface !== DEFAULTS.surface) p.set("surface", s.surface); if (s.grain !== DEFAULTS.grain) p.set("grain", s.grain); }
   if (s.realm === "env") p.set("var", s.var);
   else {
     p.set("taxon", s.taxon);

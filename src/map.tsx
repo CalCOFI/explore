@@ -52,12 +52,13 @@ export interface LayerInputs {
   region: { features: any[]; stats: Map<string, StatRow & { spatial_name: string }>; stationTo: Map<string, string>; centroid: Map<string, [number, number]>; selected: string | null };
   cruise: { track: { path: [number, number][]; ts: number[] } | null; samples: (StatRow & { latitude: number; longitude: number; grid_key: string })[]; time: number };
   section: { line: number; cruiseStations: Set<string> };
-  contour: { image: HTMLCanvasElement; bounds: [number, number, number, number]; lines: { path: [number, number][]; level: number }[] } | null; // the interpolated surface (lens = contour)
+  contour: { image: HTMLCanvasElement; bounds: [number, number, number, number]; lines: { path: [number, number][]; level: number }[]; casts: { longitude: number; latitude: number; n: number }[] | null } | null; // the interpolated surface (lens = contour); casts = the inputs at the site grain
   duration: number;
   domain: [number, number];
   ramp: string | null;        // the colour ramp id (ramps.ts); null = viridis
   dataOn: boolean;            // the Layers card's "Data" switch (`data=off`): every deck data layer off, the basemap and boundaries stay
   dataOpacity: number;        // the data layer's opacity 0–1 (`datao=`)
+  beforeId?: string;          // D36: the MapLibre layer the data layer draws UNDER (the boundary above it in the Layers card); undefined = on top
   selectedStation?: string | null;
 }
 
@@ -71,11 +72,15 @@ export function buildLayers(inp: LayerInputs): Layer[] {
   const color = colorScale(inp.domain, 220, inp.ramp);
   const opacity = inp.dataOpacity;
   if (!inp.dataOn) return [];
+  // D37 (2026-09-07): the dots TRAVEL only between Stations and Hexagons — the one morph that explains something (pooling);
+  // every other lens change is a short cross-fade in place, so nothing flies to a centroid or flickers through a 700 ms tween
+  const travel = lens === "station" || lens === "hex";
+  const fade = travel ? duration : Math.min(duration, 250);
   const trans = (enterTransparent = false) => ({
-    getPosition: { duration, easing: (t: number) => 1 - Math.pow(1 - t, 3) },
-    getFillColor: enterTransparent ? { duration, enter: () => [0, 0, 0, 0] } : duration,
-    getRadius: duration,
-    getLineColor: duration,
+    getPosition: { duration: travel ? duration : 0, easing: (t: number) => 1 - Math.pow(1 - t, 3) },
+    getFillColor: enterTransparent ? { duration: fade, enter: () => [0, 0, 0, 0] } : fade,
+    getRadius: fade,
+    getLineColor: fade,
   });
   const layers: Layer[] = [];
 
@@ -87,12 +92,7 @@ export function buildLayers(inp: LayerInputs): Layer[] {
       const [lat, lng] = cellToLatLng(cell);
       return [lng, lat];
     }
-    if (lens === "region") {
-      const sk = inp.region.stationTo.get(c.grid_key);
-      const ctr = sk ? inp.region.centroid.get(sk) : null;
-      return ctr ?? c.home;
-    }
-    return c.home;
+    return c.home; // regions: the dots stay home and take the polygon's colour (they used to fly to its centroid and stack — D37)
   };
   const dotColor = (c: GridCell): [number, number, number, number] => {
     if (lens === "station") return color(statOf(inp.station.get(c.grid_key), stat));
@@ -105,13 +105,13 @@ export function buildLayers(inp: LayerInputs): Layer[] {
       const sk = inp.region.stationTo.get(c.grid_key);
       if (!sk) return [140, 140, 140, 40];
       const col = color(statOf(inp.region.stats.get(sk), stat));
-      return [col[0], col[1], col[2], 180];
+      return [col[0], col[1], col[2], 120];
     }
     if (lens === "cruise") {
       return inp.section.cruiseStations.has(c.grid_key) ? [230, 230, 230, 120] : [140, 140, 140, 35];
     }
     // contour: the surface carries the colour; a dot is an input — white, sized by how much it holds, faint when it holds nothing
-    if (lens === "contour") return inp.station.get(c.grid_key) ? [255, 255, 255, 210] : [140, 140, 140, 40];
+    if (lens === "contour") return inp.contour?.casts ? [140, 140, 140, 50] : inp.station.get(c.grid_key) ? [255, 255, 255, 210] : [140, 140, 140, 40];
     // section: the line's stations highlight, the rest dim
     return c.line === inp.section.line ? [255, 214, 10, 230] : [140, 140, 140, 35];
   };
@@ -121,7 +121,7 @@ export function buildLayers(inp: LayerInputs): Layer[] {
       return r ? 3 + Math.min(7, Math.sqrt(r.n) / 4) : 2;
     }
     if (lens === "section") return c.line === inp.section.line ? 6 : 2;
-    if (lens === "contour") { const r = inp.station.get(c.grid_key); return r ? 2 + Math.min(4, Math.sqrt(r.n) / 5) : 1.5; }
+    if (lens === "contour") { if (inp.contour?.casts) return 1.2; const r = inp.station.get(c.grid_key); return r ? 2 + Math.min(4, Math.sqrt(r.n) / 5) : 1.5; }
     if (lens === "cruise") return inp.section.cruiseStations.has(c.grid_key) ? 4 : 2;
     return 3;
   };
@@ -168,6 +168,11 @@ export function buildLayers(inp: LayerInputs): Layer[] {
       id: "isolines", opacity, data: inp.contour.lines, getPath: (d: any) => d.path, getColor: [20, 20, 30, 140],
       widthMinPixels: 1, widthUnits: "pixels", getWidth: 1, capRounded: true,
     }));
+    // the site grain: every input at its own position, a pinprick each — where the surface has evidence
+    if (inp.contour.casts) layers.push(new ScatterplotLayer({
+      id: "casts", opacity, data: inp.contour.casts, radiusUnits: "pixels", getRadius: 1.4, getPosition: (d: any) => [d.longitude, d.latitude],
+      getFillColor: [255, 255, 255, 150], stroked: false, pickable: false,
+    }));
   }
 
   // section: the line drawn through its stations
@@ -213,7 +218,8 @@ export function buildLayers(inp: LayerInputs): Layer[] {
     updateTriggers: { getPosition: [lens, inp.res, inp.region.stationTo], getFillColor: [lens, inp.res, stat, inp.domain, inp.ramp, inp.station, inp.hex, inp.region.stats, inp.section], getRadius: [lens, inp.station, inp.section], getLineColor: [inp.selectedStation], getLineWidth: [inp.selectedStation] },
     transitions: trans(),
   }));
-  return layers;
+  // interleaved (D36): deck draws inside MapLibre's own layer stack; beforeId puts the whole data layer under one boundary
+  return inp.beforeId ? layers.map((l) => l.clone({ beforeId: inp.beforeId } as any)) : layers;
 }
 
 // ── the map component ─────────────────────────────────────────────────────────
@@ -223,6 +229,7 @@ export function MapView(props: {
   boundaries: BoundaryState;                         // the visible boundary layers, URL order = draw order (D23–D26)
   view: [number, number, number];                    // the opening extent: lon · lat · zoom (the URL's `map=`, else the home view)
   onView?: (v: [number, number, number]) => void;    // every settled pan / zoom, so the URL — and a shared link — carries the extent
+  onOverlay?: (o: MapboxOverlay) => void;            // the deck overlay, for the cruise playback to drive without a React render per frame (D37)
   getTooltip: (info: PickingInfo) => any; onClick?: (info: PickingInfo) => void; onFirstFrame?: () => void;
 }) {
   const el = useRef<HTMLDivElement>(null);
@@ -241,13 +248,16 @@ export function MapView(props: {
     // compact attribution starts collapsed to its (i); MapLibre opens it on load, so close it after the style lands
     m.once("load", () => el.current?.querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show"));
     // no NavigationControl: the app draws +/− itself in the map's top-right row (zoom · layers · export), so the order and the style are its own
+    // interleaved (D36, 2026-09-07): deck renders into MapLibre's context as custom layers, so a deck layer can carry a
+    // beforeId and sit UNDER a boundary layer; deck re-resolves its layers on every styledata (the composed style's
+    // setStyle(diff) on a theme / sea-floor change), and getCanvas() is the map's — one canvas for capture.ts
     const o = new MapboxOverlay({
-      interleaved: false, layers: props.layers,
+      interleaved: true, layers: props.layers,
       getTooltip: (i) => cb.current.getTooltip(i),
       onClick: (i) => cb.current.onClick?.(i),
     });
     m.addControl(o);
-    map.current = m; overlay.current = o;
+    map.current = m; overlay.current = o; props.onOverlay?.(o);
     (window as any).__map = m; (window as any).__overlay = o; // spike: reachable from the console
     m.on("error", (e: any) => console.error("maplibre error", e?.error ?? e));
     m.once("load", () => requestAnimationFrame(() => cb.current.onFirstFrame?.()));
@@ -265,8 +275,17 @@ export function MapView(props: {
     const s = composeStyle(await baseStyle(cb.current.theme), cb.current.theme, cb.current.bathy, true, cb.current.boundaries);
     if (seq !== styleSeq.current || !map.current) return; // a newer theme/bathy superseded this compose mid-fetch
     m.setStyle(s, { diff: true }); // diff keeps it a handful of ops; a failed diff rebuilds from this same object — the layers survive either way
+    m.once("idle", applyLayers);   // D36: a beforeId that names a boundary layer becomes valid only once this style has landed
   };
-  useEffect(() => { overlay.current?.setProps({ layers: props.layers }); }, [props.layers]);
+  // D36: deck's interleaved groups are inserted with map.addLayer(group, beforeId), which throws — and drops the whole data
+  // layer — when the named layer is not in the style yet (the composed style lands after load, and again on every theme /
+  // sea-floor change). So a beforeId is passed only while its layer exists; the data layer draws on top until then
+  const applyLayers = () => {
+    const m = map.current, o = overlay.current; if (!m || !o) return;
+    const ls = cb.current.layers.map((l: any) => (l.props?.beforeId && !m.getLayer(l.props.beforeId) ? l.clone({ beforeId: undefined }) : l));
+    o.setProps({ layers: ls });
+  };
+  useEffect(() => { applyLayers(); }, [props.layers]);
   const boundsKey = props.boundaries.styles.map((s) => [s.id, s.color, s.fillOpacity, s.lineWidth].join("~")).join(",") +
     `|${props.boundaries.regionOutline}|${props.boundaries.defs.length}`;
   useEffect(() => { applyStyle(); }, [props.theme, props.bathy.parts.join(","), props.bathy.opacity, boundsKey]);

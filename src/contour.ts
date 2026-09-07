@@ -2,13 +2,13 @@
 // the map draws — a colour bitmap in Mercator-regular cells, isolines by marching squares, and the cell under the pointer.
 export type Method = "idw" | "ok" | "tps";
 export interface SurfaceGrid { lon0: number; lon1: number; latS: number; latN: number; nx: number; ny: number; cellDeg: number }
-export interface Fit { n: number; nCells: number; loo: number; ms: number; vg?: { nugget: number; psill: number; range: number }; edf?: number }
-export interface ContourReq { id: number; lon: Float64Array; lat: Float64Array; z: Float64Array; method: Method; cellDeg: number; maskKm: number; wantSe: boolean }
+export interface Fit { n: number; nCells: number; loo: number; ms: number; nmax: number; nLoo?: number; nFit?: number; phases?: Record<string, number>; vg?: { nugget: number; psill: number; range: number }; edf?: number }
+export interface ContourReq { id: number; lon: Float64Array; lat: Float64Array; z: Float64Array; method: Method; cellDeg: number; maskKm: number; wantSe: boolean; nmax: number }
 export type ContourReply =
-  | { id: number; kind: "value"; grid: SurfaceGrid; values: Float32Array; fit: Fit }
+  | { id: number; kind: "value"; grid: SurfaceGrid; values: Float32Array; dist: Float32Array; fit: Fit; se: Float32Array | null }
   | { id: number; kind: "se"; se: Float32Array | null; ms: number }
   | { id: number; kind: "error"; message: string };
-export interface Surface { grid: SurfaceGrid; values: Float32Array; se: Float32Array | null; seMs: number | null; fit: Fit; method: Method }
+export interface Surface { grid: SurfaceGrid; values: Float32Array; dist: Float32Array; se: Float32Array | null; seMs: number | null; fit: Fit; method: Method }
 
 let worker: Worker | null = null;
 let seq = 0;
@@ -18,18 +18,19 @@ function ensureWorker() {
   worker = new Worker(new URL("./contour.worker.ts", import.meta.url), { type: "module" });
   worker.onmessage = (e: MessageEvent<ContourReply>) => {
     const r = e.data, p = pending.get(r.id); if (!p) return;
-    if (r.kind === "value") p.resolve({ grid: r.grid, values: r.values, se: null, seMs: null, fit: r.fit, method: p.method });
+    if (r.kind === "value") { p.resolve({ grid: r.grid, values: r.values, dist: r.dist, se: r.se, seMs: r.se ? 0 : null, fit: r.fit, method: p.method }); if (r.se) pending.delete(r.id); }
     else if (r.kind === "se") { p.onSe(r.se, r.ms); pending.delete(r.id); }
     else { p.reject(new Error(r.message)); pending.delete(r.id); }
   };
   return worker;
 }
 /** interpolate z at (lon, lat) → resolves with the value surface; the error surface (when the method has one) arrives through onSe */
-export function computeSurface(pts: { lon: number; lat: number; z: number }[], method: Method, opts: { cellDeg?: number; maskKm?: number; wantSe?: boolean; onSe?: (se: Float32Array | null, ms: number) => void } = {}): Promise<Surface> {
+/** `nmax` > 0 = the local mode (the nmax nearest points per cell; the cast grain); 0 = every point in one system (the station grain) */
+export function computeSurface(pts: { lon: number; lat: number; z: number }[], method: Method, opts: { cellDeg?: number; maskKm?: number; wantSe?: boolean; nmax?: number; onSe?: (se: Float32Array | null, ms: number) => void } = {}): Promise<Surface> {
   const id = ++seq;
-  const req: ContourReq = { id, lon: Float64Array.from(pts, (p) => p.lon), lat: Float64Array.from(pts, (p) => p.lat), z: Float64Array.from(pts, (p) => p.z), method, cellDeg: opts.cellDeg ?? 0.06, maskKm: opts.maskKm ?? MASK_KM, wantSe: !!opts.wantSe };
+  const req: ContourReq = { id, lon: Float64Array.from(pts, (p) => p.lon), lat: Float64Array.from(pts, (p) => p.lat), z: Float64Array.from(pts, (p) => p.z), method, cellDeg: opts.cellDeg ?? 0.06, maskKm: opts.maskKm ?? MASK_KM, wantSe: !!opts.wantSe, nmax: opts.nmax ?? 0 };
   return new Promise((resolve, reject) => {
-    pending.set(id, { resolve: (s) => { resolve(s); if (!req.wantSe) pending.delete(id); }, reject, onSe: opts.onSe ?? (() => {}), method });
+    pending.set(id, { resolve: (s) => { resolve(s); if (!req.wantSe || s.se) pending.delete(id); }, reject, onSe: opts.onSe ?? (() => {}), method });
     ensureWorker().postMessage(req);
   });
 }
@@ -86,10 +87,12 @@ export function isolines(v: Float32Array, nx: number, ny: number, levels: number
   return out;
 }
 
+/** the surface fades out over the last EDGE_KM before the mask, so its edge is not a staircase of cells */
+export const EDGE_KM = 15;
 /** the surface as an RGBA canvas (row 0 = north); blank cells are transparent but borrow a neighbour's colour so linear filtering leaves no dark fringe */
-export function surfaceImage(v: Float32Array, nx: number, ny: number, color: (x: number) => [number, number, number, number], alpha = 235): HTMLCanvasElement {
+export function surfaceImage(v: Float32Array, nx: number, ny: number, color: (x: number) => [number, number, number, number], alpha = 235, dist?: Float32Array, maskKm = MASK_KM): HTMLCanvasElement {
   const img = new ImageData(nx, ny), d = img.data;
-  for (let o = 0; o < nx * ny; o++) { const x = v[o]; if (!Number.isFinite(x)) continue; const c = color(x); d[o * 4] = c[0]; d[o * 4 + 1] = c[1]; d[o * 4 + 2] = c[2]; d[o * 4 + 3] = alpha; }
+  for (let o = 0; o < nx * ny; o++) { const x = v[o]; if (!Number.isFinite(x)) continue; const c = color(x); const f = dist ? Math.min(1, Math.max(0, (maskKm - dist[o]) / EDGE_KM)) : 1; d[o * 4] = c[0]; d[o * 4 + 1] = c[1]; d[o * 4 + 2] = c[2]; d[o * 4 + 3] = Math.round(alpha * f); }
   for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
     const o = j * nx + i; if (d[o * 4 + 3]) continue;
     for (const q of [o - 1, o + 1, o - nx, o + nx]) if (q >= 0 && q < nx * ny && d[q * 4 + 3]) { d[o * 4] = d[q * 4]; d[o * 4 + 1] = d[q * 4 + 1]; d[o * 4 + 2] = d[q * 4 + 2]; break; }

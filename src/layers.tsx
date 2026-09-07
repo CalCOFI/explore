@@ -21,13 +21,18 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
   const setBathy = (next: BathyPart[]) => p.setSel({ bathy: next.length === BATHY_PARTS.length ? null : next });
   const toggleBathy = (x: BathyPart) => setBathy(BATHY_PARTS.filter((v) => (v === x ? !parts.includes(v) : parts.includes(v))));
 
-  const entries = p.sel.layers ?? [];
+  // the list holds the boundary layers AND the data layer (D36): `data` is a pseudo entry in `layers=` naming where the
+  // selection draws in the order; absent = on top, and a list whose first row is data is written without it
+  const DATA: LayerStyle = { id: "data", color: null, fillOpacity: null, lineWidth: null };
+  const stored = p.sel.layers ?? [];
+  const entries = stored.some((e) => e.id === "data") ? stored : [DATA, ...stored];
   const byId = new Map(p.defs.map((d) => [d.id, d]));
-  const setLayers = (ls: LayerStyle[]) => p.setSel({ layers: ls.length ? ls : null });
+  const setLayers = (ls: LayerStyle[]) => { const out = ls[0]?.id === "data" ? ls.slice(1) : ls; p.setSel({ layers: out.length ? out : null }); };
   const upd = (i: number, patch: Partial<LayerStyle>) => setLayers(entries.map((e, j) => (j === i ? { ...e, ...patch } : e)));
   const move = (i: number, to: number) => { if (to < 0 || to >= entries.length) return; const ls = entries.slice(); const [e] = ls.splice(i, 1); ls.splice(to, 0, e); setLayers(ls); };
   const remove = (i: number) => setLayers(entries.filter((_, j) => j !== i));
   const addLayer = (id: string) => setLayers([{ id, color: null, fillOpacity: null, lineWidth: null }, ...entries]); // a new layer lands ON TOP (D24)
+  const nBounds = entries.filter((e) => e.id !== "data").length;
   const [expanded, setExpanded] = useState<string | null>(null);
   const [openGroup, setOpenGroup] = useState<string | null>(null);
 
@@ -81,7 +86,7 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
         <label className="hint rev"><input type="checkbox" checked={ramp.reversed} disabled={!p.sel.data} onChange={(e) => setRamp(ramp.base, e.target.checked)} /> reverse</label>
         {p.sel.ramp && <button type="button" className="linkish" onClick={() => p.setSel({ ramp: null })}>default</button>}
       </div>
-      <div className="hint layers-note">draws above the sea floor and the boundary layers — ordering it below one is planned (needs the interleaved map overlay)</div>
+      <div className="hint layers-note">draws above the sea floor; its place among the boundary layers is the <b>Data</b> row under <i>On the map</i> — drag it below a boundary to draw under it</div>
 
       <label className="layers-row layers-main">
         <input type="checkbox" checked={on} onChange={() => setBathy(on ? [] : [...BATHY_PARTS])} />
@@ -100,9 +105,21 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
         <span className="hint">{o.toFixed(2)}</span>
       </label>
 
-      <h5 className="layers-h">On the map {entries.length ? <span className="hint">top first — drag or ▲ ▼ to reorder</span> : <span className="hint">nothing yet</span>}</h5>
+      <h5 className="layers-h">On the map {nBounds ? <span className="hint">top first — drag or ▲ ▼ to reorder</span> : <span className="hint">the data layer alone — add a boundary below</span>}</h5>
       <div ref={listRef} className="onmap">
-        {entries.map((st, i) => { const d = byId.get(st.id); if (!d) return <div key={st.id} className="onmap-row hint">{st.id} (not in this release's registry)</div>;
+        {entries.map((st, i) => { const d = byId.get(st.id);
+          if (st.id === "data") return (
+            <div key="data" className="onmap-row data">
+              <div className="onmap-head">
+                <span className="drag" title="drag to reorder" onPointerDown={onHandle(i)}><Icon name="ui-drag" size="0.9rem" /></span>
+                <span className="ramp-strip sm" style={{ background: rampCss(rampId), opacity: p.sel.data ? 1 : 0.35 }} />
+                <span className="onmap-name" title="the selection, as the lens draws it (stations, hexagons, the surface, polygons, the track)">Data{!p.sel.data && <span className="hint"> · off</span>}</span>
+                <button type="button" className="sm" aria-label="Move the data layer up" disabled={i === 0} onClick={() => move(i, i - 1)}><Icon name="ui-up" size="0.85rem" /></button>
+                <button type="button" className="sm" aria-label="Move the data layer down" disabled={i === entries.length - 1} onClick={() => move(i, i + 1)}><Icon name="ui-down" size="0.85rem" /></button>
+                <span className="sm" style={{ width: 22 }} />
+              </div>
+            </div>);
+          if (!d) return <div key={st.id} className="onmap-row hint">{st.id} (not in this release's registry)</div>;
           const open = expanded === st.id;
           return (
             <div key={st.id} className={`onmap-row${open ? " open" : ""}`}>
