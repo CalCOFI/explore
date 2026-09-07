@@ -90,6 +90,10 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
         <input type="checkbox" disabled={!p.sel.data} checked={p.sel.inputs ?? (p.sel.interp === "tps" || p.sel.grain === "station")} onChange={(e) => p.setSel({ inputs: e.target.checked })} />
         Inputs <span className="hint">the sites or stations the surface was fitted to</span>
       </label>}
+      {p.sel.lens === "contour" && <label className="layers-row layers-sub" title="the level written along each isoline (D44)">
+        <input type="checkbox" disabled={!p.sel.data} checked={p.sel.labels} onChange={(e) => p.setSel({ labels: e.target.checked })} />
+        Contour labels
+      </label>}
       <div className="hint layers-note">draws above the sea floor; its place among the boundary layers is the <b>Data</b> row under <i>On the map</i> — drag it below a boundary to draw under it</div>
 
       <label className="layers-row layers-main">

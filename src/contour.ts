@@ -114,6 +114,47 @@ export function isolines(v: Float32Array, nx: number, ny: number, levels: number
   return out;
 }
 
+/** the marching-squares segments of one level chained into polylines (grid coordinates), by shared endpoints */
+export function joinSegments(segs: [number, number, number, number][]): [number, number][][] {
+  const key = (x: number, y: number) => `${Math.round(x * 1000)},${Math.round(y * 1000)}`;
+  const ends = new Map<string, number[]>(); // endpoint key -> segment indices
+  segs.forEach((s, i) => { for (const k of [key(s[0], s[1]), key(s[2], s[3])]) { const a = ends.get(k); if (a) a.push(i); else ends.set(k, [i]); } });
+  const used = new Uint8Array(segs.length), out: [number, number][][] = [];
+  const grow = (line: [number, number][], atEnd: boolean) => {
+    for (;;) {
+      const p = atEnd ? line[line.length - 1] : line[0], cands = ends.get(key(p[0], p[1])) ?? [];
+      const i = cands.find((c) => !used[c]); if (i == null) return;
+      used[i] = 1; const s = segs[i];
+      const same = key(s[0], s[1]) === key(p[0], p[1]);
+      const q: [number, number] = same ? [s[2], s[3]] : [s[0], s[1]];
+      if (atEnd) line.push(q); else line.unshift(q);
+    }
+  };
+  for (let i = 0; i < segs.length; i++) {
+    if (used[i]) continue; used[i] = 1;
+    const line: [number, number][] = [[segs[i][0], segs[i][1]], [segs[i][2], segs[i][3]]];
+    grow(line, true); grow(line, false); out.push(line);
+  }
+  return out;
+}
+/** label positions along a level's polylines: one every `every` grid cells of length, none on a line shorter than half that; the
+ *  angle follows the line and stays upright (grid coordinates, row 0 = north, so the screen angle is the negative) */
+export function labelPoints(lines: [number, number][][], every: number): { x: number; y: number; angle: number }[] {
+  const out: { x: number; y: number; angle: number }[] = [];
+  for (const line of lines) {
+    const cum = [0]; for (let i = 1; i < line.length; i++) cum.push(cum[i - 1] + Math.hypot(line[i][0] - line[i - 1][0], line[i][1] - line[i - 1][1]));
+    const L = cum[cum.length - 1]; if (L < every / 2) continue;
+    const n = Math.max(1, Math.floor(L / every));
+    for (let k = 0; k < n; k++) {
+      const t = (L / n) * (k + 0.5); let i = 1; while (i < cum.length - 1 && cum[i] < t) i++;
+      const f = (t - cum[i - 1]) / Math.max(1e-9, cum[i] - cum[i - 1]), a = line[i - 1], b = line[i];
+      let angle = (Math.atan2(-(b[1] - a[1]), b[0] - a[0]) * 180) / Math.PI; // screen angle, y down in the grid
+      if (angle > 90) angle -= 180; if (angle < -90) angle += 180;      // upright
+      out.push({ x: a[0] + (b[0] - a[0]) * f, y: a[1] + (b[1] - a[1]) * f, angle });
+    }
+  }
+  return out;
+}
 /** the surface fades out over the last EDGE_KM before the mask, so its edge is not a staircase of cells */
 export const EDGE_KM = 15;
 /** the surface as an RGBA canvas (row 0 = north); blank cells are transparent but borrow a neighbour's colour so linear filtering leaves no dark fringe */

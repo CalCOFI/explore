@@ -6,7 +6,7 @@ import type { PickingInfo } from "@deck.gl/core";
 import { engine, timing, hexExpr, datasetFilterSql, type Mark, type Row } from "./engine";
 import { UNIFIED, members, setUnified, unifiedDefs } from "./variables";
 import { buildLayers, MapView, quantileDomain, colorScale, type GridCell, type StatRow, type LayerInputs } from "./map";
-import { computeSurface, surfaceImage, isolines, niceLevels, cellToLonLat, cellValue, landMask, MASK_KM, type Surface as SurfaceResult } from "./contour";
+import { computeSurface, surfaceImage, isolines, niceLevels, joinSegments, labelPoints, cellToLonLat, cellValue, landMask, MASK_KM, type Surface as SurfaceResult } from "./contour";
 import { LensPicker } from "./lenspicker";
 import type { MapboxOverlay } from "@deck.gl/mapbox";
 import { defaultRamp, rampCss } from "./ramps";
@@ -497,9 +497,14 @@ export function App() {
     const g = surf.grid, image = surfaceImage(surfVals, g.nx, g.ny, colorScale(legendDomain, 255, rampId), 235, surf.dist, MASK_KM);
     let lo = Infinity, hi = -Infinity;
     for (let i = 0; i < surfVals.length; i++) { const x = surfVals[i]; if (Number.isFinite(x)) { lo = Math.min(lo, x); hi = Math.max(hi, x); } }
-    const lines = isolines(surfVals, g.nx, g.ny, niceLevels(lo, hi, 8)).flatMap((l) => l.segs.map((s) => ({ path: [cellToLonLat(g, s[0], s[1]), cellToLonLat(g, s[2], s[3])], level: l.level })));
-    return { image, bounds: [g.lon0, g.latS, g.lon1, g.latN] as [number, number, number, number], lines, casts: surf.fit.nmax > 0 ? (castRows as any[]) : null, inputs: showInputs };
-  }, [displayLens, surf, surfVals, legendDomain, rampId, castRows, showInputs]);
+    const iso = isolines(surfVals, g.nx, g.ny, niceLevels(lo, hi, 8));
+    const lines = iso.flatMap((l) => l.segs.map((s) => ({ path: [cellToLonLat(g, s[0], s[1]), cellToLonLat(g, s[2], s[3])], level: l.level })));
+    // D44: one label about every 150 km along each isoline (the spacing in cells follows the cell size)
+    const every = Math.round(1.4 / g.cellDeg);
+    const fmtLevel = (v: number) => (sel.surface === "y0" || sel.surface === "y1" ? String(Math.round(v)) : v.toLocaleString(undefined, { maximumFractionDigits: 3 }));
+    const labels = sel.labels ? iso.flatMap((l) => labelPoints(joinSegments(l.segs), every).map((p) => ({ position: cellToLonLat(g, p.x, p.y), text: fmtLevel(l.level), angle: p.angle }))) : null;
+    return { image, bounds: [g.lon0, g.latS, g.lon1, g.latN] as [number, number, number, number], lines, labels, casts: surf.fit.nmax > 0 ? (castRows as any[]) : null, inputs: showInputs };
+  }, [displayLens, surf, surfVals, legendDomain, rampId, castRows, showInputs, sel.labels, sel.surface]);
 
   const layerInputs = useMemo((): LayerInputs => ({
     lens: displayLens, res: sel.res, stat: preSlice ? "n" : stat, grid, station: stationMap, hex: hexRows as any,
@@ -817,6 +822,7 @@ export function App() {
       <div className="row"><span className="hint">method</span><span className="seg">{INTERPS.map((m) => <button key={m} type="button" className={sel.interp === m ? "on" : ""} title={INTERP_HOW[m]} onClick={() => setSel({ interp: m, surface: m === "idw" && sel.surface === "se" ? "value" : sel.surface })}>{INTERP_LABEL[m]}</button>)}</span></div>
       <div className="row grain"><span className="hint">fitted to</span><span className="seg">{(["site", "station"] as Grain[]).map((g) => <button key={g} type="button" className={fitGrain === g ? "on" : ""} disabled={g === "site" && sel.interp === "tps"} title={GRAIN_HOW[g] + (g === "site" && sel.interp === "tps" ? " — not for the spline" : "")} onClick={() => setSel({ grain: g })}>{GRAIN_LABEL[g]}</button>)}</span></div>
       <label className="row" style={{ fontSize: 12 }} title="the points the surface was fitted to, drawn over it — every site as a pinprick, or the station grid sized by its observations (D43); also a row in the Layers card"><input type="checkbox" checked={showInputs} onChange={(e) => setSel({ inputs: e.target.checked === (fitGrain === "station") ? null : e.target.checked })} /> show the inputs ({fitGrain === "site" ? `${fmtN(castRows.length)} sites` : `${stationRows.length} stations`})</label>
+      <label className="row" style={{ fontSize: 12 }} title="the level written along each isoline, about every 150 km (D44); also a row in the Layers card"><input type="checkbox" checked={sel.labels} onChange={(e) => setSel({ labels: e.target.checked })} /> contour labels</label>
       <label className="f">surface<select value={sel.surface} onChange={(e) => setSel({ surface: e.target.value as Surface })}>{SURFACES.map((s) => <option key={s} value={s} disabled={s === "se" && sel.interp === "idw"}>{SURFACE_LABEL[s]}{s === "se" && sel.interp === "idw" ? " — not for IDW" : ""}</option>)}</select></label>
       <div className="hint fit">{surf ? <>{fmtN(surf.fit.n)} {surf.fit.nmax ? `sites (${surf.fit.nmax} nearest per cell)` : "stations"} → {fmtN(surf.fit.nCells)} cells of {surf.grid.cellDeg}° · leave-one-out RMSE <b>{fmt(surf.fit.loo)}</b> {legendUnit === "year" ? "years" : legendUnit ?? unitLabel}{surf.fit.vg ? ` · variogram: nugget ${fmt(surf.fit.vg.nugget)} · sill ${fmt(surf.fit.vg.nugget + surf.fit.vg.psill)} · range ${Math.round(surf.fit.vg.range)} km` : ""}{surf.fit.edf != null ? ` · ${surf.fit.edf.toFixed(1)} effective df` : ""}{surf.fit.nLoo && surf.fit.nLoo < surf.fit.n ? ` (LOO on ${surf.fit.nLoo}${surf.fit.nFit && surf.fit.nFit < surf.fit.n ? `, variogram on ${fmtN(surf.fit.nFit)}` : ""})` : ""} · {Math.round(surf.fit.ms)} ms{surf.seMs != null ? ` (+${Math.round(surf.seMs)} ms for the error surface)` : ""}</> : sel.lens === "contour" && lensReady ? "computing the surface…" : "…"} · blank beyond {MASK_KM} km of a point, and over land</div>
     </div>}
