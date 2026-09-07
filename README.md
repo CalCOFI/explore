@@ -57,8 +57,8 @@ says what the app does and how to work on it without needing them.
   kriging standard deviation, or the spline's standard error — IDW has none, it is a weighted average, not a model),
   the **observation density**, the **first / last year sampled**, the **5th / 95th percentiles** or their
   **spread** — each interpolated the same way from the station table (`sql/station.sql` now carries `p05` / `p95`).
-  **Contour labels** write the level along each isoline about every 150 km, rotated to follow it (on by default,
-  `labels=off`, a checkbox in the options and a row in the Layers card). The **inputs** (the sites or stations the surface was fitted to) are a layer of their own — *show the inputs* in the
+  **Contour labels** write the level along each isoline about every 150 km, rotated to follow it (`labels=on`, a checkbox in the
+  options and a row in the Layers card; off by default). The **inputs** (the sites or stations the surface was fitted to) are a layer of their own — *show the inputs* in the
   options and a row under *Data* in the Layers card, `inputs=on|off`; on by default for the 218 station dots, off for
   thousands of sites. The fit line under the method reports the
   **leave-one-out RMSE**, the variogram (nugget · sill · range) or the effective degrees of freedom, and the time it
