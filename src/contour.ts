@@ -155,6 +155,19 @@ export function labelPoints(lines: [number, number][][], every: number): { x: nu
   }
   return out;
 }
+/** greedy thinning: keep a label only when no kept label lies within `minDist` (grid cells) — a bucket hash, so it is O(n) */
+export function thinLabels<T extends { x: number; y: number }>(pts: T[], minDist: number): T[] {
+  const B = Math.max(1e-6, minDist), seen = new Map<string, T[]>(), out: T[] = [];
+  for (const p of pts) {
+    const bx = Math.floor(p.x / B), by = Math.floor(p.y / B); let clash = false;
+    for (let i = bx - 1; i <= bx + 1 && !clash; i++) for (let j = by - 1; j <= by + 1 && !clash; j++) {
+      for (const q of seen.get(`${i},${j}`) ?? []) if (Math.hypot(q.x - p.x, q.y - p.y) < minDist) { clash = true; break; }
+    }
+    if (clash) continue;
+    const k = `${bx},${by}`; const a = seen.get(k); if (a) a.push(p); else seen.set(k, [p]); out.push(p);
+  }
+  return out;
+}
 /** the surface fades out over the last EDGE_KM before the mask, so its edge is not a staircase of cells */
 export const EDGE_KM = 15;
 /** the surface as an RGBA canvas (row 0 = north); blank cells are transparent but borrow a neighbour's colour so linear filtering leaves no dark fringe */

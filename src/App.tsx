@@ -6,7 +6,7 @@ import type { PickingInfo } from "@deck.gl/core";
 import { engine, timing, hexExpr, datasetFilterSql, type Mark, type Row } from "./engine";
 import { UNIFIED, members, setUnified, unifiedDefs } from "./variables";
 import { buildLayers, MapView, quantileDomain, colorScale, type GridCell, type StatRow, type LayerInputs } from "./map";
-import { computeSurface, surfaceImage, isolines, niceLevels, joinSegments, labelPoints, cellToLonLat, cellValue, landMask, MASK_KM, type Surface as SurfaceResult } from "./contour";
+import { computeSurface, surfaceImage, isolines, niceLevels, joinSegments, labelPoints, thinLabels, cellToLonLat, cellValue, landMask, MASK_KM, type Surface as SurfaceResult } from "./contour";
 import { LensPicker } from "./lenspicker";
 import type { MapboxOverlay } from "@deck.gl/mapbox";
 import { defaultRamp, rampCss } from "./ramps";
@@ -498,13 +498,20 @@ export function App() {
     let lo = Infinity, hi = -Infinity;
     for (let i = 0; i < surfVals.length; i++) { const x = surfVals[i]; if (Number.isFinite(x)) { lo = Math.min(lo, x); hi = Math.max(hi, x); } }
     const iso = isolines(surfVals, g.nx, g.ny, niceLevels(lo, hi, 8));
-    const lines = iso.flatMap((l) => l.segs.map((s) => ({ path: [cellToLonLat(g, s[0], s[1]), cellToLonLat(g, s[2], s[3])], level: l.level })));
-    // D44: one label about every 150 km along each isoline (the spacing in cells follows the cell size)
-    const every = Math.round(1.4 / g.cellDeg);
+    // each level's line in a darkened ramp colour (55 % of the value colour), so the lines read against the surface
+    const lineColor = colorScale(legendDomain, 255, rampId);
+    const dark = (c: [number, number, number, number]): [number, number, number, number] => [c[0] * 0.55, c[1] * 0.55, c[2] * 0.55, 210];
+    const lines = iso.flatMap((l) => { const c = dark(lineColor(l.level)); return l.segs.map((s) => ({ path: [cellToLonLat(g, s[0], s[1]), cellToLonLat(g, s[2], s[3])], level: l.level, color: c })); });
+    // D44: labels by screen space — one per ~260 px of line, none on a line under 130 px, none within 70 px of another —
+    // so the density follows the zoom (recomputed when the map settles); years read as integers
+    const zoom = sel.map?.[2] ?? MAP_HOME[2], cellPx = (512 * 2 ** zoom * g.cellDeg) / 360;
+    const every = 260 / cellPx, minDist = 70 / cellPx;
     const fmtLevel = (v: number) => (sel.surface === "y0" || sel.surface === "y1" ? String(Math.round(v)) : v.toLocaleString(undefined, { maximumFractionDigits: 3 }));
-    const labels = sel.labels ? iso.flatMap((l) => labelPoints(joinSegments(l.segs), every).map((p) => ({ position: cellToLonLat(g, p.x, p.y), text: fmtLevel(l.level), angle: p.angle }))) : null;
+    const labels = sel.labels
+      ? thinLabels(iso.flatMap((l) => labelPoints(joinSegments(l.segs), every).map((p) => ({ ...p, text: fmtLevel(l.level) }))), minDist).map((p) => ({ position: cellToLonLat(g, p.x, p.y), text: p.text, angle: p.angle }))
+      : null;
     return { image, bounds: [g.lon0, g.latS, g.lon1, g.latN] as [number, number, number, number], lines, labels, casts: surf.fit.nmax > 0 ? (castRows as any[]) : null, inputs: showInputs };
-  }, [displayLens, surf, surfVals, legendDomain, rampId, castRows, showInputs, sel.labels, sel.surface]);
+  }, [displayLens, surf, surfVals, legendDomain, rampId, castRows, showInputs, sel.labels, sel.surface, sel.map?.[2]]);
 
   const layerInputs = useMemo((): LayerInputs => ({
     lens: displayLens, res: sel.res, stat: preSlice ? "n" : stat, grid, station: stationMap, hex: hexRows as any,

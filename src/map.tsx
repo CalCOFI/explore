@@ -52,7 +52,7 @@ export interface LayerInputs {
   region: { features: any[]; stats: Map<string, StatRow & { spatial_name: string }>; stationTo: Map<string, string>; centroid: Map<string, [number, number]>; selected: string | null };
   cruise: { track: { path: [number, number][]; ts: number[] } | null; samples: (StatRow & { latitude: number; longitude: number; grid_key: string })[]; time: number };
   section: { line: number; cruiseStations: Set<string> };
-  contour: { image: HTMLCanvasElement; bounds: [number, number, number, number]; lines: { path: [number, number][]; level: number }[]; labels: { position: [number, number]; text: string; angle: number }[] | null; casts: { longitude: number; latitude: number; n: number }[] | null; inputs: boolean } | null; // the interpolated surface (lens = contour); inputs = draw the fitted points at all (D43); casts = the inputs at the site grain
+  contour: { image: HTMLCanvasElement; bounds: [number, number, number, number]; lines: { path: [number, number][]; level: number; color: [number, number, number, number] }[]; labels: { position: [number, number]; text: string; angle: number }[] | null; casts: { longitude: number; latitude: number; n: number }[] | null; inputs: boolean } | null; // the interpolated surface (lens = contour); inputs = draw the fitted points at all (D43); casts = the inputs at the site grain
   duration: number;
   domain: [number, number];
   ramp: string | null;        // the colour ramp id (ramps.ts); null = viridis
@@ -164,15 +164,18 @@ export function buildLayers(inp: LayerInputs): Layer[] {
     layers.push(new BitmapLayer({
       id: "surface", image: inp.contour.image, bounds: inp.contour.bounds, opacity: 0.88 * opacity, pickable: true,
     }));
+    // the isolines take a darkened version of the ramp colour at their level, so they stand out of the surface without
+    // fighting it (Ben, 2026-09-07); the labels are white on a dark halo — the one thing on the map that is white text
     layers.push(new PathLayer({
-      id: "isolines", opacity, data: inp.contour.lines, getPath: (d: any) => d.path, getColor: [20, 20, 30, 140],
-      widthMinPixels: 1, widthUnits: "pixels", getWidth: 1, capRounded: true,
+      id: "isolines", opacity, data: inp.contour.lines, getPath: (d: any) => d.path, getColor: (d: any) => d.color,
+      widthMinPixels: 1.2, widthUnits: "pixels", getWidth: 1.2, capRounded: true, jointRounded: true,
+      updateTriggers: { getColor: [inp.ramp, inp.domain] },
     }));
     // contour labels (D44): the level along each isoline, rotated to follow it, a halo so it reads on any colour
     if (inp.contour.labels) layers.push(new TextLayer({
       id: "isolabels", opacity, data: inp.contour.labels, getPosition: (d: any) => d.position, getText: (d: any) => d.text, getAngle: (d: any) => d.angle,
-      getSize: 12, getColor: [25, 25, 35, 240], // deck's default font: any custom fontFamily left the atlas empty here (boxes, no glyphs)
-      background: true, getBackgroundColor: [255, 255, 255, 190], backgroundPadding: [3, 1, 3, 1],
+      getSize: 12, getColor: [255, 255, 255, 245], // deck's default font: any custom fontFamily left the atlas empty here (boxes, no glyphs)
+      fontSettings: { sdf: true, fontSize: 48, buffer: 6, radius: 8 }, outlineWidth: 3, outlineColor: [20, 20, 30, 230],
       getTextAnchor: "middle", getAlignmentBaseline: "center", billboard: true, pickable: false,
     }));
     // the site grain: every input at its own position, a pinprick each — where the surface has evidence
