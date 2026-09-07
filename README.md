@@ -118,6 +118,10 @@ CalCOFI/workflows for how the tiles are built.
   feedback* and *SQL & timing* live there too. Every panel's bar has its own ⬇ (PNG · SVG · CSV), and the
   map's ⬇ in its top-right row exports the map with its title (PNG) or the table the lens draws
   (CSV) — the map is WebGL, so it has no SVG.
+- **Nothing lingers after a lens change.** Switching from Stations to Hexagons travels the station dots to their
+  hexagon centres and fades them out as they arrive (the pooling in one move); every other lens change is a short
+  cross-fade in place, so a lens never carries dots it does not explain — Sections keeps only its line's stations,
+  Contours only the optional inputs, Cruises only its own sampled dots and track.
 - **Feedback** (*Help → Send feedback*) captures the view, lets you mark it up (arrow, circle, rectangle, pen,
   text; yellow, blue or hot pink) and sends it with your note, the view URL, release, viewport and theme
   to the team — by mail with the screenshot inline, to a Sheet, and as a public issue in this repo

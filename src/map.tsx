@@ -96,34 +96,29 @@ export function buildLayers(inp: LayerInputs): Layer[] {
   };
   const dotColor = (c: GridCell): [number, number, number, number] => {
     if (lens === "station") return color(statOf(inp.station.get(c.grid_key), stat));
+    // Ben (2026-09-07): a dot that stays after the morph is a "phantom station" no legend explains. So the dots FADE OUT as
+    // they arrive — Stations → Hexagons still travels to the hexagon centre (the pooling, in one move) but lands transparent;
+    // Regions and Cruises fade in place (the cruise's own sampled dots are the cruise-samples layer)
     if (lens === "hex") {
       const cell = latLngToCell(c.home[1], c.home[0], inp.res);
       const col = color(statOf(hexStat.get(cell), stat));
-      return [col[0], col[1], col[2], 160];
+      return [col[0], col[1], col[2], 0];
     }
-    if (lens === "region") {
-      const sk = inp.region.stationTo.get(c.grid_key);
-      if (!sk) return [140, 140, 140, 40];
-      const col = color(statOf(inp.region.stats.get(sk), stat));
-      return [col[0], col[1], col[2], 120];
-    }
-    if (lens === "cruise") {
-      return inp.section.cruiseStations.has(c.grid_key) ? [230, 230, 230, 120] : [140, 140, 140, 35];
-    }
+    if (lens === "region" || lens === "cruise") return [140, 140, 140, 0];
     // contour: the surface carries the colour; a dot is an input — white, sized by how much it holds, faint when it holds nothing
     if (lens === "contour") return !inp.contour?.inputs || inp.contour?.casts ? [0, 0, 0, 0] : inp.station.get(c.grid_key) ? [255, 255, 255, 210] : [140, 140, 140, 40];
-    // section: the line's stations highlight, the rest dim
-    return c.line === inp.section.line ? [255, 214, 10, 230] : [140, 140, 140, 35];
+    // section: the line's stations highlight, the rest fade out
+    return c.line === inp.section.line ? [255, 214, 10, 230] : [140, 140, 140, 0];
   };
   const dotRadius = (c: GridCell): number => {
     if (lens === "station") {
       const r = inp.station.get(c.grid_key);
       return r ? 3 + Math.min(7, Math.sqrt(r.n) / 4) : 2;
     }
-    if (lens === "section") return c.line === inp.section.line ? 6 : 2;
+    if (lens === "section") return c.line === inp.section.line ? 6 : 0;
     if (lens === "contour") { if (!inp.contour?.inputs || inp.contour?.casts) return 0; const r = inp.station.get(c.grid_key); return r ? 2 + Math.min(4, Math.sqrt(r.n) / 5) : 1.5; }
-    if (lens === "cruise") return inp.section.cruiseStations.has(c.grid_key) ? 4 : 2;
-    return 3;
+    if (lens === "cruise" || lens === "region") return 0;
+    return 3; // hex: the dots keep their size while they travel and fade
   };
 
   // regions: polygons under the dots
@@ -222,7 +217,7 @@ export function buildLayers(inp: LayerInputs): Layer[] {
     getPosition: dotTarget,
     getFillColor: dotColor,
     getRadius: dotRadius,
-    stroked: lens !== "contour" || (!!inp.contour?.inputs && !inp.contour?.casts), lineWidthMinPixels: 0.5,
+    stroked: lens === "station" || lens === "section" || (lens === "contour" && !!inp.contour?.inputs && !inp.contour?.casts), lineWidthMinPixels: 0.5,
     getLineColor: (c: GridCell) => (c.grid_key === inp.selectedStation ? [255, 214, 10, 255] : [0, 0, 0, 90]),
     getLineWidth: (c: GridCell) => (c.grid_key === inp.selectedStation ? 3 : 1), lineWidthUnits: "pixels",
     updateTriggers: { getPosition: [lens, inp.res, inp.region.stationTo], getFillColor: [lens, inp.res, stat, inp.domain, inp.ramp, inp.station, inp.hex, inp.region.stats, inp.section, inp.contour?.inputs, !!inp.contour?.casts], getRadius: [lens, inp.station, inp.section, inp.contour?.inputs, !!inp.contour?.casts], getLineColor: [inp.selectedStation], getLineWidth: [inp.selectedStation] },
