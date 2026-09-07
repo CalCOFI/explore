@@ -960,7 +960,7 @@ export function App() {
     <button className="pill act" onClick={() => { if (advanced && !minCards.timing) setAdvanced(false); else { setAdvanced(true); openCard("timing"); } }} aria-pressed={advanced} title="the timing marks and the SQL behind the view"><Icon name="ui-sql" />SQL &amp; timing</button>
   </div>;
   const selectBody = <>
-    <div className="tabs" role="tablist" aria-label="Controls">{(["select", "refine", "share"] as Tab[]).map((t) => <button key={t} type="button" role="tab" aria-selected={tab === t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}><Icon name={t === "select" ? "ui-data" : t === "refine" ? "ui-filter" : "ui-share"} />{t === "select" ? "Select" : t === "refine" ? "Refine" : "Share"}</button>)}</div>
+    <div className="tabs" role="tablist" aria-label="Controls">{(["select", "refine", "share"] as Tab[]).map((t, i) => <button key={t} type="button" role="tab" aria-selected={tab === t} className={tab === t ? "on" : ""} onClick={() => setTab(t)} title={`step ${i + 1} of 3`}><span className="step" aria-hidden="true">{i + 1}</span><Icon name={t === "select" ? "ui-data" : t === "refine" ? "ui-filter" : "ui-share"} />{t === "select" ? "Select" : t === "refine" ? "Refine" : "Share"}</button>)}</div>
     <div className={`tab-body tab-${tab}`} data-tour={tab === "refine" ? "filters" : undefined}>{tab === "select" ? selectTab : tab === "refine" ? refineTab : shareTab}</div>
   </>;
   const depthBody = (wide: boolean) => <DepthStrip rows={depthRows} band={sel.depth} theme={theme} unit={unitLabel} empty={depthEmpty} onBand={(b) => setSel({ depth: b ?? [0, 500] })} byDataset={wide && depthDs.length ? { rows: depthDs, color: dsColor, short } : null} />;
@@ -1107,6 +1107,15 @@ export function App() {
       {sel.datasets && <> · <button type="button" className="linkish" onClick={() => setSel({ datasets: null })}>all datasets</button></>}</div>}
     {!preSlice && !emptyResult && sel.realm === "bio" && denInfo(sel.den ?? "raw").excluded > 0 && <div className="hint legend-empty">{fmtN(denInfo(sel.den ?? "raw").excluded)} observations excluded by the standardization</div>}
   </>;
+  // the status has its own place over the map (the sentence's legend used to carry it in a tucked-away hint): a pill above the
+  // Time panel with a spinner while something is in flight ("engine warming…", "building slice…"), the transient notes
+  // ("saved …png", "link copied") for a few seconds, an error until the next change
+  const busy = !lensReady || status.endsWith("…");
+  useEffect(() => {
+    if (status === "ready" || busy || /^error|failed|blank/.test(status)) return;
+    const t = setTimeout(() => setStatus("ready"), 5000); return () => clearTimeout(t);
+  }, [status, busy]);
+  const statusToast = status !== "ready" && status !== "grid (static)" ? <div className={`status-toast${busy ? " busy" : ""}${/error|failed/.test(status) ? " err" : ""}`} role="status" aria-live="polite">{busy && <span className="spin" />}{status}</div> : null;
   const sentence = !phone && <Sentence sel={sel} setSel={setSel} onLens={onLens} organismItems={organismItems} organismGroups={organismGroups} variableItems={variableItems} variableGroups={variableGroups}
     sectionCruiseItems={sectionCruiseItems} cruiseItems={cruiseItems} lines={lines} layerNames={layerNames} regionName={regionName} stages={stages} denRows={(d) => denInfo(d).rows} defaultDen={(s) => defaultDen(picker, s)}
     years={years} yearMax={yearMax} hasDepthAxis={depthAvail} hasClim={hasClim(catalog)} climWindow={climWindow} datasetsInSlice={datasetsInSlice} dsOn={dsOn} toggleDataset={toggleDataset} dsColor={dsColor} short={short}
@@ -1175,6 +1184,7 @@ export function App() {
                 onClick={() => setSel({ view3d: !sel.view3d })}>{sel.view3d ? "2D" : "3D"}</button>}
           </div>
           {sentence}
+          {!phone && statusToast}
           {phone && <div className="map-tl">
             <div className="legend" data-tour="legend">
               <div className="ttl">{legendTitle}</div>

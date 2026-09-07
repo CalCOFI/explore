@@ -58,7 +58,7 @@ says what the app does and how to work on it without needing them.
   the **observation density**, the **first / last year sampled**, the **5th / 95th percentiles** or their
   **spread** — each interpolated the same way from the station table (`sql/station.sql` now carries `p05` / `p95`).
   The isolines take a darkened version of the ramp colour at their level, so they stand out of the surface without
-  fighting it. **Contour labels** (`labels=on`, a checkbox in the options and a row in the Layers card; off by default)
+  fighting it. **Contour labels** (on by default; `labels=off`, a checkbox in the options and a row in the Layers card)
   write the level along each isoline in white on a dark halo, rotated to follow it, one per ~260 px of line and never
   within 70 px of another, so their density follows the zoom. The **inputs** (the sites or stations the surface was fitted to) are a layer of their own — *show the inputs* in the
   options and a row under *Data* in the Layers card, `inputs=on|off`; on by default for the 218 station dots, off for

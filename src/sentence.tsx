@@ -131,9 +131,12 @@ export function Sentence(c: SentenceCtx) {
   if (sel.datasets || c.open) { w(" · "); chip("datasets", nOn === nDs ? `all ${nDs} datasets` : `${nOn} of ${nDs} datasets`, datasetsPop); }
   w(".");
 
+  // the legend reads the scale and the count; the STATUS is not here any more — it has its own toast over the map (App.tsx), where
+  // a newcomer waiting on "engine warming…" will see it. The title stands above the legend, never beside it: a mouthful of a
+  // sentence squeezed into a column beside an unwrapping legend was the 2026-09-07 bug.
   const legend = <span className="ts-legend" data-tour="legend">
     <span>{c.domain[0]}</span><span className="bar" style={{ background: c.bar }} /><span>{c.domain[1]} {c.unit}</span>
-    <span className="hint">· 5–95 % · {c.ready ? `${fmtN(c.count)} observations${c.status !== "ready" ? ` · ${c.status}` : ""}` : c.status}</span>
+    <span className="hint">· 5–95 %{c.ready ? ` · ${fmtN(c.count)} observations` : ""}</span>
   </span>;
   return (
     <div className={`sentence${c.open ? " open" : ""}`} data-tour="sentence" style={c.band}>
@@ -141,11 +144,13 @@ export function Sentence(c: SentenceCtx) {
         {c.open ? <>
           <div className="ts-sent">{parts.map((p, i) => typeof p === "string" ? <span key={i} className="w">{p}</span> : <span key={p.key} className="ts-chip">{p.control ? p.control() : <span className="sc static">{p.text}</span>}</span>)}</div>
           <div className="ts-foot">{legend}<span className="sp" /><span className="hint">the same pickers as the Controls panel — change a part, the map follows</span><IconButton icon="ui-up" label="Done — back to the title" className="ts-toggle" onClick={c.onToggle} data-tour="sentence-toggle" /></div>
-        </> : <div className="ts-row">
-          <span className="ts-text">{parts.map((p, i) => typeof p === "string" ? p : p.bold ? <b key={p.key}>{p.text}</b> : <span key={p.key}>{p.text}</span>)}</span>
-          {legend}
-          <IconButton icon="ui-down" label="Change what the map shows" className="ts-toggle" onClick={c.onToggle} data-tour="sentence-toggle" />
-        </div>}
+        </> : <>
+          <div className="ts-row">
+            <span className="ts-text">{parts.map((p, i) => typeof p === "string" ? p : p.bold ? <b key={p.key}>{p.text}</b> : <span key={p.key}>{p.text}</span>)}</span>
+            <IconButton icon="ui-down" label="Change what the map shows" className="ts-toggle" onClick={c.onToggle} data-tour="sentence-toggle" />
+          </div>
+          <div className="ts-legend-row">{legend}</div>
+        </>}
         {c.extra && <div className="ts-extra">{c.extra}</div>}
       </div>
     </div>);

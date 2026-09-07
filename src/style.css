@@ -525,7 +525,8 @@ a.lic:hover { color: var(--accent); border-color: var(--accent); }
 .ts-text { font-size: 14px; line-height: 1.3; min-width: 0; flex: 1 1 auto; }
 .ts-extra { display: flex; flex-direction: column; gap: 2px; padding: 0 0 2px; }
 .ts-text b { font-weight: 700; }
-.ts-legend { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm, 11px); color: var(--muted); border-left: 1px solid var(--border); padding-left: 10px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ts-legend { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--fs-sm, 11px); color: var(--muted); font-variant-numeric: tabular-nums; }
+.ts-legend-row { display: flex; align-items: center; margin-top: 4px; }
 .ts-legend .bar { width: 80px; height: 8px; border-radius: 3px; }
 .ts-toggle.cc-icon-button { color: var(--accent); background: var(--tint); border-radius: 6px; width: 1.65rem; height: 1.65rem; }
 .ts-toggle.cc-icon-button:hover { background: var(--accent); color: var(--on-accent, white); }
@@ -667,3 +668,15 @@ a.lic:hover { color: var(--accent); border-color: var(--accent); }
 .lens-strip .lenspick { gap: 0; }
 .lens-strip .lenspick { position: relative; }
 .lens-strip .lenspick-list { position: fixed; left: 8px; right: 8px; bottom: 124px; z-index: var(--z-menu); box-shadow: 0 6px 24px color-mix(in srgb, var(--fg) 25%, transparent); } /* the sheet clips overflow: float the list over the map */
+
+/* the status toast: over the map above the Time panel; a spinner while something is in flight */
+.status-toast { position: absolute; left: 50%; bottom: 168px; transform: translateX(-50%); z-index: var(--z-pills); display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 999px; background: color-mix(in srgb, var(--panel-2) 96%, transparent); border: 1px solid var(--border); color: var(--fg); font-size: 12px; box-shadow: 0 6px 22px color-mix(in srgb, var(--fg) 18%, transparent); pointer-events: none; max-width: min(80%, 560px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status-toast.busy { color: var(--accent); font-weight: 600; }
+.status-toast.err { color: var(--warn); }
+.status-toast .spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--accent) 30%, transparent); border-top-color: var(--accent); animation: cc-spin 0.9s linear infinite; flex: none; }
+@keyframes cc-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .status-toast .spin { animation: none; } }
+
+/* the Controls tabs read as a sequence: a small step badge before each (Ben, 2026-09-07) — the active step fills */
+.tabs button .step { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 50%; font-size: 9.5px; font-weight: 700; line-height: 1; color: var(--muted); border: 1.5px solid currentColor; font-variant-numeric: tabular-nums; margin-right: 1px; }
+.tabs button.on .step { background: var(--accent); border-color: var(--accent); color: var(--on-accent, white); }
