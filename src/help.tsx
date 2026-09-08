@@ -47,7 +47,7 @@ export function Modal(p: { id: string; title: ReactNode; icon?: IconName; onClos
 /** a welcome question: a real view, as the URL query the app already understands */
 export interface WelcomeQuestion { q: string; how: string; icon: IconName; query: (yearMax: number) => string }
 export const QUESTIONS: WelcomeQuestion[] = [
-  { q: "How did the water along line 90 compare with normal on the latest cruise?", how: "Sections · temperature · line 90 · the newest cruise · vs the 1993–2013 normal", icon: "lens-sections",
+  { q: "How did the water along line 90 compare with normal on the latest cruise?", how: "Sections · a depth section of temperature · line 90 · the newest cruise · vs the 1993–2013 normal", icon: "lens-sections",
     query: () => "lens=section&var=temperature&line=90&anom=1" },
   { q: "Where do sardine larvae turn up in spring?", how: "Hexagons · Pacific sardine · larvae · April–June · all years", icon: "lens-hexagons",
     query: () => "lens=hex&res=5&taxon=worms:217452&stage=larva&den=per_10m2&q=2" },
@@ -91,7 +91,9 @@ export function Welcome(p: { release: string; yearMax: number; nOrganisms: numbe
   );
 }
 
-export function About(p: { release: string; nTables?: number; datasets: Row[]; cov: Coverage | null; onClose: () => void; short: (dk: string) => string; onTour: () => void; onFeedback: () => void; onSources: () => void; providerTable?: Map<string, string> | null; at?: string | null }) {
+// no Feedback action in the About dialog any more: the speech bubble in the header (immediately left of the
+// theme toggle, and visible on the phone layout too) is the one place feedback lives — a second door was a duplicate.
+export function About(p: { release: string; nTables?: number; datasets: Row[]; cov: Coverage | null; onClose: () => void; short: (dk: string) => string; onTour: () => void; onSources: () => void; providerTable?: Map<string, string> | null; at?: string | null }) {
   // Help ▾ → Keyboard opens the modal on that section
   useEffect(() => { if (p.at) setTimeout(() => document.getElementById(`about-${p.at}`)?.scrollIntoView({ block: "start" }), 0); }, []);
   const span = (dk: string) => { const d = p.cov?.datasets.find((x) => x.dataset_key === dk); return d ? (d.year_min != null ? `${d.year_min}–${d.year_max}` : "no dates (region-pooled)") : ""; };
@@ -99,11 +101,12 @@ export function About(p: { release: string; nTables?: number; datasets: Row[]; c
   const ds = p.datasets.slice().sort((a, b) => categoryRank(a.category) - categoryRank(b.category) || String(a.dataset_name_short).localeCompare(String(b.dataset_name_short)));
   return (
     <Modal id="about" title="About the CalCOFI Explorer" icon="ui-about" onClose={p.onClose} wide
-      actions={<><button type="button" className="btn" onClick={p.onFeedback}><Icon name="ui-feedback" /> Feedback</button><button type="button" className="btn" onClick={p.onSources} data-tour="about-sources"><Icon name="ui-cite" /> Data Sources &amp; Attribution</button><button type="button" className="btn" onClick={p.onTour}><Icon name="ui-help" /> Tour</button><button type="button" className="btn primary" onClick={p.onClose}>Close</button></>}>
+      actions={<><button type="button" className="btn" onClick={p.onSources} data-tour="about-sources"><Icon name="ui-cite" /> Data Sources &amp; Attribution</button><button type="button" className="btn" onClick={p.onTour}><Icon name="ui-help" /> Tour</button><button type="button" className="btn primary" onClick={p.onClose}>Close</button></>}>
       <p>The explorer is one browser-native app over the <a href="https://calcofi.io/docs/" target="_blank" rel="noopener">integrated CalCOFI database</a>: sixteen datasets —
         hydrography, ichthyoplankton, zooplankton, seabirds and mammals, carbonate chemistry, weather — projected into one <code>obs</code> / <code>sample</code>
         core and read here through six <b>lenses</b> (stations, hexagons, contours, cruises, regions, sections). The SQL runs in your browser (DuckDB-WASM), so no server
-        stands between you and the release.</p>
+        stands between you and the release. A <b>section</b> cuts one CalCOFI line: for an ocean variable it is a <b>depth section</b> down the water column on one cruise
+        (with the 3-D curtain beside it); for an organism the tows are depth-integrated, so it is a <b>station-by-year</b> section across all cruises.</p>
       <h5 id="about-layers"><Icon name="ui-map-layers" /> Map layers</h5>
       <p>The sea floor under every lens is <a href="https://www.gebco.net/" target="_blank" rel="noopener">GEBCO 2025</a> — shaded
         relief, depth colour and isobaths, rendered in your browser from terrain tiles at
@@ -131,7 +134,7 @@ export function About(p: { release: string; nTables?: number; datasets: Row[]; c
       <h5 id="about-credits"><Icon name="ui-open" /> Credits</h5>
       <p className="hint">Data: CalCOFI (SIO, NOAA SWFSC, CDFW), CCE LTER, the Farallon Institute and the providers above, each with its own citation in <button type="button" className="linkish" onClick={p.onSources}>Data Sources &amp; Attribution</button> and in the download bundle.
         Built by Ben Best (EcoQuants) for CalCOFI with MapLibre GL, deck.gl, DuckDB-WASM and Plotly; basemap © CARTO © OpenStreetMap contributors.
-        Better on a computer — nothing should fail on a phone; if it does, the feedback button tells us.
+        Better on a computer — nothing should fail on a phone; if it does, the feedback button in the header (the speech bubble beside the theme toggle) tells us.
         Source: <a href="https://github.com/CalCOFI/explore" target="_blank" rel="noopener">github.com/CalCOFI/explore</a> · <a href="https://calcofi.io/docs/" target="_blank" rel="noopener">docs</a> · <a href="https://calcofi.io/db-schema/" target="_blank" rel="noopener">schema</a> · <a href="https://calcofi.io/db-query/" target="_blank" rel="noopener">query</a>.</p>
     </Modal>
   );

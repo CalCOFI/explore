@@ -122,7 +122,10 @@ export function Sentence(c: SentenceCtx) {
   else if (sel.lens === "cruise") { chip("lens", "along a cruise track", () => lensMenu("along a cruise track")); w(": "); chip("cruise", cruiseLabel(c.cruiseItems), () => cruiseChip(c.cruiseItems, "ts-cruise")); }
   else if (sel.lens === "region") { chip("lens", "within regions", () => lensMenu("within regions")); w(": "); chip("layer", sel.layer, layerMenu); if (c.regionName) { w(" · "); chip("region", c.regionName, regionMenu); } }
   else {
-    chip("lens", "as a section along line", () => lensMenu("as a section along line")); w(" "); chip("line", String(sel.line), lineMenu);
+    // the section's y-axis is the realm: env cuts DEPTH on one cruise, bio has no depth (the tows are
+    // depth-integrated) and cuts YEARS, so the sentence names the axis rather than saying "a section" twice over
+    const sectionWord = sel.realm === "env" ? "as a depth section along line" : "as a station-by-year section along line";
+    chip("lens", sectionWord, () => lensMenu(sectionWord)); w(" "); chip("line", String(sel.line), lineMenu);
     if (sel.realm === "env") { w(" on cruise "); chip("cruise", cruiseLabel(c.sectionCruiseItems), () => cruiseChip(c.sectionCruiseItems, "ts-section-cruise")); if (c.hasClim) { w(", "); chip("anom", sel.anom ? `shown as the difference from the ${climWord} normal` : "shown as measured", anomMenu); } }
     else w(" across all cruises");
   }

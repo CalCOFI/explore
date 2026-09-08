@@ -867,7 +867,12 @@ export function App() {
     {sel.lens === "section" && <div className="opt">
       <div className="row">
         <label className="f">line<select value={sel.line} onChange={(e) => setSel({ line: +e.target.value, cruise: null })}>{lines.map((l) => <option key={l} value={l}>{l}</option>)}</select></label>
-        <Picker id="section-cruise" label="cruise" hint="newest first" value={sel.cruise ?? ""} items={sectionCruiseItems} onChange={(k) => setSel({ cruise: k })} sorts={["recent", "n"]} countLabel="stations" placeholder="search YYYY-MM-NODC…" loading={sectionCruises.length ? null : "…"} native={native} sheet={phone} />
+        {/* a cruise picks the ENV section: one occupation of the line, depth down the y-axis. A bio section has no
+            depth axis (the tows are depth-integrated), so it runs station x year across every cruise — offering a
+            cruise there would be a control that changes nothing */}
+        {sel.realm === "env"
+          ? <Picker id="section-cruise" label="cruise" hint="newest first" value={sel.cruise ?? ""} items={sectionCruiseItems} onChange={(k) => setSel({ cruise: k })} sorts={["recent", "n"]} countLabel="stations" placeholder="search YYYY-MM-NODC…" loading={sectionCruises.length ? null : "…"} native={native} sheet={phone} />
+          : <span className="hint">all cruises · the tows are depth-integrated, so the y-axis is the year</span>}
       </div>
       {sel.realm === "env" && <label className="row" style={{ fontSize: 12 }} title={hasClim(catalog) ? `a departure from the release's climatology: this station, the cast's calendar month, this 10 m depth bin, ${climWindow ? `${climWindow[0]}–${climWindow[1]}` : "1993–2013"}, at least 3 cruises — the same table ctd-transects subtracts` : "this release carries no climatology table (releases from v2026.09 do)"}><input type="checkbox" checked={sel.anom && hasClim(catalog)} disabled={!hasClim(catalog)} onChange={(e) => setSel({ anom: e.target.checked })} /> difference from the {climWindow ? `${climWindow[0]}–${climWindow[1]}` : "1993–2013"} normal</label>}
     </div>}
@@ -993,7 +998,7 @@ export function App() {
   const yearsBody = <YearStrip rows={yearRows} monthRows={monthRows} onNeedMonths={setNeedMonths} years={years} months={sel.months} yearMax={yearMax} theme={theme} mode={seriesMode} unit={unitLabel} stat={stat} log={ylog}
     view={sel.yview} onView={(v) => setSel({ yview: v })} onYears={(y, m) => setSel({ years: y ?? [1949, YEAR_OPEN], months: y ? m ?? null : null })} gantt={gantt} />;
   const sectionBody = <SectionPlot cells={sectionCells} clim={climCells} anom={sel.anom && sel.realm === "env" && !!climCells} yLabel={sel.realm === "env" ? "depth (m)" : "year"} theme={theme} unit={unitLabel}
-    title={`line ${sel.line} · ${sel.realm === "env" ? `cruise ${sel.cruise ?? "—"}${sel.anom && climCells ? ` · the difference from the ${climWindow ? `${climWindow[0]}–${climWindow[1]}` : "1993–2013"} normal` : ""}` : "all cruises · tows are depth-integrated, so y is year"}`} />;
+    title={`line ${sel.line} · ${sel.realm === "env" ? `depth section · cruise ${sel.cruise ?? "—"}${sel.anom && climCells ? ` · the difference from the ${climWindow ? `${climWindow[0]}–${climWindow[1]}` : "1993–2013"} normal` : ""}` : "station by year · all cruises · the tows are depth-integrated, so the axis is year"}`} />;
   const cruiseBody = <CruiseSeries rows={cruiseRows} stat={stat} selected={sel.cruise} theme={theme} unit={unitLabel} onPick={(k) => setSel({ cruise: k })} />;
   const stationBody = <StationCard summary={stationCard?.summary} detail={stationCard?.detail} theme={theme} short={short} yearMax={yearMax} />;
   const layersBody = <LayersCard sel={sel} setSel={setSel} theme={theme} defs={spatialLayers.layers} />;
@@ -1017,12 +1022,14 @@ export function App() {
     </tbody></table>
     <pre>{lastSql}</pre>
   </div>;
+  // the section card says WHICH section it is: env cuts depth on one cruise, bio (depth-integrated tows) cuts years
+  const sectionSub = sel.realm === "env" ? `· depth along line ${sel.line}${sel.cruise ? ` · ${sel.cruise}` : ""}` : `· by year along line ${sel.line}`;
   const titles: Record<PanelId, ReactNode> = {
-    select: "Controls", depth: "Depth", years: "Time", section: <>Section <span className="plain">· line {sel.line}{sel.realm === "env" && sel.cruise ? ` · ${sel.cruise}` : ""}</span></>, cruise: "Cruise series", layers: "Layers",
+    select: "Controls", depth: "Depth", years: "Time", section: <>Section <span className="plain">{sectionSub}</span></>, cruise: "Cruise series", layers: "Layers",
     station: stationCard ? <>{stationCard.grid_key} <span className="plain">· line {stationCard.cell?.line} station {stationCard.cell?.station}</span></> : "Station",
     timing: <>SQL &amp; timing <span className="plain">· {anyCached ? "warm" : "cold"} · paint {firstPaint ?? "…"} · ready {readyAt ?? "…"} · query {lastQ ? lastQ.ms : "…"} · switch {grain ? grain.ms : "…"} ms</span></>,
   };
-  const titleText: Record<PanelId, string> = { select: "Controls", depth: "Depth", years: "Time", section: `Section · line ${sel.line}${sel.realm === "env" && sel.cruise ? ` · ${sel.cruise}` : ""}`, cruise: "Cruise series", layers: "Layers", station: stationCard ? `${stationCard.grid_key} · line ${stationCard.cell?.line} station ${stationCard.cell?.station}` : "Station", timing: "SQL & timing" };
+  const titleText: Record<PanelId, string> = { select: "Controls", depth: "Depth", years: "Time", section: `Section ${sectionSub}`, cruise: "Cruise series", layers: "Layers", station: stationCard ? `${stationCard.grid_key} · line ${stationCard.cell?.line} station ${stationCard.cell?.station}` : "Station", timing: "SQL & timing" };
   const icons: Record<PanelId, IconName> = { select: "ui-tune", depth: "ui-tune", years: "ui-years", section: "lens-sections", cruise: "lens-cruises", station: "lens-stations", timing: "ui-sql", layers: "ui-map-layers" };
   const body = (id: PanelId, wide = false) => id === "select" ? selectBody : id === "depth" ? depthBody(wide) : id === "years" ? yearsBody : id === "section" ? sectionBody : id === "cruise" ? cruiseBody : id === "station" ? stationBody : id === "layers" ? layersBody : timingBody;
   const actions = (id: PanelId) => (id === "years" ? <>{sel.yview && <IconButton icon="ui-zoom-out" label="Reset zoom (double-click the strip)" className="sm" onClick={() => setSel({ yview: null })} data-tour="zoom-reset" />}{seriesToggle}{logChip}</> : null);
@@ -1177,14 +1184,19 @@ export function App() {
                 {versions.map((v) => <option key={v} value={v}>{v}</option>)}</select><Icon name="ui-down" className="car" size="0.9em" /></>
             : <b>{rel}</b>}
         </span>
-        <Menu className="cc-help hdr" icon="ui-help" label={<span className="label">Help</span>} title="the tour · start here · about · data sources · keyboard" align="right" data-tour="help" items={[
+        <Menu className="cc-help hdr" icon="ui-help" label={<span className="label">Help</span>} title="the tour · the guide · start here · about · data sources · keyboard" align="right" data-tour="help" items={[
           { label: "Take the tour", icon: "ui-play", hint: "twelve steps; ? replays it", onSelect: tour },
+          { label: "Explorer guide", icon: "ui-external", hint: "the written tour of this app, at calcofi.io/docs", href: "https://calcofi.io/docs/explore.html" },
           { label: "Start here", icon: "ui-home", hint: "the welcome: two doors and four questions", onSelect: () => openModal("welcome") },
           { label: "About", icon: "ui-about", hint: "what this is, the release, the datasets, credits", onSelect: () => openModal("about") },
           { label: "Data Sources & Attribution", icon: "ui-cite", hint: "citations, licences, DOIs, contacts", onSelect: openSources },
           { label: "Register a product", icon: "ui-product", hint: "tell us what you built with these data", onSelect: () => openModal("product") },
-          { label: "Keyboard", icon: "ui-keyboard", hint: "? tour · Esc closes · ↑ ↓ Enter in the lists · drag to brush", onSelect: () => openModal("about", "keyboard") },
-          { label: "Send feedback", icon: "ui-feedback", hint: "this view's URL, a screenshot you can mark up, your note — to the team", onSelect: () => openModal("feedback") }]} />
+          { label: "Keyboard", icon: "ui-keyboard", hint: "? tour · Esc closes · ↑ ↓ Enter in the lists · drag to brush", onSelect: () => openModal("about", "keyboard") }]} />
+        {/* feedback is an icon button beside the theme toggle — the shape calcofi.io and the docs book wear
+            (CalCOFI.github.io/_layouts/default.html: .cc-icon-button.cc-feedback immediately left of .cc-theme-toggle),
+            not an item buried under Help ▾: one place for it on every product, phone included */}
+        <IconButton icon="ui-feedback" label="Send feedback" title="Send feedback — with a screenshot of this view"
+          className="cc-feedback hdr" data-tour="feedback" onClick={() => openModal("feedback")} />
         <button className="cc-theme-toggle" type="button" aria-label="Toggle dark / light theme" title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}>
           {/* the sun while dark, the moon-in-sun while light — what a click switches to (theme.css shows one per theme) */}
           <svg className="cc-theme-icon cc-icon-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={ICON_SUN} /></svg>
@@ -1240,7 +1252,7 @@ export function App() {
         </div>
         {maxId && <MaxPanel id={maxId} title={titles[maxId]} icon={icons[maxId]} onRestore={() => setSel({ max: null })} actions={actions(maxId)} exportable={maxId === "select" ? undefined : exportItems(maxId)}>{body(maxId, true)}</MaxPanel>}
       </div>
-      {modal === "about" && <About release={rel} nTables={catalog?.tables.length} datasets={datasets} cov={cov} short={short} onClose={closeModal} onTour={tour} onFeedback={() => openModal("feedback")} onSources={openSources} providerTable={providerTable} at={aboutAt} />}
+      {modal === "about" && <About release={rel} nTables={catalog?.tables.length} datasets={datasets} cov={cov} short={short} onClose={closeModal} onTour={tour} onSources={openSources} providerTable={providerTable} at={aboutAt} />}
       {modal === "sources" && <SourcesModal release={rel} catalog={catalog} datasets={datasets} cov={cov} inView={viewDatasetKeys} providerTable={providerTable} short={short}
         onClose={closeModal} onRegister={() => openModal("product")} onCite={() => copyCite("text")} />}
       {(modal === "feedback" || modal === "product") && <FeedbackDialog kind={modal === "product" ? "product" : "feedback"} datasets={viewDatasetKeys} url={location.href} release={rel} onClose={closeModal} capture={() => captureView({ stamp: viewStamp() })} />}

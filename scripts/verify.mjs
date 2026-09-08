@@ -140,6 +140,21 @@ const STATES = [
     assert: async () => { const st = await page.$eval(".card-station", (el) => el.style.left); if (!st) fail("u1_station_drag: the card did not move"); } },
   { name: "u1_1000px", url: "?tour=off", viewport: { width: 1000, height: 700 }, steps: async () => {}, assert: async () => { const n = await page.$$eval(".edge-pill.pill-depth", (r) => r.length); if (n !== 1) fail(`u1_1000px: depth not folded by default`); } },
   { name: "u1_light_section", url: "?lens=section&var=temperature&line=90&tour=off&theme=light", steps: async () => {} },
+  // the Sections lens has two shapes and the words must say which (2026-09-08): env cuts DEPTH on one cruise,
+  // bio has no depth axis (the tows are depth-integrated) and cuts YEARS across all cruises
+  { name: "u1_section_words_env", url: "?lens=section&var=temperature&line=90&tour=off", steps: async () => { await sleep(600); },
+    assert: async () => {
+      const t = await page.$eval(".sentence .ts-text", (el) => el.textContent);
+      if (!/as a depth section along line 90 on cruise/.test(t)) fail(`u1_section_words_env: the title reads "${t}"`);
+      const card = await page.$eval(".card-section .card-head", (el) => el.textContent);
+      if (!/depth along line 90/.test(card)) fail(`u1_section_words_env: the card head reads "${card}"`); } },
+  { name: "u1_section_words_bio", url: "?lens=section&line=90&tour=off", steps: async () => { await sleep(600); },
+    assert: async () => {
+      const t = await page.$eval(".sentence .ts-text", (el) => el.textContent);
+      if (!/as a station-by-year section along line 90 across all cruises/.test(t)) fail(`u1_section_words_bio: the title reads "${t}"`);
+      if (/depth section/.test(t)) fail(`u1_section_words_bio: the bio title still says "depth section"`);
+      const card = await page.$eval(".card-section .card-head", (el) => el.textContent);
+      if (!/by year along line 90/.test(card)) fail(`u1_section_words_bio: the card head reads "${card}"`); } },
   // U1 · D18 — the phone: bottom sheet detents, pills, a lens switch, the full-screen picker
   { name: "p_peek", url: "?tour=off", viewport: PHONE, steps: async () => {}, assert: async () => { const h = await page.$eval(".sheet", (el) => el.getBoundingClientRect().height); if (h < 80 || h > 140) fail(`p_peek: sheet ${h}px`); } },
   { name: "p_half", url: "?tour=off", viewport: PHONE, steps: async () => { await click(".sheet-summary"); await sleep(500); }, assert: async () => { const h = await page.$eval(".sheet", (el) => el.getBoundingClientRect().height); if (Math.abs(h - 422) > 20) fail(`p_half: sheet ${h}px (expected ~422)`); } },
@@ -158,7 +173,15 @@ const STATES = [
   { name: "u3_no_welcome_after_seen", url: "?tour=on", steps: async () => { await click(".welcome .btn.cta"); await sleep(300); await page.goto(base + "?lens=hex&res=5", { waitUntil: "domcontentloaded" }); await waitMark(/^first_lens_ready$/); await sleep(800); },
     assert: async () => { if (await page.$(".modal-welcome")) fail("u3: the welcome card came back after Explore"); } },
   { name: "u3_about", url: "?tour=off", steps: async () => { await click('[data-tour="help"] button'); await sleep(200); await clickText(".menu-item", "About"); await sleep(500); }, assert: async () => { const n = await page.$$eval(".about-datasets tr", (r) => r.length); if (n < 10) fail(`u3_about: ${n} dataset rows`); } },
-  { name: "u3_feedback", url: "?tour=off", steps: async () => { await click('[data-tour="help"] button'); await sleep(200); await clickText(".menu-item", "Send feedback"); await sleep(400); }, assert: async () => { const href = await page.$eval(".modal-feedback a.btn", (a) => a.href); if (!/github\.com\/CalCOFI\/explore\/issues\/new/.test(href)) fail(`u3_feedback: issue link ${href}`); } },
+  // feedback left the Help menu on 2026-09-08: it is the header's speech bubble, immediately left of the theme toggle
+  { name: "u3_feedback", url: "?tour=off", steps: async () => { await click('[data-tour="feedback"]'); await sleep(400); }, assert: async () => { const href = await page.$eval(".modal-feedback a.btn", (a) => a.href); if (!/github\.com\/CalCOFI\/explore\/issues\/new/.test(href)) fail(`u3_feedback: issue link ${href}`); } },
+  { name: "u3_help_menu", url: "?tour=off", steps: async () => { await click('[data-tour="help"] button'); await sleep(300); },
+    assert: async () => {
+      const items = await page.$$eval(".menu-list .menu-item", (r) => r.map((x) => x.textContent));
+      if (items.some((t) => /Send feedback/.test(t))) fail("u3_help_menu: Send feedback is still in the Help menu");
+      const guide = await page.$eval('.menu-list a.menu-item[href*="docs/explore"]', (a) => ({ href: a.href, rel: a.rel, target: a.target })).catch(() => null);
+      if (!guide) fail("u3_help_menu: no Explorer guide link");
+      else if (guide.href !== "https://calcofi.io/docs/explore.html" || guide.target !== "_blank" || !/noopener/.test(guide.rel)) fail(`u3_help_menu: guide ${JSON.stringify(guide)}`); } },
   { name: "u3_about_light", url: "?tour=off&theme=light", steps: async () => { await click('[data-tour="help"] button'); await sleep(200); await clickText(".menu-item", "About"); await sleep(500); } },
   { name: "u3_tour", url: "?tour=off", steps: async () => { await page.evaluate(() => window.__tour()); await sleep(900); }, tour: true },
   { name: "p3_welcome", url: "?tour=on", viewport: PHONE, steps: async () => {} },
@@ -224,7 +247,10 @@ const STATES = [
       } } },
   { name: "u4_figure_max", url: "?tour=off&max=years", steps: async () => { await sleep(800); }, assert: async () => {
       const r = await page.evaluate(() => window.__figure("years", "png")); console.log(`  maximized years.png ${r.w}×${r.h}`); if (r.w < 2000) fail(`u4_figure_max: ${r.w}px wide — not the maximized size`); } },
-  { name: "p4_share", url: "?tour=off", viewport: PHONE, steps: async () => { await click(".sheet-summary"); await sleep(400); await expandGroup("export"); await page.evaluate(() => document.querySelector(".sheet-body").scrollTo(0, 9999)); await sleep(200); await clickText(".menu-btn", "Share"); await sleep(400); } },
+  // Share is a TAB of the Controls sheet since the light layout (452d96e) — expandGroup("export") is that click;
+  // the "Share" menu button this state used to open afterwards went with the old EXPORT group
+  { name: "p4_share", url: "?tour=off", viewport: PHONE, steps: async () => { await click(".sheet-summary"); await sleep(400); await expandGroup("export"); await page.evaluate(() => document.querySelector(".sheet-body").scrollTo(0, 9999)); await sleep(400); },
+    assert: async () => { for (const t of ["Download data", "Copy link"]) if (!(await page.$(`.sheet-body button::-p-text(${t})`))) fail(`p4_share: the phone's Share tab has no "${t}"`); } },
   // U7 — cleanup: the header (no links, the release at the right), folded FILTERS / EXPORT, the folded denominator, the map's
   // extent in the URL (so Share → Copy link and the feedback URL reopen at the same zoom), the map's own ⬇, the annotator's text tool
   { name: "u7_header", url: "?tour=off", steps: async () => {},
@@ -232,9 +258,24 @@ const STATES = [
       if (await page.$(".cc-header .cc-links")) fail("u7_header: the query / schema / docs links are still in the header");
       const r = await page.evaluate(() => { const rel = document.querySelector('[data-tour="release"]').getBoundingClientRect(), t = document.querySelector(".cc-title").getBoundingClientRect(); return { rel: rel.left, title: t.right, vw: innerWidth }; });
       if (r.rel < r.vw * 0.5) fail(`u7_header: the release chip is not at the right (${r.rel} of ${r.vw})`);
-      const tabs = await page.$$eval(".card-select .tabs button", (b) => b.map((x) => x.textContent)); if (tabs.join(" ") !== "Select Refine Share") fail(`u7_header: the Select panel's tabs read ${tabs.join(" ")}`);
+      const tabs = await page.$$eval(".card-select .tabs button", (b) => b.map((x) => x.textContent.replace(/^\d+/, ""))); if (tabs.join(" ") !== "Select Refine Share") fail(`u7_header: the Select panel's tabs read ${tabs.join(" ")}`); // the tabs are numbered since 2026-09-07 (b8dd373)
       if (!(await page.$(".more-toggle"))) fail("u7_header: no More options disclosure");
-      const help = await page.$$eval('[data-tour="help"]', (r) => r.length); if (help !== 1) fail(`u7_header: ${help} Help menus`); } },
+      const help = await page.$$eval('[data-tour="help"]', (r) => r.length); if (help !== 1) fail(`u7_header: ${help} Help menus`);
+      // the brand shape (calcofi.io/_layouts/default.html): .cc-feedback is the theme toggle's immediate previous sibling
+      const fb = await page.evaluate(() => { const b = document.querySelector(".cc-header .cc-feedback"); if (!b) return null; const tg = document.querySelector(".cc-header .cc-theme-toggle"); const r = b.getBoundingClientRect(); return { next: b.nextElementSibling === tg, aria: b.getAttribute("aria-label"), title: b.getAttribute("title"), w: r.width, h: r.height, right: r.right <= innerWidth + 1 }; });
+      if (!fb) fail("u7_header: no feedback button in the header");
+      else { if (!fb.next) fail("u7_header: the feedback button is not immediately left of the theme toggle");
+        if (fb.aria !== "Send feedback") fail(`u7_header: feedback aria-label "${fb.aria}"`);
+        if (fb.title !== "Send feedback — with a screenshot of this view") fail(`u7_header: feedback title "${fb.title}"`);
+        if (fb.w < 20 || fb.h < 20 || !fb.right) fail(`u7_header: feedback button ${fb.w}×${fb.h}, in view ${fb.right}`); } } },
+  // the phone header must show the bubble too, and must not overflow 390 px
+  { name: "p7_header", url: "?tour=off", viewport: PHONE, steps: async () => {},
+    assert: async () => {
+      const r = await page.evaluate(() => { const h = document.querySelector(".cc-header"), b = h.querySelector(".cc-feedback"), t = h.querySelector(".cc-theme-toggle"); const rb = b?.getBoundingClientRect(); return { has: !!b, next: b?.nextElementSibling === t, right: rb ? rb.right : 0, tr: t.getBoundingClientRect().right, scrollW: h.scrollWidth, vw: innerWidth }; });
+      if (!r.has) fail("p7_header: no feedback button on the phone header");
+      if (!r.next) fail("p7_header: the feedback button is not beside the theme toggle");
+      if (r.scrollW > r.vw + 1) fail(`p7_header: the header overflows (${r.scrollW} > ${r.vw})`);
+      if (r.tr > r.vw + 1) fail(`p7_header: the theme toggle runs off the right (${r.tr} > ${r.vw})`); } },
   { name: "u7_den_open", url: "?tour=off", steps: async () => { await expandGroup("denominator"); await sleep(300); },
     assert: async () => { const n = await page.$$eval(".den-list input[name=den]", (r) => r.length); if (n !== 3) fail(`u7_den_open: ${n} radios`); const t = await page.$eval(".den-list", (el) => el.textContent); if (!/standard haul factor/.test(t)) fail("u7_den_open: no standard-haul-factor note"); } },
   { name: "u7_filters_open", url: "?tour=off&years=1990-2005&q=1,2", steps: async () => {},
@@ -293,8 +334,9 @@ const STATES = [
     assert: async () => { const g = await page.$$eval(".browse-group", (r) => r.map((x) => `${x.querySelector(".lab").firstChild.textContent}${x.classList.contains("open") ? " [open]" : ""}`)); console.log(`  ${g.join(" · ")}`); if (!g.some((x) => /Physical Oceanography \[open\]/.test(x))) fail(`u7_variable_tree: Physical Oceanography not the open one`); if (!(await page.$(".browse-item.sel"))) fail("u7_variable_tree: Temperature not shown selected"); } },
   // slice 2 (plan 2026-08-31, D21/D22/D26/D27): the sea floor — pixel-probed on both themes, the flip, off, the card, the phone sheet
   { name: "layers_default_dark", url: "?tour=off&theme=dark", steps: async () => { await waitTiles(); await sleep(400); },
-    assert: async () => { await expectSeaFloor("layers_default_dark", "dark");
-      if (!(await page.$(".legend-bathy"))) fail("layers_default_dark: no sea-floor legend row"); } },
+    // the probe IS the assertion: the light layout (452d96e) dropped the sea-floor legend row under the sentence —
+    // the sea floor's controls and its legend live in the Layers card, which `layers_card` below asserts
+    assert: async () => { await expectSeaFloor("layers_default_dark", "dark"); } },
   { name: "layers_default_light", url: "?tour=off&theme=light", steps: async () => { await waitTiles(); await sleep(400); },
     assert: async () => { await expectSeaFloor("layers_default_light", "light"); } },
   { name: "layers_theme_flip", url: "?tour=off&theme=dark", steps: async () => { await waitTiles(); await click(".cc-theme-toggle"); await sleep(900); await waitTiles(); await sleep(300); },
@@ -422,7 +464,11 @@ const STATES = [
       if (j.app !== "explore" || j.text !== "that spike is weird" || !/^v\d{4}/.test(j.release) || !/^data:image\/png/.test(j.image ?? "") || j.website !== "" || !/lens=/.test(j.url)) fail("u4b_send_mock: payload wrong");
       if (j.image && j.image.length > 4.2e6) fail(`u4b_send_mock: image ${j.image.length} chars > 3 MB after fitBytes`);
       const t = await page.$eval(".modal-feedback .modal-body", (el) => el.textContent); if (!/public issue/.test(t)) fail(`u4b_send_mock: thanks reads ${t.slice(0, 80)}`); } },
-  { name: "p4b_feedback", url: "?tour=off", viewport: PHONE, steps: async () => { await click('[data-tour="more"] button'); await sleep(200); await clickText(".menu-item", "Feedback"); await page.waitForSelector(".feedback-shot img", { timeout: 20000 }); await sleep(300); } },
+  // the phone reaches feedback the same way the desktop does: the header's speech bubble, left of the theme
+  // toggle (2026-09-08). It used to be an item under a "More" menu that the light layout deleted on 2026-09-06,
+  // which left this state clicking a selector no longer in the DOM.
+  { name: "p4b_feedback", url: "?tour=off", viewport: PHONE, steps: async () => { await click('[data-tour="feedback"]'); await page.waitForSelector(".feedback-shot img", { timeout: 20000 }); await sleep(300); },
+    assert: async () => { const href = await page.$eval(".modal-feedback a.btn", (a) => a.href); if (!/github\.com\/CalCOFI\/explore\/issues\/new/.test(href)) fail(`p4b_feedback: issue link ${href}`); } },
   // WS-A3 — attribution: the agreement, the Sources line under the pills, the figure footer's third line,
   // Cite this data, the Data Sources & Attribution modal, Register a product. The rule the brand contract
   // sets is checked too: ?tour=off opens NO modal (a deterministic screenshot), ?modal=sources opens one

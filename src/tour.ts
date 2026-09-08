@@ -22,6 +22,9 @@ export interface TourStep {
 }
 // the first VISIBLE match: a hidden node comes first in DOM order
 const q = (sel: string) => () => [...document.querySelectorAll<HTMLElement>(sel)].find((el) => { const b = el.getBoundingClientRect(); return b.width > 0 && b.height > 0; }) ?? null;
+// the first visible match of the FIRST selector that has one — querySelectorAll("a, b") returns document order,
+// not selector order, so a preference between two anchors has to be spelled out
+const qFirst = (...sels: string[]) => () => { for (const s of sels) { const el = q(s)(); if (el) return el; } return null; };
 const rail = (a: TourActions, id: PanelId) => { if (a.phone) a.sheet("select", "half"); else if (a.isFolded(id)) a.unfold(id); };
 
 export const TOUR_STEPS: TourStep[] = [
@@ -31,7 +34,7 @@ export const TOUR_STEPS: TourStep[] = [
   { id: "sentence", element: q('[data-tour="sentence"], .sheet-summary'), side: "bottom", title: "What you are looking at",
     description: "The title says what the map shows, in plain words, with the colour scale beside it. Its ▾ opens the same choices as the Controls panel, as a sentence — change any part and the map follows.", before: (a) => { if (a.phone) a.sheet("select", "peek"); } },
   { id: "lenses", element: q('[data-tour="lenses"]'), side: "right", align: "start", title: "Six ways to view it",
-    description: "Stations, Hexagons, Contours, Cruises, Regions and Sections are six shapes of the same data — the active one reads full size, the others are the small icons beside it; click any to see all six with a line on each. Contours interpolates the stations into a surface and shows its error and its inputs.",
+    description: "Stations, Hexagons, Contours, Cruises, Regions and Sections are six shapes of the same data — the active one reads full size, the others are the small icons beside it; click any to see all six with a line on each. Contours interpolates the stations into a surface and shows its error and its inputs. Sections cuts one CalCOFI line: a depth section down the water column on one cruise for an ocean variable (with a 3-D curtain beside it), and — because the tows are depth-integrated and have no depth axis — a station-by-year section across all cruises for an organism.",
     before: (a) => { rail(a, "select"); if (!a.reducedMotion && a.getLens() === "station") a.setLens("hex"); }, wait: 400 },
   { id: "realm", element: q('[data-tour="realm"]'), side: "right", title: "Biology or Environment",
     description: "One organism (a taxon — a species, a genus, a family) or one ocean variable at a time. Biology reads the net tows and censuses; Environment the bottle, CTD, carbonate and weather series.", before: (a) => rail(a, "select") },
@@ -52,8 +55,10 @@ export const TOUR_STEPS: TourStep[] = [
     description: "The sea floor is GEBCO 2025 — shaded relief, depth colour and isobaths — and the registry's boundary layers (EEZ, sanctuaries, MPAs, counties …) stack over it in the order you set. Every choice lands in the URL, so a shared link reopens the same map." },
   { id: "share", element: q('[data-tour="share"]'), side: "right", align: "end", title: "Share",
     description: "Download data hands over the bytes, the exact SQL against the release's object URLs, citations and reproduce.R / .py. Copy code gives that SQL, or R or Python that runs it. Cite this data copies the citations for the datasets in view plus the integrated database (BibTeX too). Copy link — the URL is the whole view, map extent included. Every figure and CSV names its datasets.", before: (a) => { rail(a, "select"); a.expand("export"); }, wait: 300 },
-  { id: "feedback", element: q('[data-tour="help"]'), side: "bottom", align: "end", title: "Help, and tell us what you see",
-    description: "Help holds this tour, the welcome, About (the datasets, credits and keyboard), Data Sources & Attribution, and Send feedback — which sends this view's URL to the team as a public issue, so \"that spike is weird\" is reproducible by whoever opens the link. ? replays the tour.", before: () => {} },
+  // the anchor is the feedback button now that it has left the Help menu; Help ▾ sits immediately left of it, so the
+  // popover covers both. `q()` falls back to Help if the button is ever hidden, so the step always has a real element.
+  { id: "feedback", element: qFirst('[data-tour="feedback"]', '[data-tour="help"]'), side: "bottom", align: "end", title: "Tell us what you see, and where to read more",
+    description: "The speech bubble beside the theme toggle sends feedback — this view's URL, a screenshot you can mark up and your note, as a public issue, so \"that spike is weird\" is reproducible by whoever opens the link. Help ▾ beside it holds this tour, the Explorer guide at calcofi.io/docs, the welcome, About (the datasets, credits and keyboard) and Data Sources & Attribution. ? replays the tour.", before: () => {} },
 ];
 
 /** start the tour; returns the driver so callers (and verify.mjs, via window.__tour) can step it */

@@ -11,7 +11,10 @@ for (const url of [base + "?tour=off&lens=hex&res=5", base + "?tour=off&var=temp
   await page.waitForFunction(() => (window.__marks ?? []).some((m) => m.name === "first_lens_ready"), { timeout: 90000 });
   await new Promise((r) => setTimeout(r, 800));
   const t = Date.now();
-  await page.click(".seg button::-p-text(SQL)"); await new Promise((r) => setTimeout(r, 300));
+  // Share is a TAB and "Copy code" a MENU since the light layout (452d96e): the old .seg of SQL/R/Python is gone
+  await page.click(".card-select .tabs button::-p-text(Share)"); await new Promise((r) => setTimeout(r, 300));
+  await page.click(".menu-btn::-p-text(Copy code)"); await new Promise((r) => setTimeout(r, 250));
+  await page.click(".menu-list .menu-item::-p-text(SQL)"); await new Promise((r) => setTimeout(r, 300));
   const copied = await page.evaluate(() => (window.__lastCopy ?? "").length);
   const r = await page.evaluate(async () => { await window.__download(); return window.__lastBundle; });
   console.log("  copy-as SQL:", copied, "chars");

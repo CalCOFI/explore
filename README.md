@@ -82,6 +82,13 @@ says what the app does and how to work on it without needing them.
   the other five as icon slivers; click any of them to open the six as rows with their help text, pick one, and it
   closes. Switching between Stations and Hexagons still travels the dots (the one morph that shows pooling); every
   other switch is a short cross-fade.
+- **A section's y-axis is the realm.** In *Environment* the *Sections* lens draws a **depth section** — the
+  stations along one CalCOFI line across the x-axis, depth down the y-axis, for **one cruise** (optionally as
+  the anomaly against the 1993–2013 climatology), with the 3-D curtain beside it. In *Biology* the tows are
+  **depth-integrated**, so there is no depth axis: the lens draws a **station-by-year** section — the same
+  stations across the x-axis, **years** down the y-axis, **across all cruises**. The title sentence says which
+  it is ("as a depth section along line 90 on cruise …" · "as a station-by-year section along line 90 across
+  all cruises"), and so do the card title and the figure title.
 - **A section is laid out like the map, and carries both rulers.** *Sections* draws **offshore on the left,
   the coast on the right** — a CalCOFI line runs west-south-west off the coast — and labels the x-axis
   **station number above, distance offshore below**. The two are one ruler: `+proj=calcofi` is equidistant
@@ -122,13 +129,16 @@ CalCOFI/workflows for how the tiles are built.
   hexagon centres and fades them out as they arrive (the pooling in one move); every other lens change is a short
   cross-fade in place, so a lens never carries dots it does not explain — Sections keeps only its line's stations,
   Contours only the optional inputs, Cruises only its own sampled dots and track.
-- **Feedback** (*Help → Send feedback*) captures the view, lets you mark it up (arrow, circle, rectangle, pen,
+- **Feedback** (the speech bubble in the header, immediately left of the theme toggle — the shape
+  calcofi.io and the docs book wear) captures the view, lets you mark it up (arrow, circle, rectangle, pen,
   text; yellow, blue or hot pink) and sends it with your note, the view URL, release, viewport and theme
   to the team — by mail with the screenshot inline, to a Sheet, and as a public issue in this repo
   *without* your email. Without a configured endpoint the dialog offers a prefilled GitHub issue instead.
 - **The header** is the release picker (the word *release* links to the schema and release notes, the bold
-  value is a list of the releases), **Help ▾** — the tour, *Start here* (the welcome), About, Data Sources &
-  Attribution, Register a product, Keyboard and *Send feedback* — and the theme toggle. The map's own buttons —
+  value is a list of the releases), **Help ▾** — the tour, the *Explorer guide*
+  ([calcofi.io/docs/explore.html](https://calcofi.io/docs/explore.html)), *Start here* (the welcome), About,
+  Data Sources & Attribution, Register a product and Keyboard — then the **feedback** bubble and the theme
+  toggle, in that order on every CalCOFI product. The map's own buttons —
   zoom, layers, its ⬇ — sit in one row at the map's top right.
 - **Keyboard:** `?` replays the tour · `Esc` closes a dialog, the welcome or a chip's popover, or restores an
   expanded panel · `↑ ↓ Enter` in the lists · `A`–`Z` strip to jump in the flat list.
@@ -231,7 +241,15 @@ node scripts/verify.mjs http://localhost:5178/ shots/dev --only=<regex>   # driv
 node scripts/verify.mjs http://localhost:5179/ shots/prod --timing        # + cold/warm lens timings
 node scripts/bundle_check.mjs http://localhost:5178/ shots/bundle          # download two bundles and list them
 node scripts/card_shots.mjs ~/Github/CalCOFI/CalCOFI.github.io/images     # the two themed card screenshots
+node scripts/tour_shots.mjs http://localhost:5179/ shots/tour              # the docs/deck pictures: a lens each + the UI close-ups
 ```
+
+`tour_shots.mjs` writes the pictures the docs book's [Explorer guide](https://calcofi.io/docs/explore.html)
+and the update deck use — one per lens (both section shapes, and the 3-D curtain), the two product-card
+shots at calcofi.io's own 1200 × 750, and the UI close-ups (the sentence's chips, the three Controls tabs,
+the Layers card, a pane's own bar, the Help menu, the Time strip, the Depth profile). Each is named
+entirely by URL parameters, so a re-shoot after a UI change is one command; `shots/tour/README.md` lists
+every file with its URL.
 
 `verify.mjs` opens the installed Chrome (headed, fresh profile) at 1280 × 800 and 390 × 844, walks every
 named state, screenshots each, asserts no horizontal overflow and every control in view, and writes

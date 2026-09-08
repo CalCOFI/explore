@@ -119,7 +119,7 @@ export const LENS_TITLE: Record<Lens, string> = {
   contour: "Contours — a surface interpolated between the stations, with its error",
   cruise: "Cruises — the ship steaming the grid",
   region: "Regions — summaries within management areas",
-  section: "Sections — a line through the water column",
+  section: "Sections — one line of stations: down the water column for a variable, year by year for an organism",
 };
 export const LENS_SHORT: Record<Lens, string> = {
   station: "Stations", hex: "Hexagons", contour: "Contours", cruise: "Cruises", region: "Regions", section: "Sections",
@@ -131,7 +131,8 @@ export const LENS_DESC: Record<Lens, string> = {
   contour: "a surface between the stations — pick the method; see its error, its inputs and their years",
   cruise: "one voyage at a time, along its track",
   region: "averaged within a sanctuary, county or basin",
-  section: "a line through the water column, station by station — offshore on the left, the coast on the right",
+  // both realms in one line: env cuts depth on one cruise, bio has no depth axis (tows are depth-integrated) and cuts years
+  section: "one line of stations, offshore on the left — depth on one cruise for a variable, year by year for an organism",
 };
 /** the statistic as the title sentence says it */
 export const STAT_WORD: Record<Stat, string> = { mean: "mean", med: "median", n: "count of observations" };

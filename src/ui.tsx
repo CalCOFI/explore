@@ -24,9 +24,11 @@ export function useAnchor(open: boolean, ref: RefObject<HTMLElement | null>, min
   }, [open]);
   return box;
 }
-export function IconButton(p: { icon: IconName; label: string; onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void; className?: string; disabled?: boolean; size?: number | string; pressed?: boolean; "data-tour"?: string; id?: string }) {
+export function IconButton(p: { icon: IconName; label: string; title?: string; onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void; className?: string; disabled?: boolean; size?: number | string; pressed?: boolean; "data-tour"?: string; id?: string }) {
+  // `title` defaults to the label; the header's feedback button is the case where the hover text says more than
+  // the accessible name (calcofi.io's .cc-feedback: "Send feedback" / "Send feedback — with a screenshot of this view")
   return (
-    <button type="button" id={p.id} className={`cc-icon-button${p.className ? ` ${p.className}` : ""}`} aria-label={p.label} title={p.label} onClick={p.onClick}
+    <button type="button" id={p.id} className={`cc-icon-button${p.className ? ` ${p.className}` : ""}`} aria-label={p.label} title={p.title ?? p.label} onClick={p.onClick}
       disabled={p.disabled} aria-pressed={p.pressed} data-tour={p["data-tour"]}>
       <Icon name={p.icon} size={p.size ?? "1.25rem"} />
     </button>

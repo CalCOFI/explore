@@ -297,6 +297,9 @@ button.chip { cursor: pointer; }
 .about-datasets .links a, .about-datasets .links span, .about-datasets .links button { margin-left: 8px; font-size: var(--fs-sm, 11px); }
 .cc-header .hdr { color: var(--muted); }
 .cc-header .hdr:hover { color: var(--accent); }
+/* the feedback bubble sits immediately left of the theme toggle — the same place, name and hover text it has on
+   calcofi.io (_layouts/default.html) and in the docs book, so one glyph means "tell us" across the fleet */
+.cc-header .cc-icon-button.cc-feedback { width: 2rem; height: 2rem; margin-left: 0.1rem; }
 /* driver.js in the brand's tokens */
 .driver-popover.cc-tour { background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; font-family: var(--sans); box-shadow: 0 12px 40px color-mix(in srgb, var(--fg) 28%, transparent); max-width: 340px; }
 .driver-popover.cc-tour .driver-popover-title { font-size: 14px; color: var(--fg); font-weight: 600; }
@@ -310,7 +313,7 @@ button.chip { cursor: pointer; }
 .driver-popover.cc-tour .driver-popover-arrow-side-right { border-right-color: var(--panel); }
 .driver-popover.cc-tour .driver-popover-arrow-side-top { border-top-color: var(--panel); }
 .driver-popover.cc-tour .driver-popover-arrow-side-bottom { border-bottom-color: var(--panel); }
-@media (max-width: 899px) { .cc-header .hdr-about, .cc-header .hdr-feedback { display: none; } .modal-backdrop { padding: 8px; } .modal { max-height: 96vh; } }
+@media (max-width: 899px) { .modal-backdrop { padding: 8px; } .modal { max-height: 96vh; } }
 
 /* ── U6: the year strip's zoom handle, context bar and Gantt (plan D20) ──────────────────────────── */
 .yearstrip { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -621,7 +624,8 @@ a.lic:hover { color: var(--accent); border-color: var(--accent); }
   .welcome .doors, .welcome .qs { grid-template-columns: 1fr; }
   .welcome .norm { text-align: left; margin-left: 0; max-width: none; }
   .cc-header .cc-help .menu-btn .label { display: none; }
-  .cc-header .hdr-feedback { display: inline-flex; }   /* feedback stays in the phone header: Help ▾ has the rest */
+  /* the phone header is ⭘ Explorer [release] ? 💬 🌓 — the feedback bubble stays beside the toggle, Help ▾ keeps the rest */
+  .cc-header .cc-feedback { display: inline-flex; }
 }
 
 /* the hexagon size: a small slider with one tick per H3 resolution (3..7) and the rough size it means beside it */

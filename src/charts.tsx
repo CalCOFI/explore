@@ -367,7 +367,8 @@ export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | nul
       yaxis: { ...b.yaxis, title: { text: p.yLabel, standoff: 4 }, autorange: isDepth ? "reversed" : true },
       yaxis2: { overlaying: "y", visible: false, range: [0, 1], fixedrange: true },
       margin: { l: 50, r: 10, t: 62, b: 36 },
-      annotations: xs.length ? [] : [{ text: "no rows for this line × cruise × filters", xref: "paper", yref: "paper", x: 0.5, y: 0.5, showarrow: false }],
+      // the env section is one cruise's cut, the bio section every cruise's — so the empty note names the right axes
+      annotations: xs.length ? [] : [{ text: isDepth ? "no rows for this line × cruise × filters" : "no rows for this line × filters", xref: "paper", yref: "paper", x: 0.5, y: 0.5, showarrow: false }],
     }, CFG);
     // the two axes carry different units, so `matches` cannot hold them together: re-derive the station range
     // from the km range after any zoom. Our own relayout fires this again, hence the no-op guard.
