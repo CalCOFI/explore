@@ -353,7 +353,7 @@ const STATES = [
   { name: "layers_card", url: "?tour=off&theme=dark", steps: async () => { await click(".map-layers-btn"); await sleep(400); await clickText(".card-layers label", "contours"); await sleep(700); },
     assert: async () => { const u = decodeURIComponent(await page.evaluate(() => location.search));
       if (!/bathy=relief,depth(&|$)/.test(u)) fail(`layers_card: URL after unchecking contours: ${u}`);
-      const n = await page.$$eval(".card-layers input[type=checkbox]", (r) => r.length); if (n !== 8) fail(`layers_card: ${n} checkboxes`); // Data on/off · reverse ramp · sea floor · 3 parts · Land · Basemap labels
+      const n = await page.$$eval(".card-layers input[type=checkbox]", (r) => r.length); if (n !== 7) fail(`layers_card: ${n} checkboxes`); // Data on/off · reverse ramp · sea floor · 3 parts · Basemap labels (Land is always on)
       const r = await probeMap(); if (r.layers.some((l) => /contour/.test(l))) fail("layers_card: contour layers survived the uncheck");
       await clickText(".card-layers label", "contours"); await sleep(500);
       const u2 = decodeURIComponent(await page.evaluate(() => location.search)); if (/bathy=/.test(u2)) fail(`layers_card: bathy= should leave the URL at the default (${u2})`); } },
@@ -361,7 +361,7 @@ const STATES = [
     assert: async () => { const v = await page.$$eval(".card-layers input[type=range]", (r) => r[1].value); if (+v !== 0.4) fail(`layers_opacity_url: slider at ${v}`); // [0] is the Data row's opacity
       const op = await page.evaluate(() => window.__map.getPaintProperty("gebco-relief", "color-relief-opacity")); if (Math.abs(op - 0.4) > 1e-6) fail(`layers_opacity_url: relief opacity ${op}`); } },
   { name: "phone_layers_sheet", url: "?tour=off&theme=dark", viewport: PHONE, steps: async () => { await click(".map-layers-pill"); await sleep(700); },
-    assert: async () => { const n = await page.$$eval(".sheet input[type=checkbox]", (r) => r.length); if (n !== 8) fail(`phone_layers_sheet: ${n} checkboxes in the sheet`); } },
+    assert: async () => { const n = await page.$$eval(".sheet input[type=checkbox]", (r) => r.length); if (n !== 7) fail(`phone_layers_sheet: ${n} checkboxes in the sheet`); } },
   // reference layers (plan 2026-09-09, D47–D53): the ocean stack under CARTO's land layers, the OSM land mask over the
   // sea floor and the data, the inland-water copy, the gazetteer labels, the Esri raster row, `land=off` = the old stack
   { name: "ref_land_mask", url: "?tour=off&theme=light&lens=contour&var=temperature&map=-119.2,34.05,9.3", steps: async () => { await waitMark(/^contour:/, 60000); await waitTiles(); await sleep(900); },
@@ -381,9 +381,9 @@ const STATES = [
       if (ix("land") >= 0 || ix("water-inland") >= 0) fail("ref_land_off: the mask survived land=off");
       if (ix("water") < ix("boundary_state")) fail(`ref_land_off: water (${ix("water")}) is not back above CARTO's land layers (${ix("boundary_state")})`);
       const u = decodeURIComponent(await page.evaluate(() => location.search)); if (!/land=off/.test(u)) fail(`ref_land_off: URL lost land=off (${u})`);
-      await click(".map-layers-btn"); await sleep(300); await clickText(".card-layers label", "Land"); await sleep(900); await waitTiles();
-      const r2 = await stackProbe({}); if (r2.ids.indexOf("land") < 0) fail("ref_land_off: the Land checkbox did not bring the mask back");
-      const u2 = decodeURIComponent(await page.evaluate(() => location.search)); if (/land=/.test(u2)) fail(`ref_land_off: land= should leave the URL at the default (${u2})`); } },
+      // Land is always on in the card (Ben, 2026-09-09): no checkbox, the row says the link has it off
+      await click(".map-layers-btn"); await sleep(300); const txt = await page.$eval(".card-layers", (e) => e.textContent); if (!/off in this link/.test(txt)) fail("ref_land_off: the Land row does not say the link has it off");
+      if (await page.$(".card-layers input[type=checkbox] + b")) { /* structure check only */ } } },
   { name: "ref_inland_water", url: "?tour=off&theme=light&map=-117.2,33.4,7.2", steps: async () => { await waitTiles(); await sleep(600); },
     assert: async () => { const r = await stackProbe({ salton: [-115.85, 33.3], desert: [-116.1, 33.8] });
       if (!rgbNear(r.px.salton, WATER.light, 6)) fail(`ref_inland_water: the Salton Sea reads ${r.px.salton}, expected CARTO's water ${WATER.light}`);
@@ -437,7 +437,8 @@ const STATES = [
       const stops = r.town?.stops ?? r.town; if (!(Array.isArray(stops) && stops[0]?.[1] === 9)) fail(`labels_toned: town size ${JSON.stringify(r.town)} (expected the 10 px stop at 9)`);
       if (typeof r.names !== "number" || Math.abs(r.names - 0.65) > 1e-6) fail(`labels_toned: names opacity ${r.names} (dark default 0.65)`);
       await click(".map-layers-btn"); await sleep(400);
-      const n = await page.$$eval(".card-layers input[type=range]", (els) => els.length); if (n !== 3) fail(`labels_toned: ${n} sliders (Data · sea floor · basemap labels)`); } },
+      const n = await page.$$eval(".card-layers input[type=range]", (els) => els.length); if (n !== 4) fail(`labels_toned: ${n} sliders (Data · sea floor · basemap labels · the names row)`);
+      const v = await page.$eval(".onmap-opacity input[type=range]", (e) => e.value); if (Math.abs(+v - 0.65) > 1e-6) fail(`labels_toned: the names row's slider reads ${v}`); } },
   { name: "labels_toned_url", url: "?tour=off&theme=light&basemapo=0.30&layers=gebco_gazetteer::0.45&map=-118.6,33.55,7.7", steps: async () => { await waitTiles(); await sleep(400); },
     assert: async () => { const r = await page.evaluate(() => { const m = window.__map; return { op: m.getPaintProperty("place_city_r6", "text-opacity"), names: m.getPaintProperty("sp-gebco_gazetteer-symbol-2", "text-opacity") }; });
       if (typeof r.op !== "number" || Math.abs(r.op - 0.3) > 1e-6) fail(`labels_toned_url: CARTO text opacity ${r.op}`);

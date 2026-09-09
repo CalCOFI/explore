@@ -97,7 +97,7 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
         <input type="checkbox" disabled={!p.sel.data} checked={p.sel.labels} onChange={(e) => p.setSel({ labels: e.target.checked })} />
         Contour labels
       </label>}
-      <div className="hint layers-note">draws above the sea floor; its place among the boundary layers is the <b>Data</b> row under <i>On the map</i> — drag it below a boundary to draw under it{p.sel.land && <>; with <b>Land</b> on, it and every row below it are clipped to the ocean</>}</div>
+      <div className="hint layers-note">draws above the sea floor; its place among the boundary layers is the <b>Data</b> row under <i>On the map</i> — drag it below a boundary to draw under it{p.sel.land && <>; it and every row below it are clipped to the ocean by the coast</>}</div>
 
       <label className="layers-row layers-main">
         <input type="checkbox" checked={on} onChange={() => setBathy(on ? [] : [...BATHY_PARTS])} />
@@ -116,10 +116,9 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
         <span className="hint">{o.toFixed(2)}</span>
       </label>
 
-      <label className="layers-row layers-main" title={landDef?.description ?? "OpenStreetMap's land polygons, drawn in the basemap's land colour over the sea floor and the data (plan 2026-09-09 D47)"}>
-        <input type="checkbox" checked={p.sel.land} onChange={() => p.setSel({ land: !p.sel.land })} />
-        <b>Land</b> <span className="hint">the OpenStreetMap coast over the sea floor and the data — off, and both spill over it as before</span>
-      </label>
+      <div className="layers-row layers-main" title={landDef?.description ?? "OpenStreetMap's land polygons, drawn in the basemap's land colour over the sea floor and the data (plan 2026-09-09 D47)"}>
+        <b>Land</b> <span className="hint">the OpenStreetMap coast, always over the sea floor and the data{!p.sel.land && " · off in this link (land=off)"}</span>
+      </div>
       <label className="layers-row layers-main" title="CARTO's own text: place names, road names, points of interest, water names (basemap=nolabels)">
         <input type="checkbox" checked={p.sel.baseLabels} onChange={() => p.setSel({ baseLabels: !p.sel.baseLabels })} />
         <b>Basemap labels</b> <span className="hint">place names, roads, points of interest — off for a data-centric view</span>
@@ -157,6 +156,11 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
                 <button type="button" className="sm" aria-label={`Move ${d.name} down`} disabled={i === entries.length - 1} onClick={() => move(i, i + 1)}><Icon name="ui-down" size="0.85rem" /></button>
                 <button type="button" className="sm" aria-label={`Remove ${d.name}`} onClick={() => remove(i)}><Icon name="ui-close" size="0.85rem" /></button>
               </div>
+              {d.geom === "label" && (
+                <label className="layers-row layers-opacity onmap-opacity"><span className="hint">opacity</span>
+                  <input type="range" min={0.1} max={1} step={0.05} value={st.fillOpacity ?? d.fill_opacity ?? labelDefaultOpacity(p.theme)}
+                    onChange={(e) => upd(i, { fillOpacity: Math.round(+e.target.value * 100) / 100 })} />
+                  <span className="hint">{(st.fillOpacity ?? d.fill_opacity ?? labelDefaultOpacity(p.theme)).toFixed(2)}</span></label>)}
               {open && d.geom === "raster" && (
                 <div className="onmap-style">
                   <label className="layers-row"><span className="hint">opacity</span>
@@ -171,10 +175,6 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
                     {SWATCHES.map((c) => <button key={c} type="button" className={`swatch${st.color === c.slice(1) ? " on" : ""}`} style={{ background: c }} aria-label={c} onClick={() => upd(i, { color: c.slice(1) })} />)}
                     <input type="color" value={st.color && !isPalette(st.color) ? `#${st.color}` : "#888888"} title="any colour" onChange={(e) => upd(i, { color: e.target.value.slice(1) })} />
                   </div>
-                  <label className="layers-row"><span className="hint">opacity</span>
-                    <input type="range" min={0.1} max={1} step={0.05} value={st.fillOpacity ?? d.fill_opacity ?? labelDefaultOpacity(p.theme)}
-                      onChange={(e) => upd(i, { fillOpacity: Math.round(+e.target.value * 100) / 100 })} />
-                    <span className="hint">{(st.fillOpacity ?? d.fill_opacity ?? labelDefaultOpacity(p.theme)).toFixed(2)}</span></label>
                   <div className="layers-row">
                     <button type="button" className="linkish" onClick={() => upd(i, { color: null, fillOpacity: null, lineWidth: null })}>reset to the theme's look</button>
                     <span className="spacer" /><span className="hint">{d.n_features.toLocaleString()} names</span>

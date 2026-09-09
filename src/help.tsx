@@ -114,8 +114,8 @@ export function About(p: { release: string; nTables?: number; datasets: Row[]; c
         doi:10.5285/37c52e96-24ea-67ce-e063-7086abc05f29 · public domain). The layers button on the map toggles and
         restyles it; <code>?bathy=off</code> in a link reproduces the plain basemap. The coast is drawn over the sea floor and
         the data from <a href="https://osmdata.openstreetmap.de/data/land-polygons.html" target="_blank" rel="noopener">OpenStreetMap's land polygons</a>
-        (the same coastline the basemap's water comes from), so nothing spills onto land; the <b>Land</b> checkbox
-        (<code>land=off</code>) removes it; <b>Basemap labels</b> (<code>basemap=nolabels</code>, opacity <code>basemapo=</code>) turns the
+        (the same coastline the basemap's water comes from), so nothing spills onto land — always, though a link can
+        say <code>land=off</code> to compare; <b>Basemap labels</b> (<code>basemap=nolabels</code>, opacity <code>basemapo=</code>) turns the
         basemap's own place names, road names and points of interest down or off for a data-centric view; island names, which the
         basemap carries but never drew, are added to that family. Under <i>Add a layer › Reference</i>, <b>Undersea feature names</b> labels
         banks, basins, canyons, seamounts and escarpments from the <a href="https://www.gebco.net/data-products/undersea-feature-names" target="_blank" rel="noopener">IHO-IOC GEBCO Gazetteer</a>.</p>
