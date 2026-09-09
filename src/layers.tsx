@@ -6,7 +6,7 @@
 import { useRef, useState } from "react";
 import { Icon } from "./icons";
 import { BATHY_PARTS, type BathyPart, type LayerStyle, type Sel } from "./state";
-import { PALETTES, bathyDefaultOpacity, isPalette, type SpatialLayerDef } from "./basemap";
+import { LAND_ID, PALETTES, bathyDefaultOpacity, isPalette, type SpatialLayerDef } from "./basemap";
 import { RAMPS, RAMP_IDS, parseRamp, rampCss, defaultRamp } from "./ramps";
 
 const LABELS: Record<BathyPart, string> = { relief: "shaded relief", depth: "depth colour", contours: "contours" };
@@ -57,7 +57,9 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
       ? <span className="pal-strip">{PALETTES[st.color][p.theme].slice(0, 4).map((c) => <i key={c} style={{ background: c }} />)}</span>
       : <span className="swatch" style={{ background: st.color ? `#${st.color}` : (d.fill_color || d.line_color || "#9aa0a6") }} />;
 
-  const groups = [...new Set(p.defs.map((d) => d.group))];
+  const addable = p.defs.filter((d) => d.id !== LAND_ID); // the mask is the Land checkbox, never an On-the-map row (D52)
+  const groups = [...new Set(addable.map((d) => d.group))];
+  const landDef = p.defs.find((d) => d.id === LAND_ID);
   // the data layer (Ben, 2026-09-07): on/off, opacity, the colour ramp (+ reversed). It draws in deck's own canvas, above
   // every MapLibre layer — moving it BELOW a boundary layer needs the interleaved overlay (plan 2026-09-07 D36, spike-gated)
   const ramp = parseRamp(p.sel.ramp ?? defaultRamp(p.sel.realm, p.sel.var, p.sel.anom && p.sel.lens === "section"));
@@ -94,7 +96,7 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
         <input type="checkbox" disabled={!p.sel.data} checked={p.sel.labels} onChange={(e) => p.setSel({ labels: e.target.checked })} />
         Contour labels
       </label>}
-      <div className="hint layers-note">draws above the sea floor; its place among the boundary layers is the <b>Data</b> row under <i>On the map</i> — drag it below a boundary to draw under it</div>
+      <div className="hint layers-note">draws above the sea floor; its place among the boundary layers is the <b>Data</b> row under <i>On the map</i> — drag it below a boundary to draw under it{p.sel.land && <>; with <b>Land</b> on, it and every row below it are clipped to the ocean</>}</div>
 
       <label className="layers-row layers-main">
         <input type="checkbox" checked={on} onChange={() => setBathy(on ? [] : [...BATHY_PARTS])} />
@@ -111,6 +113,11 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
         <input type="range" min={0.1} max={1} step={0.05} disabled={!on} value={o}
           onChange={(e) => { const v = Math.round(+e.target.value * 100) / 100; p.setSel({ bathyo: v === def ? null : v }); }} />
         <span className="hint">{o.toFixed(2)}</span>
+      </label>
+
+      <label className="layers-row layers-main" title={landDef?.description ?? "OpenStreetMap's land polygons, drawn in the basemap's land colour over the sea floor and the data (plan 2026-09-09 D47)"}>
+        <input type="checkbox" checked={p.sel.land} onChange={() => p.setSel({ land: !p.sel.land })} />
+        <b>Land</b> <span className="hint">the OpenStreetMap coast over the sea floor and the data — off, and both spill over it as before</span>
       </label>
 
       <h5 className="layers-h">On the map {nBounds ? <span className="hint">top first — drag or ▲ ▼ to reorder</span> : <span className="hint">the data layer alone — add a boundary below</span>}</h5>
@@ -139,7 +146,26 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
                 <button type="button" className="sm" aria-label={`Move ${d.name} down`} disabled={i === entries.length - 1} onClick={() => move(i, i + 1)}><Icon name="ui-down" size="0.85rem" /></button>
                 <button type="button" className="sm" aria-label={`Remove ${d.name}`} onClick={() => remove(i)}><Icon name="ui-close" size="0.85rem" /></button>
               </div>
-              {open && (
+              {open && d.geom === "raster" && (
+                <div className="onmap-style">
+                  <label className="layers-row"><span className="hint">opacity</span>
+                    <input type="range" min={0.1} max={1} step={0.05} value={st.fillOpacity ?? d.fill_opacity ?? 1}
+                      onChange={(e) => upd(i, { fillOpacity: Math.round(+e.target.value * 100) / 100 })} />
+                    <span className="hint">{(st.fillOpacity ?? d.fill_opacity ?? 1).toFixed(2)}</span></label>
+                  <div className="layers-row"><span className="hint">{d.attribution}</span></div>
+                </div>)}
+              {open && d.geom === "label" && (
+                <div className="onmap-style">
+                  <div className="layers-row swatches">
+                    {SWATCHES.map((c) => <button key={c} type="button" className={`swatch${st.color === c.slice(1) ? " on" : ""}`} style={{ background: c }} aria-label={c} onClick={() => upd(i, { color: c.slice(1) })} />)}
+                    <input type="color" value={st.color && !isPalette(st.color) ? `#${st.color}` : "#888888"} title="any colour" onChange={(e) => upd(i, { color: e.target.value.slice(1) })} />
+                  </div>
+                  <div className="layers-row">
+                    <button type="button" className="linkish" onClick={() => upd(i, { color: null, fillOpacity: null, lineWidth: null })}>reset to the theme's colour</button>
+                    <span className="spacer" /><span className="hint">{d.n_features.toLocaleString()} names</span>
+                  </div>
+                </div>)}
+              {open && d.geom !== "raster" && d.geom !== "label" && (
                 <div className="onmap-style">
                   <div className="layers-row swatches">
                     {SWATCHES.map((c) => <button key={c} type="button" className={`swatch${st.color === c.slice(1) ? " on" : ""}`} style={{ background: c }} aria-label={c} onClick={() => upd(i, { color: c.slice(1) })} />)}
@@ -175,13 +201,13 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
       {groups.map((g) => (
         <div key={g} className={`addgroup${openGroup === g ? " open" : ""}`}>
           <button type="button" className="addgroup-h" aria-expanded={openGroup === g} onClick={() => setOpenGroup(openGroup === g ? null : g)}>
-            <Icon name={openGroup === g ? "ui-down" : "ui-right"} size="0.85rem" />{g} <span className="hint">{p.defs.filter((d) => d.group === g).length}</span>
+            <Icon name={openGroup === g ? "ui-down" : "ui-right"} size="0.85rem" />{g} <span className="hint">{addable.filter((d) => d.group === g).length}</span>
           </button>
-          {openGroup === g && p.defs.filter((d) => d.group === g).map((d) => (
+          {openGroup === g && addable.filter((d) => d.group === g).map((d) => (
             <label key={d.id} className="layers-row layers-sub">
               <input type="checkbox" checked={entries.some((e) => e.id === d.id)}
                 onChange={(e) => (e.target.checked ? addLayer(d.id) : setLayers(entries.filter((x) => x.id !== d.id)))} />
-              <span title={d.description ?? ""}>{d.name}</span> <span className="hint">{d.n_features.toLocaleString()}</span>
+              <span title={d.description ?? ""}>{d.name}</span> <span className="hint">{d.geom === "raster" ? "raster" : d.n_features.toLocaleString()}</span>
             </label>))}
         </div>))}
     </div>

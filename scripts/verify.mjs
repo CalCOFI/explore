@@ -72,6 +72,8 @@ async function shot(name) { const file = path.join(out, `${name}.png`); await pa
 const waitTiles = async (timeout = 25000) => { const t = Date.now(); while (Date.now() - t < timeout) { if (await page.evaluate(() => { const m = window.__map; return !!m && m.loaded() && m.areTilesLoaded(); })) return true; await sleep(150); } console.log("  (tiles not settled)"); return false; };
 const PROBE_PTS = { basin: [-119.7, 33.9], deep: [-125.5, 32.5], land: [-119.0, 34.6] }; // Santa Cruz Basin · abyssal plain · land (Ventura)
 const probeMap = () => page.evaluate((pts) => { const m = window.__map, c = document.querySelector("canvas.maplibregl-canvas"), gl = c.getContext("webgl2") || c.getContext("webgl"); const px = {}; const dpr = c.width / c.clientWidth; for (const [k, [lon, lat]] of Object.entries(pts)) { const q = m.project([lon, lat]); const b = new Uint8Array(4); gl.readPixels(Math.round(q.x * dpr), Math.round(c.height - q.y * dpr), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, b); px[k] = [b[0], b[1], b[2]]; } return { px, layers: (m.getStyle().layers || []).filter((l) => /^gebco/.test(l.id)).map((l) => l.id) }; }, PROBE_PTS);
+// the whole style's layer order (deck's interleaved layers included) + canvas pixels at lon/lat points
+const stackProbe = (pts) => page.evaluate((pts) => { const m = window.__map, c = document.querySelector("canvas.maplibregl-canvas"), gl = c.getContext("webgl2") || c.getContext("webgl"); const px = {}; const dpr = c.width / c.clientWidth; for (const [k, [lon, lat]] of Object.entries(pts)) { const q = m.project([lon, lat]); const b = new Uint8Array(4); gl.readPixels(Math.round(q.x * dpr), Math.round(c.height - q.y * dpr), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, b); px[k] = [b[0], b[1], b[2]]; } return { px, ids: m.style._order.slice() }; }, pts); // style._order carries deck's interleaved custom layers too; getStyle() drops them
 const rgbNear = (a, b, tol = 0) => a && b && a.every((v, i) => Math.abs(v - b[i]) <= tol);
 const WATER = { dark: [44, 53, 60], light: [212, 218, 220] }, LAND = { dark: [14, 14, 14], light: [250, 250, 248] };
 const expectSeaFloor = async (name, theme) => { const r = await probeMap();
@@ -351,7 +353,7 @@ const STATES = [
   { name: "layers_card", url: "?tour=off&theme=dark", steps: async () => { await click(".map-layers-btn"); await sleep(400); await clickText(".card-layers label", "contours"); await sleep(700); },
     assert: async () => { const u = decodeURIComponent(await page.evaluate(() => location.search));
       if (!/bathy=relief,depth(&|$)/.test(u)) fail(`layers_card: URL after unchecking contours: ${u}`);
-      const n = await page.$$eval(".card-layers input[type=checkbox]", (r) => r.length); if (n !== 6) fail(`layers_card: ${n} checkboxes`); // Data on/off · reverse ramp · sea floor · 3 parts
+      const n = await page.$$eval(".card-layers input[type=checkbox]", (r) => r.length); if (n !== 7) fail(`layers_card: ${n} checkboxes`); // Data on/off · reverse ramp · sea floor · 3 parts · Land
       const r = await probeMap(); if (r.layers.some((l) => /contour/.test(l))) fail("layers_card: contour layers survived the uncheck");
       await clickText(".card-layers label", "contours"); await sleep(500);
       const u2 = decodeURIComponent(await page.evaluate(() => location.search)); if (/bathy=/.test(u2)) fail(`layers_card: bathy= should leave the URL at the default (${u2})`); } },
@@ -359,7 +361,51 @@ const STATES = [
     assert: async () => { const v = await page.$$eval(".card-layers input[type=range]", (r) => r[1].value); if (+v !== 0.4) fail(`layers_opacity_url: slider at ${v}`); // [0] is the Data row's opacity
       const op = await page.evaluate(() => window.__map.getPaintProperty("gebco-relief", "color-relief-opacity")); if (Math.abs(op - 0.4) > 1e-6) fail(`layers_opacity_url: relief opacity ${op}`); } },
   { name: "phone_layers_sheet", url: "?tour=off&theme=dark", viewport: PHONE, steps: async () => { await click(".map-layers-pill"); await sleep(700); },
-    assert: async () => { const n = await page.$$eval(".sheet input[type=checkbox]", (r) => r.length); if (n !== 6) fail(`phone_layers_sheet: ${n} checkboxes in the sheet`); } },
+    assert: async () => { const n = await page.$$eval(".sheet input[type=checkbox]", (r) => r.length); if (n !== 7) fail(`phone_layers_sheet: ${n} checkboxes in the sheet`); } },
+  // reference layers (plan 2026-09-09, D47–D53): the ocean stack under CARTO's land layers, the OSM land mask over the
+  // sea floor and the data, the inland-water copy, the gazetteer labels, the Esri raster row, `land=off` = the old stack
+  { name: "ref_land_mask", url: "?tour=off&theme=light&lens=contour&var=temperature&map=-119.2,34.05,9.3", steps: async () => { await waitMark(/^contour:/, 60000); await waitTiles(); await sleep(900); },
+    assert: async () => { const r = await stackProbe({ inland: [-119.1, 34.22], sea: [-119.7, 34.25] }); // the Oxnard plain · the Santa Barbara Channel
+      const ix = (id) => r.ids.indexOf(id); const deck = r.ids.find((i) => /^deck-layer-group/.test(i)); // deck 9 interleaves one custom group per beforeId
+      if (ix("land") < 0) fail("ref_land_mask: no `land` layer");
+      if (ix("water") !== ix("background") + 3) fail(`ref_land_mask: water at ${ix("water")}, expected right after background + the two sunk park layers (${r.ids.slice(0, 5).join(",")})`);
+      for (const g of r.ids.filter((i) => /^gebco/.test(i))) if (ix(g) > ix("land")) fail(`ref_land_mask: ${g} above the mask`);
+      if (ix("water-inland") !== ix("land") + 1) fail("ref_land_mask: water-inland is not right above the mask");
+      for (const l of ["landcover", "boundary_state", "boundary_county", "road_pri_fill_noramp", "place_town"]) if (ix(l) >= 0 && ix(l) < ix("land")) fail(`ref_land_mask: CARTO's ${l} is under the mask`);
+      if (!deck) fail("ref_land_mask: no interleaved deck group in the style"); else if (deck !== "deck-layer-group-before:land" || ix(deck) !== ix("land") - 1) fail(`ref_land_mask: the data group ${deck} at ${ix(deck)} is not right under the mask (${ix("land")})`);
+      if (Math.min(...r.px.inland) < 228) fail(`ref_land_mask: inland pixel ${r.px.inland} is not land`);
+      if (Math.min(...r.px.sea) > 215) fail(`ref_land_mask: the sea pixel ${r.px.sea} carries no surface`);
+      console.log(`  stack: background ${ix("background")} · water ${ix("water")} · data ${deck ? ix(deck) : "-"} · land ${ix("land")} · boundary_state ${ix("boundary_state")} · inland ${r.px.inland} · sea ${r.px.sea}`); } },
+  { name: "ref_land_off", url: "?tour=off&theme=light&lens=contour&var=temperature&land=off&map=-119.2,34.05,9.3", steps: async () => { await waitMark(/^contour:/, 60000); await waitTiles(); await sleep(600); },
+    assert: async () => { const r = await stackProbe({}); const ix = (id) => r.ids.indexOf(id);
+      if (ix("land") >= 0 || ix("water-inland") >= 0) fail("ref_land_off: the mask survived land=off");
+      if (ix("water") < ix("boundary_state")) fail(`ref_land_off: water (${ix("water")}) is not back above CARTO's land layers (${ix("boundary_state")})`);
+      const u = decodeURIComponent(await page.evaluate(() => location.search)); if (!/land=off/.test(u)) fail(`ref_land_off: URL lost land=off (${u})`);
+      await click(".map-layers-btn"); await sleep(300); await clickText(".card-layers label", "Land"); await sleep(900); await waitTiles();
+      const r2 = await stackProbe({}); if (r2.ids.indexOf("land") < 0) fail("ref_land_off: the Land checkbox did not bring the mask back");
+      const u2 = decodeURIComponent(await page.evaluate(() => location.search)); if (/land=/.test(u2)) fail(`ref_land_off: land= should leave the URL at the default (${u2})`); } },
+  { name: "ref_inland_water", url: "?tour=off&theme=light&map=-117.2,33.4,7.2", steps: async () => { await waitTiles(); await sleep(600); },
+    assert: async () => { const r = await stackProbe({ salton: [-115.85, 33.3], desert: [-116.1, 33.8] });
+      if (!rgbNear(r.px.salton, WATER.light, 6)) fail(`ref_inland_water: the Salton Sea reads ${r.px.salton}, expected CARTO's water ${WATER.light}`);
+      if (Math.min(...r.px.desert) < 228) fail(`ref_inland_water: the desert reads ${r.px.desert}, not land`); } },
+  { name: "ref_labels", url: "?tour=off&theme=dark&layers=gebco_gazetteer&map=-119.6,33.4,7.5", steps: async () => { await waitTiles(); await sleep(1200); },
+    assert: async () => { const r = await page.evaluate(() => { const m = window.__map; const ids = (m.getStyle().layers || []).map((l) => l.id).filter((i) => /^sp-gebco_gazetteer-/.test(i)); const fs = m.queryRenderedFeatures({ layers: ids }); return { ids, labels: [...new Set(fs.map((f) => f.properties.label))] }; });
+      if (r.ids.length !== 4) fail(`ref_labels: ${r.ids.length} gazetteer layers [${r.ids.join(",")}]`);
+      if (r.labels.length < 3) fail(`ref_labels: only ${r.labels.length} labels rendered (${r.labels.join(" | ")})`);
+      if (!r.labels.some((l) => /Basin|Bank|Escarpment|Canyon/.test(l))) fail(`ref_labels: no named feature among ${r.labels.join(" | ")}`);
+      const u = decodeURIComponent(await page.evaluate(() => location.search)); if (!/layers=gebco_gazetteer/.test(u)) fail(`ref_labels: URL ${u}`);
+      console.log(`  labels: ${r.labels.slice(0, 8).join(" | ")}`); } },
+  { name: "ref_esri_raster", url: "?tour=off&theme=light&layers=esri_ocean_reference::0.8&map=-119.6,33.4,7.5", steps: async () => { await waitTiles(); await sleep(800); },
+    assert: async () => { const r = await page.evaluate(() => { const m = window.__map; const l = m.getLayer("sp-esri_ocean_reference-raster"); const s = m.getSource("sp-esri_ocean_reference"); return { layer: !!l, type: s?.type, op: l ? m.getPaintProperty("sp-esri_ocean_reference-raster", "raster-opacity") : null, loaded: m.areTilesLoaded() }; });
+      if (!r.layer || r.type !== "raster") fail(`ref_esri_raster: layer ${r.layer} source ${r.type}`);
+      if (Math.abs((r.op ?? 0) - 0.8) > 1e-6) fail(`ref_esri_raster: opacity ${r.op}`);
+      if (!r.loaded) fail("ref_esri_raster: tiles never settled"); } },
+  { name: "ref_data_under_boundary", url: "?tour=off&theme=dark&lens=hex&var=temperature&layers=noaa_onms_sanctuaries,data,noaa_maritime_eez&map=-119.6,33.9,8", steps: async () => { await waitMark(/^grain_switch:|^first_lens_ready/, 60000); await waitTiles(); await sleep(900); },
+    assert: async () => { const r = await stackProbe({}); const ix = (id) => r.ids.indexOf(id); const deck = ix("deck-layer-group-before:land");
+      // the sanctuaries above the Data row draw over the mask; the EEZ below it under the mask, over the sea floor; the data group just under the mask
+      if (!(ix("sp-noaa_onms_sanctuaries-fill") > ix("land"))) fail(`ref_data_under_boundary: sanctuaries (${ix("sp-noaa_onms_sanctuaries-fill")}) not above the mask (${ix("land")})`);
+      if (!(ix("sp-noaa_maritime_eez-line") < ix("land"))) fail(`ref_data_under_boundary: the EEZ (${ix("sp-noaa_maritime_eez-line")}) not under the mask (${ix("land")})`);
+      if (!(deck > ix("sp-noaa_maritime_eez-line") && deck === ix("land") - 1)) fail(`ref_data_under_boundary: the data group at ${deck} (eez ${ix("sp-noaa_maritime_eez-line")} · land ${ix("land")})`); } },
   // slice 3 (plan 2026-08-31, D23–D26): boundary layers — palette, order (the URL is the draw order), outline rule, hover
   { name: "layers3_default_none", url: "?tour=off&theme=dark", steps: async () => { await waitTiles(); },
     assert: async () => { const n = await page.evaluate(() => (window.__map.getStyle().layers || []).filter((l) => /^sp-/.test(l.id)).length); if (n) fail(`layers3_default_none: ${n} boundary layers with no layers= param`); } },

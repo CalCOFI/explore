@@ -47,6 +47,7 @@ export interface Sel {
   map: [number, number, number] | null; // the map extent as lon,lat,zoom (`map=-121.5,33.2,5.1`); null = the grid's home view
   bathy: BathyPart[] | null;   // sea floor: null = the default (all three parts on); [] = off; else the subset shown (`bathy=relief,contours`)
   bathyo: number | null;       // sea-floor opacity 0–1 (`bathyo=0.6`); null = the theme default (0.7 dark · 1 light)
+  land: boolean;               // `land=off`: the OSM land mask off (D47) — the sea floor and the data spill over the coast as before
   layers: LayerStyle[] | null; // visible boundary layers in DRAW ORDER, first on top (`layers=slug[:colour][:fill_opacity][:line_width],…`); null = none
   view3d: boolean;             // `view=3d`: the Sections lens (env) as a deck-only curtain scene (D28 reshaped)
   exag: number | null;         // vertical exaggeration for the 3-D scene, 10–150 (`exag=90`); null = 60
@@ -187,7 +188,7 @@ export const DEFAULTS: Sel = {
   lens: "station", res: 5, interp: "ok", surface: "value", grain: "site", inputs: null, labels: true, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature",
   stage: null, den: null, zeros: true, years: [1949, YEAR_OPEN], months: null, q: null, yview: null, depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
   line: 90, cruise: null, stat: "mean", anom: false, tour: true, tourOn: false, modal: null, theme: null, release: null, station: null, datasets: null,
-  hide: DEFAULT_HIDE, max: null, map: null, bathy: null, bathyo: null, layers: null, view3d: false, exag: null, strip: null, ramp: null, data: true, datao: null,
+  hide: DEFAULT_HIDE, max: null, map: null, bathy: null, bathyo: null, land: true, layers: null, view3d: false, exag: null, strip: null, ramp: null, data: true, datao: null,
 };
 
 const num = (v: string | null, d: number) => (v != null && v !== "" && !isNaN(+v) ? +v : d);
@@ -261,6 +262,7 @@ export function fromUrl(): Sel {
     map: parseMap(p.get("map")),
     bathy: parseBathyParts(p.get("bathy")),
     bathyo: (v => v != null && v !== "" && isFinite(+v) && +v >= 0 && +v <= 1 ? Math.round(+v * 100) / 100 : null)(p.get("bathyo")),
+    land: p.get("land") !== "off",
     layers: parseLayerStyles(p.get("layers")),
     view3d: p.get("view") === "3d",
     exag: (v => v != null && isFinite(+v) && +v >= 10 && +v <= 150 ? Math.round(+v) : null)(p.get("exag")),
@@ -305,6 +307,7 @@ export function toUrl(s: Sel) {
   if (s.map && !sameMap(s.map, MAP_HOME)) p.set("map", roundMap(s.map).join(","));
   if (s.bathy !== null) p.set("bathy", s.bathy.length ? s.bathy.join(",") : "off");
   if (s.bathyo != null) p.set("bathyo", s.bathyo.toFixed(2));
+  if (!s.land) p.set("land", "off");
   if (s.layers?.length) p.set("layers", fmtLayerStyles(s.layers));
   if (s.view3d) p.set("view", "3d");
   if (s.exag != null) p.set("exag", String(s.exag));

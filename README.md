@@ -116,7 +116,15 @@ depth colour + isobaths), drawn from terrain-RGB PMTiles at
 map toggles its parts and opacity, `?bathy=off` reproduces the plain basemap, `bathy=relief,contours`
 keeps a subset, `bathyo=0.5` sets its opacity. The style is COMPOSED (CARTO ⊕ sea floor, one object,
 `setStyle(diff)`), so a theme flip can never drop the layers — see the 2026-08-31 map-layers plan in
-CalCOFI/workflows for how the tiles are built.
+CalCOFI/workflows for how the tiles are built. **The coast is a land mask** (plan 2026-09-09, D47): CARTO's
+water fill sinks to the bottom of the style, the sea floor, the boundaries under the Data row and the data draw
+over it, then OpenStreetMap's land polygons (`_spatial/osm_land.pmtiles`, the coastline CARTO's own water derives
+from) in the background colour, a copy of CARTO's water without the ocean (lakes), and every CARTO land layer
+where it was — so nothing spills onto land and roads, county / state / country lines and labels stay on top.
+`land=off` restores the old stack. **Reference layers** ride the boundary registry with `role = reference`:
+`gebco_gazetteer` (undersea feature names from the IHO-IOC GEBCO Gazetteer, a `label` layer — symbols by rank,
+`layers=gebco_gazetteer[:colour]`) and `esri_ocean_reference` (Esri's World Ocean Reference as a `raster` row,
+for comparison); the mask itself is the **Land** checkbox, never an *On the map* row.
 - **Share** (the *Controls* panel's third tab): **Download data (zip)** hands over the bytes shown, the exact
   SQL against the release's content-addressed object URLs, per-dataset citations and `reproduce.R` /
   `reproduce.py` that run the same query; **Copy code** gives that SQL, or R or Python; **Cite this data**

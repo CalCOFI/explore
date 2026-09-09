@@ -20,7 +20,7 @@ import { Panel, EdgePills, MaxPanel, Sheet, Sparkline, VSpark, SHEET_PEEK, type 
 import { Sentence } from "./sentence";
 import { LayersCard } from "./layers";
 import { Curtain3D } from "./curtain";
-import { bathyFromSel, bathyOn, boundaryLayerIds, isPalette, PALETTES, type BoundaryState, type SpatialLayerDef, type SpatialLayers } from "./basemap";
+import { bathyFromSel, bathyOn, boundaryLayerIds, isPalette, LAND_LAYER, PALETTES, type BoundaryState, type SpatialLayerDef, type SpatialLayers } from "./basemap";
 import spatialFallback from "./spatial_layers.fallback";
 import type { IconName } from "./icons";
 import { Welcome, About, seenWelcome, markWelcome, markCiteAck } from "./help";
@@ -113,12 +113,15 @@ export function App() {
   const [spatial, setSpatial] = useState<any[]>([]);
   const [spatialLayers, setSpatialLayers] = useState<SpatialLayers>(spatialFallback as unknown as SpatialLayers);
   // D36: `layers=` may carry a `data` entry — the data layer's place in the draw order (top-first); absent = on top.
-  // deck draws under the boundary immediately above it: that entry's first MapLibre layer (fill before line)
+  // deck draws under the boundary immediately above it: that entry's first MapLibre layer (fill before line).
+  // With the land mask on (D47/D53) the composed style puts the mask exactly there, so the data draws under the mask
+  // — whatever the row — and everything from the Data row down is clipped to the ocean.
   const dataBeforeId = useMemo(() => {
+    if (sel.land) return LAND_LAYER;
     const ls = sel.layers ?? []; const i = ls.findIndex((l) => l.id === "data"); if (i <= 0) return undefined;
     const above = ls[i - 1]; const d = spatialLayers.layers.find((x) => x.id === above.id); if (!d) return undefined;
-    return d.geom === "polygon" ? `sp-${above.id}-fill` : d.geom === "line" ? `sp-${above.id}-line` : `sp-${above.id}-circle`;
-  }, [sel.layers, spatialLayers]);
+    return d.geom === "polygon" ? `sp-${above.id}-fill` : d.geom === "line" ? `sp-${above.id}-line` : d.geom === "label" ? `sp-${above.id}-symbol-1` : d.geom === "raster" ? `sp-${above.id}-raster` : `sp-${above.id}-circle`;
+  }, [sel.layers, sel.land, spatialLayers]);
   const [taxa, setTaxa] = useState<Row[]>([]);
   const [mt, setMt] = useState<Map<string, { description: string; units: string }>>(new Map());
   const [yearsEdit, setYearsEdit] = useState(false);

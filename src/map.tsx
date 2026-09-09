@@ -302,7 +302,7 @@ export function MapView(props: {
   useEffect(() => { applyLayers(); }, [props.layers]);
   const boundsKey = props.boundaries.styles.map((s) => [s.id, s.color, s.fillOpacity, s.lineWidth].join("~")).join(",") +
     `|${props.boundaries.regionOutline}|${props.boundaries.defs.length}`;
-  useEffect(() => { applyStyle(); }, [props.theme, props.bathy.parts.join(","), props.bathy.opacity, boundsKey]);
+  useEffect(() => { applyStyle(); }, [props.theme, props.bathy.parts.join(","), props.bathy.opacity, props.bathy.land, boundsKey]);
   // a view set from outside (the home button) flies the map there; the map's own moves come back through onView and match already
   useEffect(() => {
     const m = map.current; if (!m) return;

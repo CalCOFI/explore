@@ -112,7 +112,11 @@ export function About(p: { release: string; nTables?: number; datasets: Row[]; c
         relief, depth colour and isobaths, rendered in your browser from terrain tiles at
         <code> storage.calcofi.io/calcofi-db/bathymetry/</code> (GEBCO Compilation Group (2025) GEBCO 2025 Grid,
         doi:10.5285/37c52e96-24ea-67ce-e063-7086abc05f29 · public domain). The layers button on the map toggles and
-        restyles it; <code>?bathy=off</code> in a link reproduces the plain basemap.</p>
+        restyles it; <code>?bathy=off</code> in a link reproduces the plain basemap. The coast is drawn over the sea floor and
+        the data from <a href="https://osmdata.openstreetmap.de/data/land-polygons.html" target="_blank" rel="noopener">OpenStreetMap's land polygons</a>
+        (the same coastline the basemap's water comes from), so nothing spills onto land; the <b>Land</b> checkbox
+        (<code>land=off</code>) removes it. Under <i>Add a layer › Reference</i>, <b>Undersea feature names</b> labels
+        banks, basins, canyons, seamounts and escarpments from the <a href="https://www.gebco.net/data-products/undersea-feature-names" target="_blank" rel="noopener">IHO-IOC GEBCO Gazetteer</a>.</p>
       <h5><Icon name="ui-data" /> The release — <a className="cc-release" href={`https://calcofi.io/db-schema/#erd?v=${p.release}`} target="_blank" rel="noopener">release <b>{p.release}</b></a>{p.nTables ? <span className="hint"> · {p.nTables} tables</span> : null}</h5>
       <p>Every value on the page comes from this one <b>frozen</b> release: content-addressed objects that never change, so a link you share today draws the
         same picture next year, and <code>calcofi4r</code> / <code>calcofi4py</code> read the very same bytes. A new release is a new version; the header

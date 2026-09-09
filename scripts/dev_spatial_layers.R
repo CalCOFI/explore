@@ -13,7 +13,8 @@ dbExecute(con, glue("CREATE TABLE sample_spatial AS SELECT * FROM read_parquet({
 x <- build_spatial_layers(
   con, "~/Github/CalCOFI/workflows/metadata/spatial_layers.csv", version,
   pmtiles_base = "https://storage.googleapis.com/calcofi-files-public/_spatial/",
-  built = format(file.mtime(path.expand("~/Github/CalCOFI/workflows/data/parquet/spatial/manifest.json")), "%Y-%m-%d"))
+  built = format(file.mtime(path.expand("~/Github/CalCOFI/workflows/data/parquet/spatial/manifest.json")), "%Y-%m-%d"),
+  reference_json = path.expand("~/Github/CalCOFI/workflows/data/parquet/spatial/reference_layers.json")) # the reference rows' counts (D52)
 f <- file.path(dev, "spatial_layers.json")
 jsonlite::write_json(x, f, auto_unbox = TRUE, digits = NA, null = "null")
 cat(glue("wrote {f} ({round(file.size(f) / 1e3)} KB)\n\n"))

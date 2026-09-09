@@ -52,7 +52,7 @@ export const TOUR_STEPS: TourStep[] = [
     description: "Hover a dot for its summary; click a station for its coverage card (every dataset measured there, by year and by month). The legend's 5–95 % window colours the dots.",
     before: (a) => { if (a.phone) a.sheet("select", "peek"); } },
   { id: "layers", element: q('[data-tour="layers"]'), side: "left", align: "end", title: "Layers — the sea floor, and the boundaries you can draw on top",
-    description: "The sea floor is GEBCO 2025 — shaded relief, depth colour and isobaths — and the registry's boundary layers (EEZ, sanctuaries, MPAs, counties …) stack over it in the order you set. Every choice lands in the URL, so a shared link reopens the same map." },
+    description: "The sea floor is GEBCO 2025 — shaded relief, depth colour and isobaths — under the OpenStreetMap coast, and the registry's boundary and reference layers (EEZ, sanctuaries, MPAs, counties, undersea feature names …) stack over it in the order you set. Every choice lands in the URL, so a shared link reopens the same map." },
   { id: "share", element: q('[data-tour="share"]'), side: "right", align: "end", title: "Share",
     description: "Download data hands over the bytes, the exact SQL against the release's object URLs, citations and reproduce.R / .py. Copy code gives that SQL, or R or Python that runs it. Cite this data copies the citations for the datasets in view plus the integrated database (BibTeX too). Copy link — the URL is the whole view, map extent included. Every figure and CSV names its datasets.", before: (a) => { rail(a, "select"); a.expand("export"); }, wait: 300 },
   // the anchor is the feedback button now that it has left the Help menu; Help ▾ sits immediately left of it, so the
