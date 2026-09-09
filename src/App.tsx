@@ -283,7 +283,11 @@ export function App() {
   useEffect(() => {
     if (!version) return;
     fetch(sidecarUrl(version, "spatial_layers.json")).then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((j) => setSpatialLayers(j)).catch(() => console.log("spatial_layers.json: not in this release — using the bundled registry"));
+      // the reference layers (role = reference, plan 2026-09-09 D52) are artefacts outside releases, like the sea floor:
+      // a release whose sidecar predates them takes them from the bundled snapshot, so the mask and the labels do not
+      // wait for the next release
+      .then((j: SpatialLayers) => setSpatialLayers({ ...j, layers: [...j.layers, ...(spatialFallback as unknown as SpatialLayers).layers.filter((d) => d.role === "reference" && !j.layers.some((x) => x.id === d.id))] }))
+      .catch(() => console.log("spatial_layers.json: not in this release — using the bundled registry"));
   }, [version]);
   // the polygon layers are heavy (all layers, simplified): only the Regions lens needs them
   useEffect(() => {
