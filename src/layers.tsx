@@ -120,6 +120,10 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
         <input type="checkbox" checked={p.sel.land} onChange={() => p.setSel({ land: !p.sel.land })} />
         <b>Land</b> <span className="hint">the OpenStreetMap coast over the sea floor and the data — off, and both spill over it as before</span>
       </label>
+      <label className="layers-row layers-main" title="CARTO's own text: place names, road names, points of interest, water names (basemap=nolabels)">
+        <input type="checkbox" checked={p.sel.baseLabels} onChange={() => p.setSel({ baseLabels: !p.sel.baseLabels })} />
+        <b>Basemap labels</b> <span className="hint">place names, roads, points of interest — off for a data-centric view</span>
+      </label>
 
       <h5 className="layers-h">On the map {nBounds ? <span className="hint">top first — drag or ▲ ▼ to reorder</span> : <span className="hint">the data layer alone — add a boundary below</span>}</h5>
       <div ref={listRef} className="onmap">

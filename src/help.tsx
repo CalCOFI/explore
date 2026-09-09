@@ -115,7 +115,8 @@ export function About(p: { release: string; nTables?: number; datasets: Row[]; c
         restyles it; <code>?bathy=off</code> in a link reproduces the plain basemap. The coast is drawn over the sea floor and
         the data from <a href="https://osmdata.openstreetmap.de/data/land-polygons.html" target="_blank" rel="noopener">OpenStreetMap's land polygons</a>
         (the same coastline the basemap's water comes from), so nothing spills onto land; the <b>Land</b> checkbox
-        (<code>land=off</code>) removes it. Under <i>Add a layer › Reference</i>, <b>Undersea feature names</b> labels
+        (<code>land=off</code>) removes it; <b>Basemap labels</b> (<code>basemap=nolabels</code>) turns the basemap's own place
+        names, road names and points of interest off for a data-centric view. Under <i>Add a layer › Reference</i>, <b>Undersea feature names</b> labels
         banks, basins, canyons, seamounts and escarpments from the <a href="https://www.gebco.net/data-products/undersea-feature-names" target="_blank" rel="noopener">IHO-IOC GEBCO Gazetteer</a>.</p>
       <h5><Icon name="ui-data" /> The release — <a className="cc-release" href={`https://calcofi.io/db-schema/#erd?v=${p.release}`} target="_blank" rel="noopener">release <b>{p.release}</b></a>{p.nTables ? <span className="hint"> · {p.nTables} tables</span> : null}</h5>
       <p>Every value on the page comes from this one <b>frozen</b> release: content-addressed objects that never change, so a link you share today draws the

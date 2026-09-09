@@ -121,7 +121,9 @@ water fill sinks to the bottom of the style, the sea floor, the boundaries under
 over it, then OpenStreetMap's land polygons (`_spatial/osm_land.pmtiles`, the coastline CARTO's own water derives
 from) in the background colour, a copy of CARTO's water without the ocean (lakes), and every CARTO land layer
 where it was — so nothing spills onto land and roads, county / state / country lines and labels stay on top.
-`land=off` restores the old stack. **Reference layers** ride the boundary registry with `role = reference`:
+`land=off` restores the old stack; `basemap=nolabels` hides CARTO's own text (place names, road names, points of
+interest, water names) for a data-centric view — the isobath labels and the registry's label layers stay. **Reference
+layers** ride the boundary registry with `role = reference`:
 `gebco_gazetteer` (undersea feature names from the IHO-IOC GEBCO Gazetteer, a `label` layer — symbols by rank,
 `layers=gebco_gazetteer[:colour]`) and `esri_ocean_reference` (Esri's World Ocean Reference as a `raster` row,
 for comparison); the mask itself is the **Land** checkbox, never an *On the map* row. A link without `layers=`

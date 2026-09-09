@@ -353,7 +353,7 @@ const STATES = [
   { name: "layers_card", url: "?tour=off&theme=dark", steps: async () => { await click(".map-layers-btn"); await sleep(400); await clickText(".card-layers label", "contours"); await sleep(700); },
     assert: async () => { const u = decodeURIComponent(await page.evaluate(() => location.search));
       if (!/bathy=relief,depth(&|$)/.test(u)) fail(`layers_card: URL after unchecking contours: ${u}`);
-      const n = await page.$$eval(".card-layers input[type=checkbox]", (r) => r.length); if (n !== 7) fail(`layers_card: ${n} checkboxes`); // Data on/off · reverse ramp · sea floor · 3 parts · Land
+      const n = await page.$$eval(".card-layers input[type=checkbox]", (r) => r.length); if (n !== 8) fail(`layers_card: ${n} checkboxes`); // Data on/off · reverse ramp · sea floor · 3 parts · Land · Basemap labels
       const r = await probeMap(); if (r.layers.some((l) => /contour/.test(l))) fail("layers_card: contour layers survived the uncheck");
       await clickText(".card-layers label", "contours"); await sleep(500);
       const u2 = decodeURIComponent(await page.evaluate(() => location.search)); if (/bathy=/.test(u2)) fail(`layers_card: bathy= should leave the URL at the default (${u2})`); } },
@@ -361,7 +361,7 @@ const STATES = [
     assert: async () => { const v = await page.$$eval(".card-layers input[type=range]", (r) => r[1].value); if (+v !== 0.4) fail(`layers_opacity_url: slider at ${v}`); // [0] is the Data row's opacity
       const op = await page.evaluate(() => window.__map.getPaintProperty("gebco-relief", "color-relief-opacity")); if (Math.abs(op - 0.4) > 1e-6) fail(`layers_opacity_url: relief opacity ${op}`); } },
   { name: "phone_layers_sheet", url: "?tour=off&theme=dark", viewport: PHONE, steps: async () => { await click(".map-layers-pill"); await sleep(700); },
-    assert: async () => { const n = await page.$$eval(".sheet input[type=checkbox]", (r) => r.length); if (n !== 7) fail(`phone_layers_sheet: ${n} checkboxes in the sheet`); } },
+    assert: async () => { const n = await page.$$eval(".sheet input[type=checkbox]", (r) => r.length); if (n !== 8) fail(`phone_layers_sheet: ${n} checkboxes in the sheet`); } },
   // reference layers (plan 2026-09-09, D47–D53): the ocean stack under CARTO's land layers, the OSM land mask over the
   // sea floor and the data, the inland-water copy, the gazetteer labels, the Esri raster row, `land=off` = the old stack
   { name: "ref_land_mask", url: "?tour=off&theme=light&lens=contour&var=temperature&map=-119.2,34.05,9.3", steps: async () => { await waitMark(/^contour:/, 60000); await waitTiles(); await sleep(900); },
@@ -418,6 +418,15 @@ const STATES = [
       await page.click(".onmap-row:not(.data) button[aria-label^='Remove']"); await sleep(600);
       const u2 = decodeURIComponent(await page.evaluate(() => location.search)); if (!/layers=off/.test(u2)) fail(`layers3_default_names: removing the last row should write layers=off (${u2})`);
       const n2 = await page.evaluate(() => (window.__map.getStyle().layers || []).filter((l) => /^sp-/.test(l.id)).length); if (n2) fail(`layers3_default_names: ${n2} sp- layers after layers=off`); } },
+  // basemap=nolabels (Ben, 2026-09-09): CARTO's text off, the sea floor's isobath labels and the names layer still on; the checkbox round-trips the URL
+  { name: "basemap_nolabels", url: "?tour=off&theme=dark&basemap=nolabels&map=-119.6,33.4,8.5", steps: async () => { await waitTiles(); await sleep(600); },
+    assert: async () => { const r = await page.evaluate(() => { const m = window.__map; const sym = (m.getStyle().layers || []).filter((l) => l.type === "symbol"); const carto = sym.filter((l) => !/^gebco|^sp-/.test(l.id)); return { carto: carto.length, cartoShown: carto.filter((l) => l.layout?.visibility !== "none").map((l) => l.id), ours: sym.filter((l) => /^gebco|^sp-/.test(l.id) && l.layout?.visibility !== "none").length, names: m.queryRenderedFeatures({ layers: sym.filter((l) => /^sp-gebco_gazetteer/.test(l.id)).map((l) => l.id) }).length }; });
+      if (r.carto < 20 || r.cartoShown.length) fail(`basemap_nolabels: ${r.cartoShown.length} of ${r.carto} CARTO text layers still shown [${r.cartoShown.slice(0, 4).join(",")}]`);
+      if (r.ours < 4) fail(`basemap_nolabels: only ${r.ours} of our own label layers visible`);
+      if (r.names < 1) fail("basemap_nolabels: the undersea feature names vanished with CARTO's labels");
+      await click(".map-layers-btn"); await sleep(300); await clickText(".card-layers label", "Basemap labels"); await sleep(900); await waitTiles();
+      const u = decodeURIComponent(await page.evaluate(() => location.search)); if (/basemap=/.test(u)) fail(`basemap_nolabels: the checkbox should leave the URL at the default (${u})`);
+      const shown = await page.evaluate(() => (window.__map.getStyle().layers || []).filter((l) => l.type === "symbol" && /^place_/.test(l.id) && l.layout?.visibility !== "none").length); if (!shown) fail("basemap_nolabels: place labels did not come back"); } },
   { name: "layers3_off", url: "?tour=off&theme=dark&layers=off", steps: async () => { await waitTiles(); },
     assert: async () => { const n = await page.evaluate(() => (window.__map.getStyle().layers || []).filter((l) => /^sp-/.test(l.id)).length); if (n) fail(`layers3_off: ${n} boundary layers with layers=off`); } },
   { name: "lens_sliver_switches", url: "?tour=off&theme=dark", steps: async () => { await click(".lenspick-slivers .sliver[aria-label='Hexagons']"); await waitMark(/^grain_switch:/, 60000); await sleep(500); },

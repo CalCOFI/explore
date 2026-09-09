@@ -13,11 +13,11 @@ maplibregl.addProtocol("pmtiles", new Protocol().tile as any); // once, at modul
 export const BATHY_URL: string = import.meta.env.VITE_BATHY_URL ?? "https://storage.googleapis.com/calcofi-db/bathymetry/";
 export const GEBCO_ATTRIBUTION = "GEBCO Compilation Group (2025) GEBCO 2025 Grid";
 
-export interface BathyState { parts: BathyPart[]; opacity: number | null; land: boolean } // parts [] = off · opacity null = the theme default · land = the OSM mask (D47)
+export interface BathyState { parts: BathyPart[]; opacity: number | null; land: boolean; baseLabels: boolean } // parts [] = off · opacity null = the theme default · land = the OSM mask (D47) · baseLabels = CARTO's text
 export const bathyOn = (b: BathyState) => b.parts.length > 0;
 export const bathyDefaultOpacity = (theme: "dark" | "light") => (theme === "dark" ? 0.7 : 1);
-export const bathyFromSel = (s: { bathy: BathyPart[] | null; bathyo: number | null; land: boolean }): BathyState =>
-  ({ parts: s.bathy ?? [...BATHY_PARTS], opacity: s.bathyo, land: s.land });
+export const bathyFromSel = (s: { bathy: BathyPart[] | null; bathyo: number | null; land: boolean; baseLabels: boolean }): BathyState =>
+  ({ parts: s.bathy ?? [...BATHY_PARTS], opacity: s.bathyo, land: s.land, baseLabels: s.baseLabels });
 
 // ── the land mask (plan 2026-09-09, D47 · D48 · D49 · D53) ────────────────────
 // CARTO paints land as `background` and the sea as the `water` fill, with landcover, parks, landuse, waterways and the
@@ -75,6 +75,10 @@ export function composeStyle(base: any, theme: "dark" | "light", b: BathyState, 
   if (!withDem) return style;
   const landOn = b.land && !!bounds; // the mask's archive lives beside the boundary archives: it needs the sidecar's base URL
   if (landOn) sinkOcean(style);
+  // `basemap=nolabels` (Ben, 2026-09-09): every text layer of CARTO's own — place names, road names, points of interest,
+  // water names — hidden, for a data-centric view. Visibility, not removal, so the theme diff stays a handful of ops;
+  // the sea floor's isobath labels and the registry's label layers are added below and are not touched.
+  if (!b.baseLabels) for (const l of style.layers) if (l.type === "symbol") l.layout = { ...(l.layout ?? {}), visibility: "none" };
   if (bathyOn(b)) {
     const has = (x: BathyPart) => b.parts.includes(x);
     const o = b.opacity ?? bathyDefaultOpacity(theme);
