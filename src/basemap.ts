@@ -29,6 +29,25 @@ const BASE_TEXT = {
   dark: { color: "rgb(214,220,226)", halo: "rgba(14,14,14,0.75)" },
   light: { color: "rgb(74,84,92)", halo: "rgba(250,250,248,0.75)" },
 };
+/** islands (Ben, 2026-09-09: "surprised to not see any island labels"): CARTO's tiles carry `place` features of class
+ *  `island` from z8 (the Channel Islands at rank 2–3, Anacapa and Santa Barbara Island at rank 5) but neither of its
+ *  styles has a rule for the class. Two symbol layers — the large islands from z8, the minor ones from z10 — inserted
+ *  under `place_town`, so towns and cities (placed first, from the top of the stack) win a collision. Authored in the
+ *  toned look (Regular, one grey) so toneBaseLabels() and `basemap=nolabels` treat them like the rest. */
+function addIslandLabels(style: any, theme: "dark" | "light") {
+  const src = style.layers.find((l: any) => l.id === "place_town")?.source ?? "carto";
+  const t = BASE_TEXT[theme];
+  const mk = (id: string, minzoom: number, filter: any, sizes: [number, number][]) => ({
+    id, type: "symbol", source: src, "source-layer": "place", minzoom, filter,
+    layout: { "text-field": ["coalesce", ["get", "name:en"], ["get", "name"]], "text-font": ["Montserrat Regular", "Open Sans Regular"],
+              "text-size": { stops: sizes }, "text-letter-spacing": 0.06, "text-max-width": 7, "text-padding": 4, "symbol-sort-key": ["get", "rank"] },
+    paint: { "text-color": t.color, "text-halo-color": t.halo, "text-halo-width": 1 } });
+  const at = style.layers.findIndex((l: any) => l.id === "place_town");
+  style.layers.splice(at < 0 ? style.layers.length : at, 0,
+    mk("place_island", 8, ["all", ["==", "class", "island"], ["<=", "rank", 3]], [[8, 11], [10, 12], [13, 14]]),
+    mk("place_island_minor", 10, ["all", ["==", "class", "island"], [">=", "rank", 4]], [[10, 10], [13, 12]]));
+}
+
 function toneBaseLabels(style: any, theme: "dark" | "light", opacity: number) {
   const t = BASE_TEXT[theme];
   const smaller = (s: any): any => typeof s === "number" ? Math.max(9, s - 1) : s && Array.isArray(s.stops) ? { ...s, stops: s.stops.map(([z, v]: [number, number]) => [z, Math.max(9, v - 1)]) } : s;
@@ -100,6 +119,7 @@ export function composeStyle(base: any, theme: "dark" | "light", b: BathyState, 
   // `basemap=nolabels` (Ben, 2026-09-09): every text layer of CARTO's own — place names, road names, points of interest,
   // water names — hidden, for a data-centric view. Visibility, not removal, so the theme diff stays a handful of ops;
   // the sea floor's isobath labels and the registry's label layers are added below and are not touched.
+  addIslandLabels(style, theme); // before the toning / hiding: an island name is a basemap label like any other
   if (!b.baseLabels) { for (const l of style.layers) if (l.type === "symbol") l.layout = { ...(l.layout ?? {}), visibility: "none" }; }
   else toneBaseLabels(style, theme, b.baseLabelOpacity ?? baseLabelDefaultOpacity(theme));
   if (bathyOn(b)) {

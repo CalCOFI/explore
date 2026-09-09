@@ -124,7 +124,8 @@ where it was — so nothing spills onto land and roads, county / state / country
 `land=off` restores the old stack; `basemap=nolabels` hides CARTO's own text (place names, road names, points of
 interest, water names) for a data-centric view — the isobath labels and the registry's label layers stay. CARTO's
 text is always toned down (one mid grey at `basemapo=` opacity, 0.6 dark / 0.7 light by default, Regular weight, a
-thinner halo, 1 px smaller: its near-white Montserrat Medium out-shouted the data); the names layer draws at 12/10/9 px
+thinner halo, 1 px smaller: its near-white Montserrat Medium out-shouted the data), and gains the **island names**
+CARTO's tiles carry but its styles never drew (`place_island` from z8, `place_island_minor` from z10); the names layer draws at 12/10/9 px
 and its row's opacity (`layers=gebco_gazetteer::0.45`). **Reference
 layers** ride the boundary registry with `role = reference`:
 `gebco_gazetteer` (undersea feature names from the IHO-IOC GEBCO Gazetteer, a `label` layer — symbols by rank,

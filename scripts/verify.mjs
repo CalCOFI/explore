@@ -443,6 +443,16 @@ const STATES = [
       if (typeof r.op !== "number" || Math.abs(r.op - 0.3) > 1e-6) fail(`labels_toned_url: CARTO text opacity ${r.op}`);
       if (typeof r.names !== "number" || Math.abs(r.names - 0.45) > 1e-6) fail(`labels_toned_url: names opacity ${r.names}`);
       const u = decodeURIComponent(await page.evaluate(() => location.search)); if (!/basemapo=0.30/.test(u) || !/layers=gebco_gazetteer::0.45/.test(u)) fail(`labels_toned_url: URL ${u}`); } },
+  // islands (Ben, 2026-09-09): CARTO carries them, its styles never drew them; ours do, and they hide with basemap=nolabels
+  { name: "labels_islands", url: "?tour=off&theme=dark&map=-119.7,33.95,8.6", steps: async () => { await waitTiles(); await sleep(900); },
+    assert: async () => { const r = await page.evaluate(() => { const m = window.__map; const ids = ["place_island", "place_island_minor"].filter((i) => m.getLayer(i)); const names = [...new Set(m.queryRenderedFeatures({ layers: ids }).map((f) => f.properties.name))]; const order = m.style._order; return { ids, names, under: order.indexOf("place_island") < order.indexOf("place_town"), font: m.getLayoutProperty("place_island", "text-font")?.[0], op: m.getPaintProperty("place_island", "text-opacity") }; });
+      if (r.ids.length !== 2) fail(`labels_islands: island layers [${r.ids.join(",")}]`);
+      if (!r.names.some((n) => /Santa Cruz Island|Santa Rosa Island|Santa Catalina Island/.test(n))) fail(`labels_islands: no Channel Island rendered (${r.names.join(" | ")})`);
+      if (!r.under) fail("labels_islands: place_island is not under place_town");
+      if (r.font !== "Montserrat Regular" || typeof r.op !== "number" || Math.abs(r.op - 0.6) > 1e-6) fail(`labels_islands: not in the toned family (font ${r.font}, opacity ${r.op})`);
+      console.log(`  islands: ${r.names.join(" | ")}`); } },
+  { name: "labels_islands_off", url: "?tour=off&theme=dark&basemap=nolabels&map=-119.7,33.95,8.6", steps: async () => { await waitTiles(); await sleep(400); },
+    assert: async () => { const v = await page.evaluate(() => window.__map.getLayoutProperty("place_island", "visibility")); if (v !== "none") fail(`labels_islands_off: island labels visible under basemap=nolabels (${v})`); } },
   { name: "layers3_off", url: "?tour=off&theme=dark&layers=off", steps: async () => { await waitTiles(); },
     assert: async () => { const n = await page.evaluate(() => (window.__map.getStyle().layers || []).filter((l) => /^sp-/.test(l.id)).length); if (n) fail(`layers3_off: ${n} boundary layers with layers=off`); } },
   { name: "lens_sliver_switches", url: "?tour=off&theme=dark", steps: async () => { await click(".lenspick-slivers .sliver[aria-label='Hexagons']"); await waitMark(/^grain_switch:/, 60000); await sleep(500); },
