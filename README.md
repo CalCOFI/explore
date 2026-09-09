@@ -122,7 +122,10 @@ over it, then OpenStreetMap's land polygons (`_spatial/osm_land.pmtiles`, the co
 from) in the background colour, a copy of CARTO's water without the ocean (lakes), and every CARTO land layer
 where it was — so nothing spills onto land and roads, county / state / country lines and labels stay on top.
 `land=off` restores the old stack; `basemap=nolabels` hides CARTO's own text (place names, road names, points of
-interest, water names) for a data-centric view — the isobath labels and the registry's label layers stay. **Reference
+interest, water names) for a data-centric view — the isobath labels and the registry's label layers stay. CARTO's
+text is always toned down (one mid grey at `basemapo=` opacity, 0.6 dark / 0.7 light by default, Regular weight, a
+thinner halo, 1 px smaller: its near-white Montserrat Medium out-shouted the data); the names layer draws at 12/10/9 px
+and its row's opacity (`layers=gebco_gazetteer::0.45`). **Reference
 layers** ride the boundary registry with `role = reference`:
 `gebco_gazetteer` (undersea feature names from the IHO-IOC GEBCO Gazetteer, a `label` layer — symbols by rank,
 `layers=gebco_gazetteer[:colour]`) and `esri_ocean_reference` (Esri's World Ocean Reference as a `raster` row,

@@ -6,7 +6,7 @@
 import { useRef, useState } from "react";
 import { Icon } from "./icons";
 import { BATHY_PARTS, type BathyPart, type LayerStyle, type Sel } from "./state";
-import { LAND_ID, PALETTES, bathyDefaultOpacity, defaultLayers, effectiveLayers, isPalette, sameLayers, type SpatialLayerDef } from "./basemap";
+import { LAND_ID, PALETTES, baseLabelDefaultOpacity, bathyDefaultOpacity, defaultLayers, effectiveLayers, isPalette, labelDefaultOpacity, sameLayers, type SpatialLayerDef } from "./basemap";
 import { RAMPS, RAMP_IDS, parseRamp, rampCss, defaultRamp } from "./ramps";
 
 const LABELS: Record<BathyPart, string> = { relief: "shaded relief", depth: "depth colour", contours: "contours" };
@@ -124,6 +124,12 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
         <input type="checkbox" checked={p.sel.baseLabels} onChange={() => p.setSel({ baseLabels: !p.sel.baseLabels })} />
         <b>Basemap labels</b> <span className="hint">place names, roads, points of interest — off for a data-centric view</span>
       </label>
+      <label className="layers-row layers-opacity">
+        <span className="hint">opacity</span>
+        <input type="range" min={0.1} max={1} step={0.05} disabled={!p.sel.baseLabels} value={p.sel.basemapo ?? baseLabelDefaultOpacity(p.theme)}
+          onChange={(e) => { const v = Math.round(+e.target.value * 100) / 100; p.setSel({ basemapo: v === baseLabelDefaultOpacity(p.theme) ? null : v }); }} />
+        <span className="hint">{(p.sel.basemapo ?? baseLabelDefaultOpacity(p.theme)).toFixed(2)}</span>
+      </label>
 
       <h5 className="layers-h">On the map {nBounds ? <span className="hint">top first — drag or ▲ ▼ to reorder</span> : <span className="hint">the data layer alone — add a boundary below</span>}</h5>
       <div ref={listRef} className="onmap">
@@ -165,8 +171,12 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
                     {SWATCHES.map((c) => <button key={c} type="button" className={`swatch${st.color === c.slice(1) ? " on" : ""}`} style={{ background: c }} aria-label={c} onClick={() => upd(i, { color: c.slice(1) })} />)}
                     <input type="color" value={st.color && !isPalette(st.color) ? `#${st.color}` : "#888888"} title="any colour" onChange={(e) => upd(i, { color: e.target.value.slice(1) })} />
                   </div>
+                  <label className="layers-row"><span className="hint">opacity</span>
+                    <input type="range" min={0.1} max={1} step={0.05} value={st.fillOpacity ?? d.fill_opacity ?? labelDefaultOpacity(p.theme)}
+                      onChange={(e) => upd(i, { fillOpacity: Math.round(+e.target.value * 100) / 100 })} />
+                    <span className="hint">{(st.fillOpacity ?? d.fill_opacity ?? labelDefaultOpacity(p.theme)).toFixed(2)}</span></label>
                   <div className="layers-row">
-                    <button type="button" className="linkish" onClick={() => upd(i, { color: null, fillOpacity: null, lineWidth: null })}>reset to the theme's colour</button>
+                    <button type="button" className="linkish" onClick={() => upd(i, { color: null, fillOpacity: null, lineWidth: null })}>reset to the theme's look</button>
                     <span className="spacer" /><span className="hint">{d.n_features.toLocaleString()} names</span>
                   </div>
                 </div>)}

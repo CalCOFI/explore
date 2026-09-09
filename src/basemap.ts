@@ -13,11 +13,33 @@ maplibregl.addProtocol("pmtiles", new Protocol().tile as any); // once, at modul
 export const BATHY_URL: string = import.meta.env.VITE_BATHY_URL ?? "https://storage.googleapis.com/calcofi-db/bathymetry/";
 export const GEBCO_ATTRIBUTION = "GEBCO Compilation Group (2025) GEBCO 2025 Grid";
 
-export interface BathyState { parts: BathyPart[]; opacity: number | null; land: boolean; baseLabels: boolean } // parts [] = off · opacity null = the theme default · land = the OSM mask (D47) · baseLabels = CARTO's text
+export interface BathyState { parts: BathyPart[]; opacity: number | null; land: boolean; baseLabels: boolean; baseLabelOpacity: number | null } // parts [] = off · opacity null = the theme default · land = the OSM mask (D47) · baseLabels = CARTO's text, at baseLabelOpacity
 export const bathyOn = (b: BathyState) => b.parts.length > 0;
 export const bathyDefaultOpacity = (theme: "dark" | "light") => (theme === "dark" ? 0.7 : 1);
-export const bathyFromSel = (s: { bathy: BathyPart[] | null; bathyo: number | null; land: boolean; baseLabels: boolean }): BathyState =>
-  ({ parts: s.bathy ?? [...BATHY_PARTS], opacity: s.bathyo, land: s.land, baseLabels: s.baseLabels });
+export const bathyFromSel = (s: { bathy: BathyPart[] | null; bathyo: number | null; land: boolean; baseLabels: boolean; basemapo: number | null }): BathyState =>
+  ({ parts: s.bathy ?? [...BATHY_PARTS], opacity: s.bathyo, land: s.land, baseLabels: s.baseLabels, baseLabelOpacity: s.basemapo });
+
+// ── CARTO's own text, toned down (Ben, 2026-09-09: "the place labels are too visually dominant") ─────────────────
+// Dark Matter sets its city names near white (rgba 211,228,236 · 233,239,246) in Montserrat Medium at 12–14 px with a
+// 1 px black halo — the highest contrast on the map, above the data. Every CARTO symbol layer gets one mid grey at a
+// theme opacity (the slider), Regular weight, a thinner halo and 1 px less; the isobath labels and the registry's
+// label layers are added afterwards and keep their own look.
+export const baseLabelDefaultOpacity = (theme: "dark" | "light") => (theme === "dark" ? 0.6 : 0.7);
+const BASE_TEXT = {
+  dark: { color: "rgb(214,220,226)", halo: "rgba(14,14,14,0.75)" },
+  light: { color: "rgb(74,84,92)", halo: "rgba(250,250,248,0.75)" },
+};
+function toneBaseLabels(style: any, theme: "dark" | "light", opacity: number) {
+  const t = BASE_TEXT[theme];
+  const smaller = (s: any): any => typeof s === "number" ? Math.max(9, s - 1) : s && Array.isArray(s.stops) ? { ...s, stops: s.stops.map(([z, v]: [number, number]) => [z, Math.max(9, v - 1)]) } : s;
+  for (const l of style.layers) {
+    if (l.type !== "symbol") continue;
+    l.paint = { ...(l.paint ?? {}), "text-color": t.color, "text-opacity": opacity, "icon-opacity": opacity, "text-halo-color": t.halo, "text-halo-width": 0.9 };
+    l.layout = { ...(l.layout ?? {}) };
+    if (Array.isArray(l.layout["text-font"])) l.layout["text-font"] = l.layout["text-font"].map((f: string) => String(f).replace(/ (Medium|SemiBold|Bold)( Italic)?$/, " Regular$2"));
+    if (l.layout["text-size"] != null) l.layout["text-size"] = smaller(l.layout["text-size"]);
+  }
+}
 
 // ── the land mask (plan 2026-09-09, D47 · D48 · D49 · D53) ────────────────────
 // CARTO paints land as `background` and the sea as the `water` fill, with landcover, parks, landuse, waterways and the
@@ -78,7 +100,8 @@ export function composeStyle(base: any, theme: "dark" | "light", b: BathyState, 
   // `basemap=nolabels` (Ben, 2026-09-09): every text layer of CARTO's own — place names, road names, points of interest,
   // water names — hidden, for a data-centric view. Visibility, not removal, so the theme diff stays a handful of ops;
   // the sea floor's isobath labels and the registry's label layers are added below and are not touched.
-  if (!b.baseLabels) for (const l of style.layers) if (l.type === "symbol") l.layout = { ...(l.layout ?? {}), visibility: "none" };
+  if (!b.baseLabels) { for (const l of style.layers) if (l.type === "symbol") l.layout = { ...(l.layout ?? {}), visibility: "none" }; }
+  else toneBaseLabels(style, theme, b.baseLabelOpacity ?? baseLabelDefaultOpacity(theme));
   if (bathyOn(b)) {
     const has = (x: BathyPart) => b.parts.includes(x);
     const o = b.opacity ?? bathyDefaultOpacity(theme);
@@ -197,27 +220,29 @@ export const boundaryLayerIds = (styles: LayerStyle[]): string[] =>
 
 // the gazetteer labels (D50): italic like CARTO's own water names, halo in the theme's ground; rank 1 (escarpments,
 // fracture zones, ridges …) letter-spaced capitals from z4, rank 2 (basins, banks, canyons, seamounts) from z6, rank 3
-// (knolls, hills, valleys) from z8 — the archive carries `rank` and `label` ("Cortes Bank"), the style gates the zoom
+// (knolls, hills, valleys) from z8 — the archive carries `rank` and `label` ("Cortes Bank"), the style gates the zoom.
+// Toned down 2026-09-09 (Ben): 12/10/9 px, a theme opacity the row's own slider overrides (`layers=gebco_gazetteer::0.4`).
 const LABEL = {
-  dark: { text: "rgba(178,204,230,0.92)", halo: "rgba(10,16,24,0.85)" },
-  light: { text: "#4a6577", halo: "rgba(250,250,248,0.85)" },
+  dark: { text: "rgb(178,204,230)", halo: "rgba(10,16,24,0.8)", opacity: 0.65 },
+  light: { text: "#4a6577", halo: "rgba(250,250,248,0.8)", opacity: 0.7 },
 };
-const LABEL_RANKS: [number, number, number][] = [[1, 4, 13], [2, 6, 11], [3, 8, 10]]; // rank · minzoom · text size at z8
-function labelLayers(st: LayerStyle, theme: "dark" | "light", common: any): any[] {
+export const labelDefaultOpacity = (theme: "dark" | "light") => LABEL[theme].opacity;
+const LABEL_RANKS: [number, number, number][] = [[1, 4, 12], [2, 6, 10], [3, 8, 9]]; // rank · minzoom · text size at z8
+function labelLayers(st: LayerStyle, theme: "dark" | "light", common: any, d: SpatialLayerDef): any[] {
   const c = LABEL[theme];
   const color = st.color && !isPalette(st.color) ? `#${st.color}` : c.text;
   const font = ["Montserrat Medium Italic", "Open Sans Italic"]; // CARTO's glyph set (the base style's `glyphs`)
   const size = (base: number) => ["interpolate", ["linear"], ["zoom"], 4, base - 2, 8, base, 12, base + 3];
-  const paint = { "text-color": color, "text-halo-color": c.halo, "text-halo-width": 1.2 };
+  const paint = { "text-color": color, "text-opacity": st.fillOpacity ?? d.fill_opacity ?? c.opacity, "text-halo-color": c.halo, "text-halo-width": 1 };
   const { filter: _f, ...src } = common; // the registry filter (legacy syntax) cannot combine with these expressions; a label row carries none
   const pts = LABEL_RANKS.map(([r, mz, sz]) => ({ id: `${common.__id}-symbol-${r}`, type: "symbol", ...src, minzoom: mz,
     filter: ["all", ["==", ["geometry-type"], "Point"], ["==", ["get", "rank"], r]],
     layout: { "text-field": ["get", "label"], "text-font": font, "text-size": size(sz), "text-max-width": 8, "text-padding": 6,
-              "symbol-sort-key": r, "text-letter-spacing": r === 1 ? 0.12 : 0.03, "text-transform": r === 1 ? "uppercase" : "none" },
+              "symbol-sort-key": r, "text-letter-spacing": r === 1 ? 0.1 : 0.03, "text-transform": r === 1 ? "uppercase" : "none" },
     paint }));
   const line = { id: `${common.__id}-symbol-line`, type: "symbol", ...src, minzoom: 4,
     filter: ["==", ["geometry-type"], "LineString"],
-    layout: { "symbol-placement": "line", "text-field": ["get", "label"], "text-font": font, "text-size": size(11),
+    layout: { "symbol-placement": "line", "text-field": ["get", "label"], "text-font": font, "text-size": size(10),
               "text-letter-spacing": 0.08, "symbol-spacing": 700, "text-max-angle": 30 },
     paint };
   return [...pts, line].map(({ __id, ...l }: any) => l);
@@ -234,7 +259,7 @@ function entryLayers(style: any, d: SpatialLayerDef, st: LayerStyle, theme: "dar
   }
   style.sources[srcId] ??= { type: "vector", url: `pmtiles://${base}${d.source}.pmtiles`, ...attribution };
   const common: any = { __id: `sp-${st.id}`, source: srcId, "source-layer": d.source, ...(d.filter ? { filter: d.filter } : {}) };
-  if (d.geom === "label") return labelLayers(st, theme, common);
+  if (d.geom === "label") return labelLayers(st, theme, common, d);
   delete common.__id;
   const color = boundaryColor(d, st, theme);
   const width = st.lineWidth ?? d.line_width ?? 1;

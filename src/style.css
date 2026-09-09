@@ -379,7 +379,7 @@ button.chip { cursor: pointer; }
 .picker-pop .picker-search + .picker-count { margin-top: -2px; }
 
 /* ── the Layers card (D25, sea-floor half) + the legend's sea-floor row ─────── */
-.layers-body { display: flex; flex-direction: column; gap: 7px; padding: 2px 2px 4px; font-size: 13px; }
+.layers-body { display: flex; flex-direction: column; gap: 7px; padding: 2px 2px 18px; font-size: 13px; } /* the bottom padding keeps the last On-the-map row's buttons clear of the card's resize corner when the body scrolls */
 .layers-row { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .layers-row input[type=checkbox] { accent-color: var(--accent, #4a90d9); }
 .layers-sub { margin-left: 22px; }

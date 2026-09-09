@@ -415,6 +415,7 @@ const STATES = [
       const u = decodeURIComponent(await page.evaluate(() => location.search)); if (/layers=/.test(u)) fail(`layers3_default_names: the default wrote layers= (${u})`);
       await click(".map-layers-btn"); await sleep(400);
       const rows = await page.$$eval(".onmap-row .onmap-name", (r) => r.map((e) => e.textContent.trim())); if (rows[0] !== "Undersea feature names (GEBCO)" || !/^Data/.test(rows[1] ?? "")) fail(`layers3_default_names: On the map rows [${rows.join(" | ")}]`);
+      await page.evaluate(() => { const b = document.querySelector(".card-layers .card-body"); if (b) b.scrollTop = b.scrollHeight; }); await sleep(200); // the row is the card's last: scroll the body to it, as a user would
       await page.click(".onmap-row:not(.data) button[aria-label^='Remove']"); await sleep(600);
       const u2 = decodeURIComponent(await page.evaluate(() => location.search)); if (!/layers=off/.test(u2)) fail(`layers3_default_names: removing the last row should write layers=off (${u2})`);
       const n2 = await page.evaluate(() => (window.__map.getStyle().layers || []).filter((l) => /^sp-/.test(l.id)).length); if (n2) fail(`layers3_default_names: ${n2} sp- layers after layers=off`); } },
@@ -427,6 +428,21 @@ const STATES = [
       await click(".map-layers-btn"); await sleep(300); await clickText(".card-layers label", "Basemap labels"); await sleep(900); await waitTiles();
       const u = decodeURIComponent(await page.evaluate(() => location.search)); if (/basemap=/.test(u)) fail(`basemap_nolabels: the checkbox should leave the URL at the default (${u})`);
       const shown = await page.evaluate(() => (window.__map.getStyle().layers || []).filter((l) => l.type === "symbol" && /^place_/.test(l.id) && l.layout?.visibility !== "none").length); if (!shown) fail("basemap_nolabels: place labels did not come back"); } },
+  // the toned labels (Ben, 2026-09-09): CARTO's text one grey at the theme opacity in Regular weight, the names layer at its own; both dials in the URL
+  { name: "labels_toned", url: "?tour=off&theme=dark&map=-118.6,33.55,7.7", steps: async () => { await waitTiles(); await sleep(400); },
+    assert: async () => { const r = await page.evaluate(() => { const m = window.__map; return { op: m.getPaintProperty("place_city_r6", "text-opacity"), col: m.getPaintProperty("place_city_r6", "text-color"), font: m.getLayoutProperty("place_city_r6", "text-font"), town: m.getLayoutProperty("place_town", "text-size"), names: m.getPaintProperty("sp-gebco_gazetteer-symbol-2", "text-opacity") }; });
+      if (typeof r.op !== "number" || Math.abs(r.op - 0.6) > 1e-6) fail(`labels_toned: CARTO text opacity ${r.op} (dark default 0.6)`);
+      if (!/^Montserrat Regular/.test(r.font?.[0] ?? "")) fail(`labels_toned: city font ${JSON.stringify(r.font)}`);
+      if (String(r.col) !== "rgb(214,220,226)" && !/214, ?220, ?226/.test(JSON.stringify(r.col))) fail(`labels_toned: city colour ${JSON.stringify(r.col)}`);
+      const stops = r.town?.stops ?? r.town; if (!(Array.isArray(stops) && stops[0]?.[1] === 9)) fail(`labels_toned: town size ${JSON.stringify(r.town)} (expected the 10 px stop at 9)`);
+      if (typeof r.names !== "number" || Math.abs(r.names - 0.65) > 1e-6) fail(`labels_toned: names opacity ${r.names} (dark default 0.65)`);
+      await click(".map-layers-btn"); await sleep(400);
+      const n = await page.$$eval(".card-layers input[type=range]", (els) => els.length); if (n !== 3) fail(`labels_toned: ${n} sliders (Data · sea floor · basemap labels)`); } },
+  { name: "labels_toned_url", url: "?tour=off&theme=light&basemapo=0.30&layers=gebco_gazetteer::0.45&map=-118.6,33.55,7.7", steps: async () => { await waitTiles(); await sleep(400); },
+    assert: async () => { const r = await page.evaluate(() => { const m = window.__map; return { op: m.getPaintProperty("place_city_r6", "text-opacity"), names: m.getPaintProperty("sp-gebco_gazetteer-symbol-2", "text-opacity") }; });
+      if (typeof r.op !== "number" || Math.abs(r.op - 0.3) > 1e-6) fail(`labels_toned_url: CARTO text opacity ${r.op}`);
+      if (typeof r.names !== "number" || Math.abs(r.names - 0.45) > 1e-6) fail(`labels_toned_url: names opacity ${r.names}`);
+      const u = decodeURIComponent(await page.evaluate(() => location.search)); if (!/basemapo=0.30/.test(u) || !/layers=gebco_gazetteer::0.45/.test(u)) fail(`labels_toned_url: URL ${u}`); } },
   { name: "layers3_off", url: "?tour=off&theme=dark&layers=off", steps: async () => { await waitTiles(); },
     assert: async () => { const n = await page.evaluate(() => (window.__map.getStyle().layers || []).filter((l) => /^sp-/.test(l.id)).length); if (n) fail(`layers3_off: ${n} boundary layers with layers=off`); } },
   { name: "lens_sliver_switches", url: "?tour=off&theme=dark", steps: async () => { await click(".lenspick-slivers .sliver[aria-label='Hexagons']"); await waitMark(/^grain_switch:/, 60000); await sleep(500); },
