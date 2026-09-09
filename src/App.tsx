@@ -20,7 +20,7 @@ import { Panel, EdgePills, MaxPanel, Sheet, Sparkline, VSpark, SHEET_PEEK, type 
 import { Sentence } from "./sentence";
 import { LayersCard } from "./layers";
 import { Curtain3D } from "./curtain";
-import { bathyFromSel, bathyOn, boundaryLayerIds, isPalette, LAND_LAYER, PALETTES, type BoundaryState, type SpatialLayerDef, type SpatialLayers } from "./basemap";
+import { bathyFromSel, bathyOn, boundaryLayerIds, effectiveLayers, isPalette, LAND_LAYER, PALETTES, type BoundaryState, type SpatialLayerDef, type SpatialLayers } from "./basemap";
 import spatialFallback from "./spatial_layers.fallback";
 import type { IconName } from "./icons";
 import { Welcome, About, seenWelcome, markWelcome, markCiteAck } from "./help";
@@ -116,12 +116,13 @@ export function App() {
   // deck draws under the boundary immediately above it: that entry's first MapLibre layer (fill before line).
   // With the land mask on (D47/D53) the composed style puts the mask exactly there, so the data draws under the mask
   // — whatever the row — and everything from the Data row down is clipped to the ocean.
+  const layersEff = useMemo(() => effectiveLayers(sel.layers, spatialLayers.layers), [sel.layers, spatialLayers]); // null = the registry's defaults
   const dataBeforeId = useMemo(() => {
     if (sel.land) return LAND_LAYER;
-    const ls = sel.layers ?? []; const i = ls.findIndex((l) => l.id === "data"); if (i <= 0) return undefined;
+    const ls = layersEff; const i = ls.findIndex((l) => l.id === "data"); if (i <= 0) return undefined;
     const above = ls[i - 1]; const d = spatialLayers.layers.find((x) => x.id === above.id); if (!d) return undefined;
     return d.geom === "polygon" ? `sp-${above.id}-fill` : d.geom === "line" ? `sp-${above.id}-line` : d.geom === "label" ? `sp-${above.id}-symbol-1` : d.geom === "raster" ? `sp-${above.id}-raster` : `sp-${above.id}-circle`;
-  }, [sel.layers, sel.land, spatialLayers]);
+  }, [layersEff, sel.land, spatialLayers]);
   const [taxa, setTaxa] = useState<Row[]>([]);
   const [mt, setMt] = useState<Map<string, { description: string; units: string }>>(new Map());
   const [yearsEdit, setYearsEdit] = useState(false);
@@ -796,7 +797,7 @@ export function App() {
       // no deck object under the pointer: a visible boundary may be (MapLibre picking, D25)
       const m = (window as any).__map;
       if (m && visibleBoundaries.length && info.x != null && info.y != null) {
-        const ids = boundaryLayerIds(sel.layers ?? []).filter((l) => m.getLayer(l));
+        const ids = boundaryLayerIds(layersEff).filter((l) => m.getLayer(l));
         const fs = ids.length ? m.queryRenderedFeatures([info.x, info.y], { layers: ids }) : [];
         if (fs.length) {
           const d = spatialLayers.layers.find((dd) => String(fs[0].layer.id).startsWith(`sp-${dd.id}-`));
@@ -1010,8 +1011,10 @@ export function App() {
   const stationBody = <StationCard summary={stationCard?.summary} detail={stationCard?.detail} theme={theme} short={short} yearMax={yearMax} />;
   const layersBody = <LayersCard sel={sel} setSel={setSel} theme={theme} defs={spatialLayers.layers} />;
   const seaFloorOn = bathyOn(bathyFromSel(sel));
-  const visibleBoundaries = (sel.layers ?? []).map((st) => ({ st, d: spatialLayers.layers.find((d) => d.id === st.id) })).filter((x): x is { st: (typeof x)["st"]; d: SpatialLayerDef } => !!x.d);
-  const boundaries: BoundaryState = { base: spatialLayers.pmtiles_base, defs: spatialLayers.layers, styles: sel.layers ?? [],
+  const visibleBoundaries = layersEff.map((st) => ({ st, d: spatialLayers.layers.find((d) => d.id === st.id) })).filter((x): x is { st: (typeof x)["st"]; d: SpatialLayerDef } => !!x.d);
+  // the legend lists the boundaries drawn, not the reference kinds (labels, a raster): a name layer in the legend is overkill (Ben, 2026-09-09)
+  const legendBoundaries = visibleBoundaries.filter((x) => x.d.geom !== "label" && x.d.geom !== "raster");
+  const boundaries: BoundaryState = { base: spatialLayers.pmtiles_base, defs: spatialLayers.layers, styles: layersEff,
     regionOutline: displayLens === "region" ? sel.layer : null };
   // D28 reshaped: the Sections lens (env) as a deck-only curtain scene — desktop only, the phone keeps 2-D
   const view3dOn = sel.view3d && displayLens === "section" && sel.realm === "env" && !phone;
@@ -1135,8 +1138,8 @@ export function App() {
   const closeSheet = () => { const pnl = sheet.panel; if (pnl === "station") setSel({ station: null }); else if (pnl === "timing") setAdvanced(false); else if (pnl === "layers") setLayersOpen(false); else if (pnl === "section" || pnl === "cruise") setMinCards((m) => ({ ...m, [pnl]: true })); setSheet({ panel: "select", detent: "peek" }); };
   // the legend's rows the title sentence carries under it: the boundary layers drawn, an empty result's note, the exclusions
   const legendExtra = <>
-    {visibleBoundaries.length > 0 && <div className="legend-layers">
-      {visibleBoundaries.map(({ st, d }) => <div key={st.id} className="row">
+    {legendBoundaries.length > 0 && <div className="legend-layers">
+      {legendBoundaries.map(({ st, d }) => <div key={st.id} className="row">
         {isPalette(st.color)
           ? <span className="pal-strip">{PALETTES[st.color][theme].slice(0, 6).map((c) => <i key={c} style={{ background: c }} />)}</span>
           : <span className="swatch" style={{ background: st.color ? `#${st.color}` : (d.fill_color || d.line_color || "#9aa0a6") }} />}

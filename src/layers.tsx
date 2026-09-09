@@ -6,7 +6,7 @@
 import { useRef, useState } from "react";
 import { Icon } from "./icons";
 import { BATHY_PARTS, type BathyPart, type LayerStyle, type Sel } from "./state";
-import { LAND_ID, PALETTES, bathyDefaultOpacity, isPalette, type SpatialLayerDef } from "./basemap";
+import { LAND_ID, PALETTES, bathyDefaultOpacity, defaultLayers, effectiveLayers, isPalette, sameLayers, type SpatialLayerDef } from "./basemap";
 import { RAMPS, RAMP_IDS, parseRamp, rampCss, defaultRamp } from "./ramps";
 
 const LABELS: Record<BathyPart, string> = { relief: "shaded relief", depth: "depth colour", contours: "contours" };
@@ -24,10 +24,11 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
   // the list holds the boundary layers AND the data layer (D36): `data` is a pseudo entry in `layers=` naming where the
   // selection draws in the order; absent = on top, and a list whose first row is data is written without it
   const DATA: LayerStyle = { id: "data", color: null, fillOpacity: null, lineWidth: null };
-  const stored = p.sel.layers ?? [];
+  const stored = effectiveLayers(p.sel.layers, p.defs); // null = the registry's defaults (the undersea feature names above the data)
   const entries = stored.some((e) => e.id === "data") ? stored : [DATA, ...stored];
   const byId = new Map(p.defs.map((d) => [d.id, d]));
-  const setLayers = (ls: LayerStyle[]) => { const out = ls[0]?.id === "data" ? ls.slice(1) : ls; p.setSel({ layers: out.length ? out : null }); };
+  // the URL carries the list only when it differs from the defaults; every row removed = `layers=off`
+  const setLayers = (ls: LayerStyle[]) => { const out = ls[0]?.id === "data" ? ls.slice(1) : ls; p.setSel({ layers: sameLayers(out, defaultLayers(p.defs)) ? null : out }); };
   const upd = (i: number, patch: Partial<LayerStyle>) => setLayers(entries.map((e, j) => (j === i ? { ...e, ...patch } : e)));
   const move = (i: number, to: number) => { if (to < 0 || to >= entries.length) return; const ls = entries.slice(); const [e] = ls.splice(i, 1); ls.splice(to, 0, e); setLayers(ls); };
   const remove = (i: number) => setLayers(entries.filter((_, j) => j !== i));

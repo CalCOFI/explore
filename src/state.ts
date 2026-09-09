@@ -48,7 +48,7 @@ export interface Sel {
   bathy: BathyPart[] | null;   // sea floor: null = the default (all three parts on); [] = off; else the subset shown (`bathy=relief,contours`)
   bathyo: number | null;       // sea-floor opacity 0–1 (`bathyo=0.6`); null = the theme default (0.7 dark · 1 light)
   land: boolean;               // `land=off`: the OSM land mask off (D47) — the sea floor and the data spill over the coast as before
-  layers: LayerStyle[] | null; // visible boundary layers in DRAW ORDER, first on top (`layers=slug[:colour][:fill_opacity][:line_width],…`); null = none
+  layers: LayerStyle[] | null; // visible boundary layers in DRAW ORDER, first on top (`layers=slug[:colour][:fill_opacity][:line_width],…`); null = the registry's defaults (defaultLayers()), `layers=off` = [] = none
   view3d: boolean;             // `view=3d`: the Sections lens (env) as a deck-only curtain scene (D28 reshaped)
   exag: number | null;         // vertical exaggeration for the 3-D scene, 10–150 (`exag=90`); null = 60
   ramp: string | null;         // the data layer's colour ramp (`ramp=thermal`, `_r` reverses; src/ramps.ts); null = the variable's default
@@ -66,6 +66,7 @@ export interface LayerStyle {
 }
 function parseLayerStyles(v: string | null): LayerStyle[] | null {
   if (v == null) return null;
+  if (v === "off") return []; // explicitly none — the default is the registry's default-visible reference layers
   const out: LayerStyle[] = [];
   for (const e of v.split(",")) {
     const [id, c, o, w] = e.split(":");
@@ -308,7 +309,7 @@ export function toUrl(s: Sel) {
   if (s.bathy !== null) p.set("bathy", s.bathy.length ? s.bathy.join(",") : "off");
   if (s.bathyo != null) p.set("bathyo", s.bathyo.toFixed(2));
   if (!s.land) p.set("land", "off");
-  if (s.layers?.length) p.set("layers", fmtLayerStyles(s.layers));
+  if (s.layers !== null) p.set("layers", s.layers.length ? fmtLayerStyles(s.layers) : "off");
   if (s.view3d) p.set("view", "3d");
   if (s.exag != null) p.set("exag", String(s.exag));
   if (s.strip) p.set("strip", s.strip);

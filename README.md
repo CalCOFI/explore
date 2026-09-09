@@ -124,7 +124,9 @@ where it was — so nothing spills onto land and roads, county / state / country
 `land=off` restores the old stack. **Reference layers** ride the boundary registry with `role = reference`:
 `gebco_gazetteer` (undersea feature names from the IHO-IOC GEBCO Gazetteer, a `label` layer — symbols by rank,
 `layers=gebco_gazetteer[:colour]`) and `esri_ocean_reference` (Esri's World Ocean Reference as a `raster` row,
-for comparison); the mask itself is the **Land** checkbox, never an *On the map* row.
+for comparison); the mask itself is the **Land** checkbox, never an *On the map* row. A link without `layers=`
+shows the registry's default-visible reference layers (the names, above the data, not in the legend);
+`layers=off` shows none; any explicit list is exactly that list.
 - **Share** (the *Controls* panel's third tab): **Download data (zip)** hands over the bytes shown, the exact
   SQL against the release's content-addressed object URLs, per-dataset citations and `reproduce.R` /
   `reproduce.py` that run the same query; **Copy code** gives that SQL, or R or Python; **Cite this data**

@@ -150,6 +150,22 @@ export const PALETTES: Record<"pal1" | "pal2" | "pal3", Record<"dark" | "light",
 };
 export const isPalette = (c: string | null): c is "pal1" | "pal2" | "pal3" => !!c && /^pal[123]$/.test(c);
 
+/** the layers a link without `layers=` shows (Ben, 2026-09-09): the registry's default-visible REFERENCE layers (the
+ *  undersea feature names), drawn ABOVE the data — a `data` entry closes the list — so a label is never under a hexagon.
+ *  The boundary rows' `default_visible` belongs to db-viz-hex, which offers the whole registry as checkboxes; the
+ *  Explorer starts with the reference layers only. The mask is a checkbox, never a row. */
+export function defaultLayers(defs: SpatialLayerDef[]): LayerStyle[] {
+  const on = defs.filter((d) => d.default_visible && d.role === "reference" && d.id !== LAND_ID)
+    .map((d): LayerStyle => ({ id: d.id, color: null, fillOpacity: null, lineWidth: null }));
+  return on.length ? [...on, { id: "data", color: null, fillOpacity: null, lineWidth: null }] : [];
+}
+/** the list the map draws: the URL's, else the defaults */
+export const effectiveLayers = (layers: LayerStyle[] | null, defs: SpatialLayerDef[]): LayerStyle[] => layers ?? defaultLayers(defs);
+/** two lists that would draw the same map (ids in order, every override null on both sides) */
+export const sameLayers = (a: LayerStyle[], b: LayerStyle[]) =>
+  a.length === b.length && a.every((x, i) => x.id === b[i].id && (x.color ?? null) === (b[i].color ?? null) &&
+    (x.fillOpacity ?? null) === (b[i].fillOpacity ?? null) && (x.lineWidth ?? null) === (b[i].lineWidth ?? null));
+
 /** the layer's colour: one colour (URL hex > registry), or the by-name palette assigned to the sidecar's sorted
  *  names — a layer with `names: null` (> 200 of them) hashes `id` instead, so it is still distinguishable */
 export function boundaryColor(d: SpatialLayerDef, st: LayerStyle, theme: "dark" | "light"): any {

@@ -3,7 +3,7 @@
 export default {
   "version": "v2026.08.25",
   "pmtiles_base": "https://storage.googleapis.com/calcofi-files-public/_spatial/",
-  "built": "2026-08-24",
+  "built": "2026-09-09",
   "layers": [
     {
       "id": "noaa_maritime_ts",
@@ -1298,7 +1298,7 @@ export default {
       "fill_color": null,
       "line_width": null,
       "fill_opacity": null,
-      "default_visible": false,
+      "default_visible": true,
       "name_field": "label",
       "description": "Named sea-floor features from the IHO-IOC GEBCO Gazetteer of Undersea Feature Names (banks, basins, canyons, seamounts, escarpments, fracture zones ...): points and polygon centroids as point labels, lines labelled along the line; label = name + generic term; rank 1/2/3 sets the zoom a label appears at (D50)",
       "attribution": "IHO-IOC GEBCO Gazetteer of Undersea Feature Names (www.gebco.net)",

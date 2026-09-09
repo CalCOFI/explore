@@ -407,8 +407,23 @@ const STATES = [
       if (!(ix("sp-noaa_maritime_eez-line") < ix("land"))) fail(`ref_data_under_boundary: the EEZ (${ix("sp-noaa_maritime_eez-line")}) not under the mask (${ix("land")})`);
       if (!(deck > ix("sp-noaa_maritime_eez-line") && deck === ix("land") - 1)) fail(`ref_data_under_boundary: the data group at ${deck} (eez ${ix("sp-noaa_maritime_eez-line")} · land ${ix("land")})`); } },
   // slice 3 (plan 2026-08-31, D23–D26): boundary layers — palette, order (the URL is the draw order), outline rule, hover
-  { name: "layers3_default_none", url: "?tour=off&theme=dark", steps: async () => { await waitTiles(); },
-    assert: async () => { const n = await page.evaluate(() => (window.__map.getStyle().layers || []).filter((l) => /^sp-/.test(l.id)).length); if (n) fail(`layers3_default_none: ${n} boundary layers with no layers= param`); } },
+  // the default (Ben, 2026-09-09): the registry's default-visible reference layers — the undersea feature names — above the data, not in the legend; `layers=off` = none
+  { name: "layers3_default_names", url: "?tour=off&theme=dark", steps: async () => { await waitTiles(); },
+    assert: async () => { const ids = await page.evaluate(() => (window.__map.getStyle().layers || []).filter((l) => /^sp-/.test(l.id)).map((l) => l.id));
+      if (ids.length !== 4 || !ids.every((i) => /^sp-gebco_gazetteer-/.test(i))) fail(`layers3_default_names: default layers [${ids.join(",")}]`);
+      if (await page.$(".legend-layers")) fail("layers3_default_names: the names layer is in the legend");
+      const u = decodeURIComponent(await page.evaluate(() => location.search)); if (/layers=/.test(u)) fail(`layers3_default_names: the default wrote layers= (${u})`);
+      await click(".map-layers-btn"); await sleep(400);
+      const rows = await page.$$eval(".onmap-row .onmap-name", (r) => r.map((e) => e.textContent.trim())); if (rows[0] !== "Undersea feature names (GEBCO)" || !/^Data/.test(rows[1] ?? "")) fail(`layers3_default_names: On the map rows [${rows.join(" | ")}]`);
+      await page.click(".onmap-row:not(.data) button[aria-label^='Remove']"); await sleep(600);
+      const u2 = decodeURIComponent(await page.evaluate(() => location.search)); if (!/layers=off/.test(u2)) fail(`layers3_default_names: removing the last row should write layers=off (${u2})`);
+      const n2 = await page.evaluate(() => (window.__map.getStyle().layers || []).filter((l) => /^sp-/.test(l.id)).length); if (n2) fail(`layers3_default_names: ${n2} sp- layers after layers=off`); } },
+  { name: "layers3_off", url: "?tour=off&theme=dark&layers=off", steps: async () => { await waitTiles(); },
+    assert: async () => { const n = await page.evaluate(() => (window.__map.getStyle().layers || []).filter((l) => /^sp-/.test(l.id)).length); if (n) fail(`layers3_off: ${n} boundary layers with layers=off`); } },
+  { name: "lens_sliver_switches", url: "?tour=off&theme=dark", steps: async () => { await click(".lenspick-slivers .sliver[aria-label='Hexagons']"); await waitMark(/^grain_switch:/, 60000); await sleep(500); },
+    assert: async () => { const r = await page.evaluate(() => ({ on: document.querySelector(".lenspick-item.on b")?.textContent, open: !!document.querySelector(".lenspick.open"), lens: new URLSearchParams(location.search).get("lens") }));
+      if (r.lens !== "hex") fail(`lens_sliver_switches: URL lens=${r.lens} after clicking the Hexagons sliver`);
+      if (!r.open || r.on !== "Hexagons") fail(`lens_sliver_switches: list open ${r.open}, selected ${r.on}`); } },
   { name: "layers3_mpa_palette", url: "?tour=off&theme=dark&layers=ca_marine_protected_areas:pal1&map=-119.6,33.9,9", steps: async () => { await waitTiles(); await sleep(600); },
     assert: async () => { const r = await page.evaluate(() => { const m = window.__map; const pc = m.getPaintProperty("sp-ca_marine_protected_areas-fill", "fill-color");
         const fs = m.queryRenderedFeatures({ layers: ["sp-ca_marine_protected_areas-fill"] }); return { exprLen: Array.isArray(pc) ? pc.length : 0, rendered: fs.length, names: [...new Set(fs.map((f) => f.properties?.name))].length }; });

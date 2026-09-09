@@ -1,7 +1,9 @@
 // the lens picker (Ben, 2026-09-07: "seeing all six at once causes visual/mental friction"): the active lens reads
 // full size — its icon, its name, one plain line under it — and the other five are icon-only slivers beside it.
-// A sliver (or the name) opens the six as rows with their help text; choosing one closes it. Esc and a click
-// outside close it too. One control, the same six ids the sentence's chip menu lists.
+// A sliver switches to that lens at once AND opens the six as rows with their help text, the new one selected
+// (Ben, 2026-09-09: a click that only opened the list read as a switch that did not happen); the name opens the
+// list alone; choosing a row closes it. Esc and a click outside close it too. One control, the same six ids the
+// sentence's chip menu lists.
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "./icons";
 import { LENSES, LENS_SHORT, LENS_DESC, LENS_ICON, LENS_TITLE, type Lens } from "./state";
@@ -26,7 +28,7 @@ export function LensPicker(p: { lens: Lens; onLens: (l: Lens) => void; "data-tou
             <Icon name={LENS_ICON[p.lens]} /><span className="nm">{LENS_SHORT[p.lens]}</span><Icon name="ui-down" className="car" size="0.9em" />
           </button>
           <div className="lenspick-slivers" role="group" aria-label="other lenses">
-            {others.map((l) => <button key={l} type="button" className="sliver" aria-label={LENS_SHORT[l]} title={`${LENS_SHORT[l]} — ${LENS_DESC[l]}`} onClick={() => setOpen(true)}><Icon name={LENS_ICON[l]} /></button>)}
+            {others.map((l) => <button key={l} type="button" className="sliver" aria-label={LENS_SHORT[l]} title={`${LENS_SHORT[l]} — ${LENS_DESC[l]}`} onClick={() => { p.onLens(l); setOpen(true); }}><Icon name={LENS_ICON[l]} /></button>)}
           </div>
         </div>
       ) : (
