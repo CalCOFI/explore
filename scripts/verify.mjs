@@ -381,9 +381,8 @@ const STATES = [
       if (ix("land") >= 0 || ix("water-inland") >= 0) fail("ref_land_off: the mask survived land=off");
       if (ix("water") < ix("boundary_state")) fail(`ref_land_off: water (${ix("water")}) is not back above CARTO's land layers (${ix("boundary_state")})`);
       const u = decodeURIComponent(await page.evaluate(() => location.search)); if (!/land=off/.test(u)) fail(`ref_land_off: URL lost land=off (${u})`);
-      // Land is always on in the card (Ben, 2026-09-09): no checkbox, the row says the link has it off
-      await click(".map-layers-btn"); await sleep(300); const txt = await page.$eval(".card-layers", (e) => e.textContent); if (!/off in this link/.test(txt)) fail("ref_land_off: the Land row does not say the link has it off");
-      if (await page.$(".card-layers input[type=checkbox] + b")) { /* structure check only */ } } },
+      // the mask is not listed in the card at all (Ben, 2026-09-09): always on, `land=off` a link-only diagnostic
+      await click(".map-layers-btn"); await sleep(300); const txt = await page.$eval(".card-layers", (e) => e.textContent); if (/\bLand\b/.test(txt)) fail("ref_land_off: the card still lists Land"); } },
   { name: "ref_inland_water", url: "?tour=off&theme=light&map=-117.2,33.4,7.2", steps: async () => { await waitTiles(); await sleep(600); },
     assert: async () => { const r = await stackProbe({ salton: [-115.85, 33.3], desert: [-116.1, 33.8] });
       if (!rgbNear(r.px.salton, WATER.light, 6)) fail(`ref_inland_water: the Salton Sea reads ${r.px.salton}, expected CARTO's water ${WATER.light}`);

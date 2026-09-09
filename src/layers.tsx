@@ -58,9 +58,8 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
       ? <span className="pal-strip">{PALETTES[st.color][p.theme].slice(0, 4).map((c) => <i key={c} style={{ background: c }} />)}</span>
       : <span className="swatch" style={{ background: st.color ? `#${st.color}` : (d.fill_color || d.line_color || "#9aa0a6") }} />;
 
-  const addable = p.defs.filter((d) => d.id !== LAND_ID); // the mask is the Land checkbox, never an On-the-map row (D52)
+  const addable = p.defs.filter((d) => d.id !== LAND_ID); // the mask is not a layer of the card at all (D52, D62): always on, never listed
   const groups = [...new Set(addable.map((d) => d.group))];
-  const landDef = p.defs.find((d) => d.id === LAND_ID);
   // the data layer (Ben, 2026-09-07): on/off, opacity, the colour ramp (+ reversed). It draws in deck's own canvas, above
   // every MapLibre layer — moving it BELOW a boundary layer needs the interleaved overlay (plan 2026-09-07 D36, spike-gated)
   const ramp = parseRamp(p.sel.ramp ?? defaultRamp(p.sel.realm, p.sel.var, p.sel.anom && p.sel.lens === "section"));
@@ -116,9 +115,6 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
         <span className="hint">{o.toFixed(2)}</span>
       </label>
 
-      <div className="layers-row layers-main" title={landDef?.description ?? "OpenStreetMap's land polygons, drawn in the basemap's land colour over the sea floor and the data (plan 2026-09-09 D47)"}>
-        <b>Land</b> <span className="hint">the OpenStreetMap coast, always over the sea floor and the data{!p.sel.land && " · off in this link (land=off)"}</span>
-      </div>
       <label className="layers-row layers-main" title="CARTO's own text: place names, road names, points of interest, water names (basemap=nolabels)">
         <input type="checkbox" checked={p.sel.baseLabels} onChange={() => p.setSel({ baseLabels: !p.sel.baseLabels })} />
         <b>Basemap labels</b> <span className="hint">place names, roads, points of interest — off for a data-centric view</span>
