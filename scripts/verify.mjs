@@ -531,7 +531,9 @@ const STATES = [
   { name: "curtain_exag_url", url: "?tour=off&theme=dark&lens=section&var=temperature&line=90&view=3d&exag=100", steps: async () => { await sleep(2500);
       const t = Date.now(); while (Date.now() - t < 25000) { if (await page.evaluate(() => (window.__curtain?.cells ?? 0) > 0)) break; await sleep(300); } },
     assert: async () => { const x = await page.evaluate(() => window.__curtain?.exag); if (x !== 100) fail(`curtain_exag_url: exag ${x}`);
-      const v = await page.$eval(".curtain-ui input[type=range]", (el) => el.value); if (+v !== 100) fail(`curtain_exag_url: slider ${v}`); } },
+      if (await page.$(".curtain-ui")) fail("curtain_exag_url: the scene's corner box is back (the slider is the Layers card's row)");
+      await click('[data-tour="layers"]'); await sleep(400);
+      const v = await page.$eval(".layers-exag input[type=range]", (el) => el.value); if (+v !== 100) fail(`curtain_exag_url: the Layers card's slider says ${v}`); } },
   // 2026-09-10: the camera round-trips through cam= (lon,lat,zoom,pitch,bearing); the top-right row grows the camera group in 3-D only
   { name: "curtain_cam_url", url: "?tour=off&theme=dark&lens=section&var=temperature&line=90&view=3d&cam=-121.2,32.6,7.2,40,-60", steps: async () => { await sleep(2500);
       const t = Date.now(); while (Date.now() - t < 25000) { if (await page.evaluate(() => (window.__curtain?.cells ?? 0) > 0)) break; await sleep(300); } },
@@ -554,6 +556,7 @@ const STATES = [
   { name: "curtain_off_and_bio_guard", url: "?tour=off&theme=dark&lens=section&var=temperature&line=90", steps: async () => { await sleep(1200); },
     assert: async () => { if (await page.$(".curtain-scene")) fail("curtain_off: 3-D without view=3d");
       if (await page.$(".map-nav3d")) fail("curtain_off: the camera group without view=3d");
+      await click('[data-tour="layers"]'); await sleep(400); if (await page.$(".layers-exag")) fail("curtain_off: the exaggeration row in 2-D"); await click('[data-tour="layers"]'); await sleep(200);
       if (!(await page.$(".map-3d-btn"))) fail("curtain_off: no 3-D toggle on an env section");
       await page.goto(base + "?tour=off&theme=dark&lens=section&taxon=worms:217452&line=90&view=3d", { waitUntil: "domcontentloaded" });
       await waitMark(/^first_lens_ready$/); await sleep(1000);

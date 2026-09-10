@@ -13,7 +13,7 @@ const LABELS: Record<BathyPart, string> = { relief: "shaded relief", depth: "dep
 // the one-colour strip: mid-tone Material shades in the registry's families — they read on dark and light alike
 const SWATCHES = ["#1565c0", "#42a5f5", "#00838f", "#2e7d32", "#7cb342", "#f57c00", "#8d6e63", "#7b1fa2", "#c2185b", "#546e7a"];
 
-export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; theme: "dark" | "light"; defs: SpatialLayerDef[] }) {
+export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; theme: "dark" | "light"; defs: SpatialLayerDef[]; view3d?: boolean }) {
   const parts = p.sel.bathy ?? [...BATHY_PARTS];
   const on = parts.length > 0;
   const def = bathyDefaultOpacity(p.theme);
@@ -114,6 +114,13 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
           onChange={(e) => { const v = Math.round(+e.target.value * 100) / 100; p.setSel({ bathyo: v === def ? null : v }); }} />
         <span className="hint">{o.toFixed(2)}</span>
       </label>
+      {p.view3d && /* the 3-D scene's vertical exaggeration (exag=, default 60) — it lived in the scene's corner, under the Time panel (Ben, 2026-09-10) */
+        <label className="layers-row layers-opacity layers-exag" title="vertical exaggeration of the 3-D scene: the sea floor and the curtain (exag=)">
+          <span className="hint">vertical ×</span>
+          <input type="range" min={10} max={150} step={10} value={p.sel.exag ?? 60}
+            onChange={(e) => p.setSel({ exag: +e.target.value === 60 ? null : +e.target.value })} />
+          <span className="hint">{p.sel.exag ?? 60}</span>
+        </label>}
 
       <label className="layers-row layers-main" title="CARTO's own text: place names, road names, points of interest, water names (basemap=nolabels)">
         <input type="checkbox" checked={p.sel.baseLabels} onChange={() => p.setSel({ baseLabels: !p.sel.baseLabels })} />

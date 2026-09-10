@@ -1009,7 +1009,9 @@ export function App() {
     title={`line ${sel.line} · ${sel.realm === "env" ? `depth section · cruise ${sel.cruise ?? "—"}${sel.anom && climCells ? ` · the difference from the ${climWindow ? `${climWindow[0]}–${climWindow[1]}` : "1993–2013"} normal` : ""}` : "station by year · all cruises · the tows are depth-integrated, so the axis is year"}`} />;
   const cruiseBody = <CruiseSeries rows={cruiseRows} stat={stat} selected={sel.cruise} theme={theme} unit={unitLabel} onPick={(k) => setSel({ cruise: k })} />;
   const stationBody = <StationCard summary={stationCard?.summary} detail={stationCard?.detail} theme={theme} short={short} yearMax={yearMax} />;
-  const layersBody = <LayersCard sel={sel} setSel={setSel} theme={theme} defs={spatialLayers.layers} />;
+  // D28 reshaped: the Sections lens (env) as a deck-only curtain scene — desktop only, the phone keeps 2-D
+  const view3dOn = sel.view3d && displayLens === "section" && sel.realm === "env" && !phone;
+  const layersBody = <LayersCard sel={sel} setSel={setSel} theme={theme} defs={spatialLayers.layers} view3d={view3dOn} />;
   const seaFloorOn = bathyOn(bathyFromSel(sel));
   const visibleBoundaries = layersEff.map((st) => ({ st, d: spatialLayers.layers.find((d) => d.id === st.id) })).filter((x): x is { st: (typeof x)["st"]; d: SpatialLayerDef } => !!x.d);
   // the legend lists the boundaries drawn, not the reference kinds (labels, a raster): a name layer in the legend is overkill (Ben, 2026-09-09)
@@ -1017,7 +1019,6 @@ export function App() {
   const boundaries: BoundaryState = { base: spatialLayers.pmtiles_base, defs: spatialLayers.layers, styles: layersEff,
     regionOutline: displayLens === "region" ? sel.layer : null };
   // D28 reshaped: the Sections lens (env) as a deck-only curtain scene — desktop only, the phone keeps 2-D
-  const view3dOn = sel.view3d && displayLens === "section" && sel.realm === "env" && !phone;
   // the scene needs the map box: the section card minimizes while 3-D is on (a URL-opened view too), and comes back
   useEffect(() => { setMinCards((m) => ({ ...m, section: view3dOn })); }, [view3dOn]);
   const timingBody = <div className="timing-body">
@@ -1216,7 +1217,7 @@ export function App() {
       <div className="main">
         <div className="panel mapwrap" ref={mapBox} data-tour="map">
           {view3dOn
-            ? <Curtain3D cells={sectionCells} clim={climCells} anom={sel.anom && !!climCells} theme={theme} line={sel.line} grid={grid} exag={sel.exag ?? 60} onExag={(v) => setSel({ exag: v })} unit={unitLabel} cam={sel.cam} onCam={(c) => setSel({ cam: c })} />
+            ? <Curtain3D cells={sectionCells} clim={climCells} anom={sel.anom && !!climCells} theme={theme} line={sel.line} grid={grid} exag={sel.exag ?? 60} cam={sel.cam} onCam={(c) => setSel({ cam: c })} />
             : <MapView layers={layers} theme={theme} bathy={bathyFromSel(sel)} boundaries={boundaries} view={sel.map ?? MAP_HOME} onView={(v) => setSel({ map: v })} onOverlay={(o) => { overlayRef.current = o; }} getTooltip={getTooltip} onClick={onClick} onFirstFrame={() => timing.add("first_paint", performance.now() - window.__t0, "basemap + grid dots")} />}
           {/* the map's own row, top right: zoom · layers · its ⬇ (· the camera group · 3-D in the Sections lens); Depth and the cards start under it */}
           <div className="map-tr">

@@ -7,7 +7,8 @@
 //  · the section as a vertical curtain along the line's station track — the lens's own cells (or their
 //    climatology anomaly) painted to a canvas texture with the panel's exact colour scales;
 //  · station dots at the surface. Vertical exaggeration (URL `exag=`, default 60 — 500 m over 700 km is
-//    invisible at ×1) is baked into the meshes and rebuilt debounced; the slider lives in the scene.
+//    invisible at ×1) is baked into the meshes and rebuilt debounced; the slider is the Layers card's "vertical ×"
+//    row (3-D only) — it lived in the scene's bottom-left corner, under the Time panel, where nobody found it.
 //  · the camera is the URL's (`cam=lon,lat,zoom,pitch,bearing`, written debounced after a move, absent while the
 //    scene wears the line's own framing) so a shared link reopens at the exact vantage; the Nav3D group in the
 //    map's top-right row (rotate · tilt · a compass that resets) and deck's keyboard bindings drive it
@@ -159,7 +160,7 @@ function curtainTexture(cells: SectionCell[], clim: SectionCell[] | null, anom: 
 }
 
 export function Curtain3D(p: { cells: SectionCell[]; clim: SectionCell[] | null; anom: boolean; theme: "dark" | "light";
-                               line: number; grid: GridCell[]; exag: number; onExag: (v: number | null) => void; unit: string;
+                               line: number; grid: GridCell[]; exag: number;
                                cam: Cam | null; onCam: (c: Cam | null) => void }) {
   const el = useRef<HTMLDivElement>(null);
   const deck = useRef<any>(null);
@@ -316,15 +317,12 @@ export function Curtain3D(p: { cells: SectionCell[]; clim: SectionCell[] | null;
     return () => { dead = true; };
   }, [p.cells, p.clim, p.anom, p.theme, p.line, p.grid.length, p.exag]);
 
+  // deck's canvas gets a child React never reconciles: as a sibling of the status line it vanished the moment
+  // React removed that line (probe 2026-09-10: canvas.isConnected flipped false as status went blank)
   return (
-    <div ref={el} className="curtain-scene">
+    <div className="curtain-scene">
+      <div ref={el} className="curtain-canvas" />
       {status && <div className="curtain-status hint">{status}</div>}
-      <div className="curtain-ui">
-        <label className="hint">exaggeration ×{p.exag}
-          <input type="range" min={10} max={150} step={10} value={p.exag}
-            onChange={(e) => p.onExag(+e.target.value === 60 ? null : +e.target.value)} /></label>
-        <span className="hint">drag pans · shift-drag rotates and tilts · scroll zooms · arrows after a click · the curtain is the section panel's colours{p.anom ? " (anomaly)" : ""} · floor clipped below {Math.round(maxY * 1.4 + 100)} m</span>
-      </div>
     </div>
   );
 }
