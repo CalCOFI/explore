@@ -426,6 +426,15 @@ button.swatch.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .curtain-ui input[type=range] { width: 140px; }
 .map-tr .map-3d-btn { background: color-mix(in srgb, var(--panel) 85%, transparent); border: 1px solid var(--border); border-radius: 6px; padding: 3px 7px; color: var(--fg); cursor: pointer; font-size: 12px; }
 .map-tr .map-3d-btn:hover { color: var(--accent); border-color: var(--accent); }
+/* the camera group (3-D only): the zoom pair's shape; the compass needle turns with the bearing and leans with the pitch */
+/* a column hanging under the row, left of the Depth pill's edge column (right: 10 + 28 + 10), so the row keeps its width
+   and the sentence card its band (Ben, 2026-09-10: "clashing … or reorient 3D controls vertically") */
+.map-tr .map-nav3d { position: absolute; top: 36px; right: 38px; display: inline-flex; flex-direction: column; background: color-mix(in srgb, var(--panel-2) 95%, transparent); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 3px 12px color-mix(in srgb, var(--fg) 14%, transparent); overflow: hidden; }
+.map-tr .map-nav3d .map-zoom-btn.cc-icon-button + .map-zoom-btn.cc-icon-button { border-left: 0; border-top: 1px solid var(--border); }
+.map-tr .map-compass svg { transition: transform 120ms linear; }
+.map-tr .map-compass .north { fill: var(--accent); }
+.map-tr .map-compass .south { fill: color-mix(in srgb, var(--fg) 45%, transparent); }
+.map-tr .map-zoom-btn.cc-icon-button:disabled { opacity: .35; }
 
 /* ── WS-A3: attribution — the SELECT rail's Sources line, the Sources modal, the product dialog ─────────
    The Sources line sits under the dataset pills and names EVERY dataset the view pools; a chip opens its

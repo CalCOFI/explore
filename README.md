@@ -106,7 +106,8 @@ says what the app does and how to work on it without needing them.
   normal, blue below, the scale symmetric about zero; a cell with no baseline is blank, never zero.
 - **The URL is the whole view.** Lens, organism or variable, stage, denominator, years, season, depth,
   dataset filter, region, line, cruise, summary statistic, the contour method and surface (`interp=`, `surface=`), the data layer (`data=`, `datao=`, `ramp=`), theme, the sea floor (`bathy=`, `bathyo=`), which panels are folded or maximized (`hide=` · `show=` · `max=`), the years strip's mode (`strip=`),
-  and the **map extent** (`map=lon,lat,zoom`) are all in it — so *Share → Copy link*, a bookmark and a
+  the **map extent** (`map=lon,lat,zoom`) and, in the 3-D section, the **camera** (`cam=lon,lat,zoom,pitch,bearing`,
+  written once you move it) are all in it — so *Share → Copy link*, a bookmark and a
   feedback report all reopen at exactly the same place. `?tour=off` suppresses the welcome card and tour
   (and opens no modal at all); `?modal=sources` opens *Data Sources &amp; Attribution*, the one modal the URL
   carries, so an attribution link is shareable;
@@ -156,7 +157,9 @@ shows the registry's default-visible reference layers (the names, above the data
   Data Sources & Attribution, Register a product and Keyboard — then the **feedback** bubble and the theme
   toggle, in that order on every CalCOFI product. The map's own buttons —
   zoom, layers, its ⬇ — sit in one row at the map's top right.
-- **Keyboard:** `?` replays the tour · `Esc` closes a dialog, the welcome or a chip's popover, or restores an
+- **Keyboard:** in the 3-D section, once the scene has been clicked, arrows pan, `shift` + arrows rotate and
+  tilt, `+` / `−` zoom (the top-right row has the same moves as buttons, and a compass that resets the framing) ·
+  `?` replays the tour · `Esc` closes a dialog, the welcome or a chip's popover, or restores an
   expanded panel · `↑ ↓ Enter` in the lists · `A`–`Z` strip to jump in the flat list.
 
 ## Attribution

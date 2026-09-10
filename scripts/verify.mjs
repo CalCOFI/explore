@@ -521,6 +521,7 @@ const STATES = [
       console.log(`  ${c.stations} stations · ${c.cells} cells · ${c.painted} texels painted · terrain ${c.terrainVerts} verts · max depth ${c.maxDepth} m · ×${c.exag}`);
       if (c.stations < 5 || c.terrainVerts < 10000) fail(`curtain_3d: scene too thin (${JSON.stringify(c)})`);
       if (!c.painted) fail("curtain_3d: the curtain texture painted nothing");
+      if (!(c.gridDots >= 60) || !(c.lines >= 6)) fail(`curtain_3d: the reference grid is thin (${c.gridDots} dots · ${c.lines} lines)`); // the standard pattern is 66 stations on 6 lines
       if (await page.$(".maplibregl-canvas")) fail("curtain_3d: MapLibre still mounted");
       const lum = await page.evaluate(() => { const cv = document.querySelector(".curtain-scene canvas"); const gl = cv.getContext("webgl2") || cv.getContext("webgl");
         const W = cv.width, H = cv.height, b = new Uint8Array(W * H * 4); gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, b);
@@ -531,8 +532,28 @@ const STATES = [
       const t = Date.now(); while (Date.now() - t < 25000) { if (await page.evaluate(() => (window.__curtain?.cells ?? 0) > 0)) break; await sleep(300); } },
     assert: async () => { const x = await page.evaluate(() => window.__curtain?.exag); if (x !== 100) fail(`curtain_exag_url: exag ${x}`);
       const v = await page.$eval(".curtain-ui input[type=range]", (el) => el.value); if (+v !== 100) fail(`curtain_exag_url: slider ${v}`); } },
+  // 2026-09-10: the camera round-trips through cam= (lon,lat,zoom,pitch,bearing); the top-right row grows the camera group in 3-D only
+  { name: "curtain_cam_url", url: "?tour=off&theme=dark&lens=section&var=temperature&line=90&view=3d&cam=-121.2,32.6,7.2,40,-60", steps: async () => { await sleep(2500);
+      const t = Date.now(); while (Date.now() - t < 25000) { if (await page.evaluate(() => (window.__curtain?.cells ?? 0) > 0)) break; await sleep(300); } },
+    assert: async () => {
+      const c = await page.evaluate(() => window.__cam3d?.()); if (!c || Math.abs(c[3] - 40) > 0.5 || Math.abs(c[4] + 60) > 0.5) fail(`curtain_cam_url: camera ${JSON.stringify(c)}`);
+      if (!(await page.$(".map-nav3d"))) fail("curtain_cam_url: no camera group in the top-right row");
+      await click(".map-nav3d .cc-icon-button:nth-child(2)"); await sleep(900); // rotate right, +15°
+      const u = await page.evaluate(() => new URLSearchParams(location.search).get("cam")); const b = u ? +u.split(",")[4] : NaN;
+      if (!(Math.abs(b + 45) < 1)) fail(`curtain_cam_url: after a rotate the URL says cam=${u}`);
+      await click(".map-compass"); await sleep(1200); // back to the line's framing: no cam= at all
+      const u2 = await page.evaluate(() => new URLSearchParams(location.search).get("cam")); if (u2) fail(`curtain_cam_url: the compass reset left cam=${u2}`);
+      const c2 = await page.evaluate(() => window.__cam3d?.()); if (!c2 || Math.abs(c2[3] - 55) > 0.5) fail(`curtain_cam_url: home pitch ${c2?.[3]}`);
+      await page.keyboard.down("Shift"); await page.keyboard.press("ArrowLeft"); await page.keyboard.up("Shift"); await sleep(900); // the canvas has focus after the compass click? no — click the scene first
+      const c3 = await page.evaluate(() => window.__cam3d?.()); console.log(`  after shift+← without focus: bearing ${c3?.[4]?.toFixed(1)} (home ${c2[4].toFixed(1)})`);
+      // click open water (a panel's resize handle sits at 80 % height; 40 % is canvas at 1280 × 800)
+      const box = await (await page.$(".curtain-scene canvas")).boundingBox(); await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.4); await sleep(200);
+      await page.keyboard.down("Shift"); await page.keyboard.press("ArrowLeft"); await page.keyboard.up("Shift"); await sleep(900);
+      const c4 = await page.evaluate(() => window.__cam3d?.()); if (!c4 || Math.abs(c4[4] - c2[4]) < 1) fail(`curtain_cam_url: shift+← after a click on the scene did not rotate (${c2[4]} → ${c4?.[4]})`);
+      console.log(`  keyboard: shift+← turned the bearing ${c2[4].toFixed(1)} → ${c4[4].toFixed(1)}`); } },
   { name: "curtain_off_and_bio_guard", url: "?tour=off&theme=dark&lens=section&var=temperature&line=90", steps: async () => { await sleep(1200); },
     assert: async () => { if (await page.$(".curtain-scene")) fail("curtain_off: 3-D without view=3d");
+      if (await page.$(".map-nav3d")) fail("curtain_off: the camera group without view=3d");
       if (!(await page.$(".map-3d-btn"))) fail("curtain_off: no 3-D toggle on an env section");
       await page.goto(base + "?tour=off&theme=dark&lens=section&taxon=worms:217452&line=90&view=3d", { waitUntil: "domcontentloaded" });
       await waitMark(/^first_lens_ready$/); await sleep(1000);

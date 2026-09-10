@@ -136,7 +136,7 @@ export function About(p: { release: string; nTables?: number; datasets: Row[]; c
       </tbody></table>
       <h5 id="about-keyboard"><Icon name="ui-keyboard" /> Keyboard</h5>
       <p className="hint"><kbd>?</kbd> tour · <kbd>Esc</kbd> closes a dialog, the welcome or a chip's popover, or restores an expanded panel · <kbd>↑</kbd><kbd>↓</kbd> <kbd>Enter</kbd> in the lists, <kbd>A</kbd>–<kbd>Z</kbd> strip to jump ·
-        drag on the water column or the years to brush · every panel moves by its bar (double-click sends it home), collapses to a pill on the map's edge, expands to fill the map and resizes from its edges.</p>
+        drag on the water column or the years to brush · in the 3-D section (after a click on it) <kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> pan, <kbd>shift</kbd> + arrows rotate and tilt, <kbd>+</kbd><kbd>−</kbd> zoom, and the compass in the map's corner resets the view · every panel moves by its bar (double-click sends it home), collapses to a pill on the map's edge, expands to fill the map and resizes from its edges.</p>
       <h5 id="about-credits"><Icon name="ui-open" /> Credits</h5>
       <p className="hint">Data: CalCOFI (SIO, NOAA SWFSC, CDFW), CCE LTER, the Farallon Institute and the providers above, each with its own citation in <button type="button" className="linkish" onClick={p.onSources}>Data Sources &amp; Attribution</button> and in the download bundle.
         Built by Ben Best (EcoQuants) for CalCOFI with MapLibre GL, deck.gl, DuckDB-WASM and Plotly; basemap © CARTO © OpenStreetMap contributors.

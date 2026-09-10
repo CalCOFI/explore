@@ -8,13 +8,65 @@
 //    climatology anomaly) painted to a canvas texture with the panel's exact colour scales;
 //  · station dots at the surface. Vertical exaggeration (URL `exag=`, default 60 — 500 m over 700 km is
 //    invisible at ×1) is baked into the meshes and rebuilt debounced; the slider lives in the scene.
-import { useEffect, useRef, useState } from "react";
-import { Deck, MapView as DeckMapView, COORDINATE_SYSTEM, SimpleMeshLayer, ScatterplotLayer, PathLayer } from "deck.gl";
+//  · the camera is the URL's (`cam=lon,lat,zoom,pitch,bearing`, written debounced after a move, absent while the
+//    scene wears the line's own framing) so a shared link reopens at the exact vantage; the Nav3D group in the
+//    map's top-right row (rotate · tilt · a compass that resets) and deck's keyboard bindings drive it
+//    (Ben, 2026-09-10: "cannot locate any keyboard shortcuts or the control").
+//  · the station grid at the surface for reference (Ben, 2026-09-10: "lost most other frames of reference"): every
+//    grid cell over the floor as a dot with its station number, a thread through each line and the line's name at
+//    its offshore end; the floor covers the standard pattern (lines 76.7–93.3) as well as the section's own line.
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Deck, MapView as DeckMapView, COORDINATE_SYSTEM, SimpleMeshLayer, ScatterplotLayer, PathLayer, TextLayer } from "deck.gl";
 import { PMTiles } from "pmtiles";
 import { BATHY_URL, BATHY_RAMP } from "./basemap";
 import { colorScale } from "./map";
 import { RAMP_DIV, type SectionCell } from "./charts";
 import type { GridCell } from "./map";
+import { roundCam, sameCam, type Cam } from "./state";
+import { IconButton } from "./ui";
+
+// ── the live camera, an external store: the Nav3D control subscribes and is the only thing that re-renders on
+//    a drag (the App hears a debounced, rounded copy through onCam for the URL) ──
+let liveCam: Cam | null = null, homeCam: Cam | null = null, deckRef: any = null;
+const camSubs = new Set<() => void>();
+const setLive = (c: Cam | null) => { liveCam = c; camSubs.forEach((f) => f()); };
+export const useCam3d = () => useSyncExternalStore((f) => { camSubs.add(f); return () => camSubs.delete(f); }, () => liveCam);
+const asViewState = (c: Cam) => ({ longitude: c[0], latitude: c[1], zoom: c[2], pitch: c[3], bearing: c[4] });
+/** move the camera (a new initialViewState with a transition: deck reports every frame back through onViewStateChange) */
+const fly = (to: Partial<ReturnType<typeof asViewState>>, ms = 350) => {
+  const c = liveCam ?? homeCam; if (!deckRef || !c) return;
+  const vs = { ...asViewState(c), ...to }; vs.pitch = Math.max(0, Math.min(85, vs.pitch));
+  deckRef.setProps({ initialViewState: { maxPitch: 85, ...vs, transitionDuration: ms } });
+};
+/** the camera moves the controls make — the same steps as deck's keyboard (shift + arrows, + / −) */
+export const cam3d = {
+  zoom:   (d: number) => fly({ zoom: (liveCam ?? homeCam)![2] + d }),
+  rotate: (d: number) => fly({ bearing: (liveCam ?? homeCam)![4] + d }),
+  tilt:   (d: number) => fly({ pitch: (liveCam ?? homeCam)![3] + d }),
+  home:   () => { if (homeCam) fly(asViewState(homeCam), 600); },
+};
+
+/** the 3-D camera group for the map's top-right row: rotate · tilt · a compass whose needle shows north and the
+ *  tilt (MapLibre's visualizePitch), a click on it restoring the line's own framing */
+export function Nav3D() {
+  const c = useCam3d();
+  const pitch = c?.[3] ?? 0, bearing = c?.[4] ?? 0;
+  return (
+    <span className="map-nav3d" role="group" aria-label="3-D camera">
+      <IconButton icon="ui-rotate-l" label="Rotate left (shift + ←, or shift-drag)" className="map-zoom-btn" onClick={() => cam3d.rotate(-15)} />
+      <IconButton icon="ui-rotate-r" label="Rotate right (shift + →, or shift-drag)" className="map-zoom-btn" onClick={() => cam3d.rotate(15)} />
+      <IconButton icon="ui-tilt-more" label="Tilt toward the horizon (shift + ↑)" className="map-zoom-btn" onClick={() => cam3d.tilt(10)} disabled={pitch >= 85} />
+      <IconButton icon="ui-tilt-less" label="Tilt toward straight down (shift + ↓)" className="map-zoom-btn" onClick={() => cam3d.tilt(-10)} disabled={pitch <= 0} />
+      <button type="button" className="cc-icon-button map-zoom-btn map-compass" aria-label="Reset the view to the line's framing"
+        title={`bearing ${Math.round(bearing)}° · pitch ${Math.round(pitch)}° — click to reset to the line's framing`} onClick={cam3d.home}>
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" style={{ transform: `rotateX(${Math.min(pitch, 60) * 0.7}deg) rotateZ(${-bearing}deg)` }}>
+          <path d="M12 2 L16 12 L12 10.5 L8 12 Z" className="north" />
+          <path d="M12 22 L8 12 L12 13.5 L16 12 Z" className="south" />
+        </svg>
+      </button>
+    </span>
+  );
+}
 
 const TILE = 512, Z = 7, O = 20037508.342789244;
 const mx = (lon: number) => (lon * O) / 180;
@@ -107,10 +159,12 @@ function curtainTexture(cells: SectionCell[], clim: SectionCell[] | null, anom: 
 }
 
 export function Curtain3D(p: { cells: SectionCell[]; clim: SectionCell[] | null; anom: boolean; theme: "dark" | "light";
-                               line: number; grid: GridCell[]; exag: number; onExag: (v: number | null) => void; unit: string }) {
+                               line: number; grid: GridCell[]; exag: number; onExag: (v: number | null) => void; unit: string;
+                               cam: Cam | null; onCam: (c: Cam | null) => void }) {
   const el = useRef<HTMLDivElement>(null);
   const deck = useRef<any>(null);
   const [status, setStatus] = useState("decoding the sea floor …");
+  const onCam = useRef(p.onCam); onCam.current = p.onCam;
 
   const track = p.grid.filter((g) => g.line === p.line).sort((a, b) => a.station - b.station);
   const stations = [...new Set(p.cells.map((c) => c.station))].sort((a, b) => a - b);
@@ -126,26 +180,49 @@ export function Curtain3D(p: { cells: SectionCell[]; clim: SectionCell[] | null;
   const a = track[0]?.home ?? [-122.5, 32.5], b2 = track[track.length - 1]?.home ?? [-120.5, 34];
   const trackBearing = (Math.atan2((b2[0] - a[0]) * kx, (b2[1] - a[1]) * ky) * 180) / Math.PI;
   const camB = trackBearing - 90 + 20, camR = (camB * Math.PI) / 180;
+  homeCam = roundCam([lon0 - Math.sin(camR) * 0.55 / Math.max(0.2, Math.cos((lat0 * Math.PI) / 180)), lat0 - Math.cos(camR) * 0.55, 7.6, 55, camB]);
   useEffect(() => {
+    const start = p.cam ?? homeCam!;
+    let timer = 0;
     const d = new Deck({
       parent: el.current!,
-      views: new DeckMapView({ controller: { touchRotate: true, keyboard: false } as any }),
-      initialViewState: { longitude: lon0 - Math.sin(camR) * 0.55 / Math.max(0.2, Math.cos((lat0 * Math.PI) / 180)),
-        latitude: lat0 - Math.cos(camR) * 0.55, zoom: 7.6, pitch: 55, bearing: camB, maxPitch: 85 },
+      // keyboard on: the canvas takes focus on a click, then arrows pan, shift + arrows rotate and tilt, + / − zoom
+      views: new DeckMapView({ controller: { touchRotate: true, keyboard: true } as any }),
+      initialViewState: { ...asViewState(start), maxPitch: 85 },
+      onViewStateChange: ({ viewState }: any) => {
+        const c: Cam = [viewState.longitude, viewState.latitude, viewState.zoom, viewState.pitch, viewState.bearing];
+        setLive(c);
+        // the URL hears the rounded camera once the move settles; the line's own framing is "no cam=" (a fresh link)
+        clearTimeout(timer);
+        timer = window.setTimeout(() => { const r = roundCam(c); onCam.current(sameCam(r, homeCam) ? null : r); }, 300);
+      },
       deviceProps: { type: "webgl", webgl: { preserveDrawingBuffer: true } } as any,
       layers: [],
     } as any);
-    deck.current = d; (window as any).__deck3d = d;
+    deck.current = d; deckRef = d; setLive(start); (window as any).__deck3d = d;
+    // deck's pointer handling preventDefaults the press, so a click never focuses the canvas on its own (probe
+    // 2026-09-10: activeElement stayed BODY); focus it ourselves, or the keyboard bindings are unreachable
+    const focusCanvas = () => { (el.current?.querySelector("canvas") as HTMLElement | null)?.focus(); };
+    el.current!.addEventListener("pointerdown", focusCanvas, true);
     (window as any).__setCam = (vs: any) => d.setProps({ initialViewState: { maxPitch: 85, ...vs } }); // verify/tuning hook
-    return () => { d.finalize(); deck.current = null; };
+    (window as any).__cam3d = () => liveCam; (window as any).__cam3dOps = cam3d;                    // verify hooks
+    return () => { clearTimeout(timer); el.current?.removeEventListener("pointerdown", focusCanvas, true); d.finalize(); deck.current = null; deckRef = null; setLive(null); };
   }, []);
+  // another line is another place: the camera goes back to that line's framing and the URL drops its cam=
+  const lineSeen = useRef(p.line);
+  useEffect(() => { if (lineSeen.current !== p.line) { lineSeen.current = p.line; cam3d.home(); onCam.current(null); } }, [p.line]);
 
   useEffect(() => {
     let dead = false;
     (async () => {
       if (!track.length) { setStatus("no stations on this line"); return; }
       const lons = track.map((t) => t.home[0]), lats = track.map((t) => t.home[1]);
-      const m = await loadMosaic(Math.min(...lons) - 0.9, Math.min(...lats) - 0.7, Math.max(...lons) + 0.9, Math.max(...lats) + 0.7);
+      // the floor: the line's own bbox ∪ the standard pattern's (lines 76.7–93.3 — the 66 stations every cruise
+      // occupies, the frame of reference a reader knows), so neighbouring lines stand on ground, not in the void
+      const std = p.grid.filter((g) => g.line >= 76.7 && g.line <= 93.3);
+      const bb = { w: Math.min(...lons, ...std.map((g) => g.home[0])) - 0.9, s: Math.min(...lats, ...std.map((g) => g.home[1])) - 0.7,
+                   e: Math.max(...lons, ...std.map((g) => g.home[0])) + 0.9, n: Math.max(...lats, ...std.map((g) => g.home[1])) + 0.7 };
+      const m = await loadMosaic(bb.w, bb.s, bb.e, bb.n);
       if (dead) return;
       // ── the sea-floor mesh, decimated ×4 (z7 is 611 m/px, so vertices sit ~2.4 km apart) ──
       const S = 4, MW = Math.floor(m.W / S), MH = Math.floor(m.H / S);
@@ -184,7 +261,25 @@ export function Curtain3D(p: { cells: SectionCell[]; clim: SectionCell[] | null;
       // this stage is the terrain — a near-normal curtain would otherwise vanish into it (light theme, 1950)
       const surf = cs.map((t) => [...off(t.home[0], t.home[1]), 0] as [number, number, number]);
       const frame = [...surf, ...surf.slice().reverse().map(([x, y]) => [x, y, -maxY * p.exag] as [number, number, number]), surf[0]];
-      (window as any).__curtain = { stations: cN, cells: p.cells.length, painted, terrainVerts: MW * MH, maxDepth: maxY, exag: p.exag, anom: p.anom };
+      // ── the station grid at the surface: every cell over the floor, threaded by line and labelled ──
+      const ref = p.grid.filter((g) => g.home[0] >= bb.w && g.home[0] <= bb.e && g.home[1] >= bb.s && g.home[1] <= bb.n);
+      const byLine = new Map<number, GridCell[]>();
+      for (const g of ref) (byLine.get(g.line) ?? byLine.set(g.line, []).get(g.line)!).push(g);
+      const threads = [...byLine.entries()].map(([ln, gs]) => ({ line: ln, path: gs.sort((a, b) => a.station - b.station).map((g) => [...off(g.home[0], g.home[1]), 0] as [number, number, number]) }));
+      const fmtN = (x: number) => (Number.isInteger(x) ? String(x) : x.toFixed(1));
+      // a line's name at BOTH ends: the offshore end is out of frame as often as not (Ben, 2026-09-10: "label the Lines too")
+      const lineEnds = [...byLine.entries()].flatMap(([ln, gs]) => {
+        const sorted = gs.slice().sort((a, b) => a.station - b.station);
+        return [sorted[0], sorted[sorted.length - 1]].map((g) => ({ text: `line ${fmtN(ln)}`, pos: [...off(g.home[0], g.home[1]), 0] as [number, number, number], own: ln === p.line }));
+      });
+      const dark = p.theme === "dark";
+      const ink = (a: number) => (dark ? [220, 230, 240, a] : [30, 45, 60, a]) as [number, number, number, number];
+      const halo = (dark ? [8, 18, 32, 200] : [245, 247, 250, 200]) as [number, number, number, number];
+      const font = getComputedStyle(document.body).fontFamily || "sans-serif";
+      const textProps = { coordinateSystem: COORDINATE_SYSTEM.METER_OFFSETS, coordinateOrigin: [lon0, lat0, 0] as [number, number, number],
+        fontFamily: font, fontSettings: { sdf: true, fontSize: 64, buffer: 8, radius: 8 }, outlineWidth: 1.5, outlineColor: halo, sizeUnits: "pixels" as const,
+        getTextAnchor: "middle" as const, billboard: true };
+      (window as any).__curtain = { stations: cN, cells: p.cells.length, painted, terrainVerts: MW * MH, maxDepth: maxY, exag: p.exag, anom: p.anom, gridDots: ref.length, lines: threads.length };
       deck.current?.setProps({ layers: [
         new SimpleMeshLayer({ id: "floor", coordinateSystem: COORDINATE_SYSTEM.METER_OFFSETS, coordinateOrigin: [lon0, lat0, 0],
           data: [0], getPosition: () => [0, 0, 0], mesh: { attributes: { positions: { value: pos, size: 3 }, texCoords: { value: tex, size: 2 }, normals: { value: nor, size: 3 } }, indices: { value: idx, size: 1 } } as any,
@@ -195,9 +290,21 @@ export function Curtain3D(p: { cells: SectionCell[]; clim: SectionCell[] | null;
         new PathLayer({ id: "curtain-frame", coordinateSystem: COORDINATE_SYSTEM.METER_OFFSETS, coordinateOrigin: [lon0, lat0, 0],
           data: [frame], getPath: (d: any) => d, widthMinPixels: 1.5, widthMaxPixels: 2,
           getColor: (p.theme === "dark" ? [255, 255, 255, 80] : [30, 45, 60, 110]) as any }),
+        new PathLayer({ id: "grid-threads", coordinateSystem: COORDINATE_SYSTEM.METER_OFFSETS, coordinateOrigin: [lon0, lat0, 0],
+          data: threads, getPath: (d: any) => d.path, widthMinPixels: 1, widthMaxPixels: 1.5,
+          getColor: (d: any) => (d.line === p.line ? ink(150) : ink(55)) as any }),
+        new ScatterplotLayer({ id: "grid-dots", coordinateSystem: COORDINATE_SYSTEM.METER_OFFSETS, coordinateOrigin: [lon0, lat0, 0],
+          data: ref.filter((g) => g.line !== p.line), getPosition: (g: GridCell) => [...off(g.home[0], g.home[1]), 0] as any,
+          radiusMinPixels: 2, radiusMaxPixels: 3.5, getFillColor: ink(120) as any }),
         new ScatterplotLayer({ id: "dots3d", coordinateSystem: COORDINATE_SYSTEM.METER_OFFSETS, coordinateOrigin: [lon0, lat0, 0],
           data: track, getPosition: (t: GridCell) => [...off(t.home[0], t.home[1]), 0] as any, radiusMinPixels: 3, radiusMaxPixels: 6,
           getFillColor: (t: GridCell) => (stations.includes(t.station) ? [255, 214, 10, 235] : [160, 170, 180, 160]) as any }),
+        new TextLayer({ id: "grid-station-labels", ...textProps, data: ref, getPosition: (g: GridCell) => [...off(g.home[0], g.home[1]), 0] as any,
+          getText: (g: GridCell) => fmtN(g.station), getSize: (g: GridCell) => (g.line === p.line ? 13 : 11), getPixelOffset: [0, -9],
+          getAlignmentBaseline: "bottom", getColor: (g: GridCell) => (g.line === p.line ? ink(240) : ink(150)) as any }),
+        new TextLayer({ id: "grid-line-labels", ...textProps, data: lineEnds, getPosition: (d: any) => d.pos, getText: (d: any) => d.text,
+          getSize: (d: any) => (d.own ? 15 : 13), fontWeight: 700, getPixelOffset: [0, 14], getAlignmentBaseline: "top",
+          getColor: (d: any) => (d.own ? [255, 214, 10, 240] : ink(190)) as any }),
       ] });
       // the anomaly is month-matched, always (the climatology's own rule): a cruise whose calendar month never
       // cleared the >= 3-cruise floor (September, mostly) has NO baseline — the panel goes blank by design, and
@@ -216,7 +323,7 @@ export function Curtain3D(p: { cells: SectionCell[]; clim: SectionCell[] | null;
         <label className="hint">exaggeration ×{p.exag}
           <input type="range" min={10} max={150} step={10} value={p.exag}
             onChange={(e) => p.onExag(+e.target.value === 60 ? null : +e.target.value)} /></label>
-        <span className="hint">drag rotates · the curtain is the section panel's colours{p.anom ? " (anomaly)" : ""} · floor clipped below {Math.round(maxY * 1.4 + 100)} m</span>
+        <span className="hint">drag pans · shift-drag rotates and tilts · scroll zooms · arrows after a click · the curtain is the section panel's colours{p.anom ? " (anomaly)" : ""} · floor clipped below {Math.round(maxY * 1.4 + 100)} m</span>
       </div>
     </div>
   );

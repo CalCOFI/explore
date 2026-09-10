@@ -53,6 +53,7 @@ export interface Sel {
   layers: LayerStyle[] | null; // visible boundary layers in DRAW ORDER, first on top (`layers=slug[:colour][:fill_opacity][:line_width],…`); null = the registry's defaults (defaultLayers()), `layers=off` = [] = none
   view3d: boolean;             // `view=3d`: the Sections lens (env) as a deck-only curtain scene (D28 reshaped)
   exag: number | null;         // vertical exaggeration for the 3-D scene, 10–150 (`exag=90`); null = 60
+  cam: Cam | null;             // the 3-D camera as lon,lat,zoom,pitch,bearing (`cam=-121.2,32.6,7.6,55,-40`); null = the line's own framing; carried only with `view=3d`
   ramp: string | null;         // the data layer's colour ramp (`ramp=thermal`, `_r` reverses; src/ramps.ts); null = the variable's default
   data: boolean;               // `data=off`: the data layer hidden — the basemap, sea floor and boundaries alone
   datao: number | null;        // the data layer's opacity 0–1 (`datao=0.6`); null = 1
@@ -101,6 +102,18 @@ export const MAP_HOME: [number, number, number] = [-121.5, 33.2, 5.1];
 /** the extent rounded the way the URL carries it (4 decimals of a degree ≈ 10 m; zoom to 2) */
 export const roundMap = (v: [number, number, number]): [number, number, number] => [+v[0].toFixed(4), +v[1].toFixed(4), +v[2].toFixed(2)];
 const sameMap = (a: [number, number, number] | null, b: [number, number, number] | null) => (!a && !b) || (!!a && !!b && roundMap(a).join() === roundMap(b).join());
+/** the 3-D scene's camera: lon · lat · zoom · pitch (0–85°) · bearing (−180–180°, clockwise from north) */
+export type Cam = [number, number, number, number, number];
+/** the camera rounded the way the URL carries it (the extent's 4/2 decimals; pitch and bearing to 1) */
+export const roundCam = (c: Cam): Cam => [+c[0].toFixed(4), +c[1].toFixed(4), +c[2].toFixed(2), +c[3].toFixed(1), +(((c[4] + 540) % 360) - 180).toFixed(1)];
+export const sameCam = (a: Cam | null, b: Cam | null) => (!a && !b) || (!!a && !!b && roundCam(a).join() === roundCam(b).join());
+const parseCam = (v: string | null): Cam | null => {
+  if (!v) return null;
+  const n = v.split(",").map(Number);
+  if (n.length !== 5 || n.some((x) => !isFinite(x))) return null;
+  if (Math.abs(n[0]) > 180 || Math.abs(n[1]) > 85 || n[2] < 3 || n[2] > 14 || n[3] < 0 || n[3] > 85) return null;
+  return roundCam(n as Cam);
+};
 export type PanelId = "select" | "depth" | "years" | "section" | "cruise" | "station" | "timing" | "layers";
 export const PANEL_IDS: PanelId[] = ["select", "depth", "years", "section", "cruise", "station", "timing", "layers"];
 /** the folds a visit starts with: Depth is folded to its pill by default and SIGNALS when a pick is sampled at depth —
@@ -191,7 +204,7 @@ export const DEFAULTS: Sel = {
   lens: "station", res: 5, interp: "ok", surface: "value", grain: "site", inputs: null, labels: true, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature",
   stage: null, den: null, zeros: true, years: [1949, YEAR_OPEN], months: null, q: null, yview: null, depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
   line: 90, cruise: null, stat: "mean", anom: false, tour: true, tourOn: false, modal: null, theme: null, release: null, station: null, datasets: null,
-  hide: DEFAULT_HIDE, max: null, map: null, bathy: null, bathyo: null, land: true, baseLabels: true, basemapo: null, layers: null, view3d: false, exag: null, strip: null, ramp: null, data: true, datao: null,
+  hide: DEFAULT_HIDE, max: null, map: null, bathy: null, bathyo: null, land: true, baseLabels: true, basemapo: null, layers: null, view3d: false, exag: null, cam: null, strip: null, ramp: null, data: true, datao: null,
 };
 
 const num = (v: string | null, d: number) => (v != null && v !== "" && !isNaN(+v) ? +v : d);
@@ -271,6 +284,7 @@ export function fromUrl(): Sel {
     layers: parseLayerStyles(p.get("layers")),
     view3d: p.get("view") === "3d",
     exag: (v => v != null && isFinite(+v) && +v >= 10 && +v <= 150 ? Math.round(+v) : null)(p.get("exag")),
+    cam: p.get("view") === "3d" ? parseCam(p.get("cam")) : null,
     strip: p.get("strip") === "mean" || p.get("strip") === "cruises" ? (p.get("strip") as StripMode) : null,
     ramp: p.get("ramp") || null,
     data: p.get("data") !== "off",
@@ -318,11 +332,14 @@ export function toUrl(s: Sel) {
   if (s.layers !== null) p.set("layers", s.layers.length ? fmtLayerStyles(s.layers) : "off");
   if (s.view3d) p.set("view", "3d");
   if (s.exag != null) p.set("exag", String(s.exag));
+  if (s.view3d && s.cam) p.set("cam", roundCam(s.cam).join(","));
   if (s.strip) p.set("strip", s.strip);
   if (s.ramp) p.set("ramp", s.ramp);
   if (!s.data) p.set("data", "off");
   if (s.datao != null) p.set("datao", s.datao.toFixed(2));
-  const url = `${location.pathname}?${p.toString()}`;
+  // URLSearchParams escapes , and : (%2C %3A) though both are legal in a query string; a link people read and paste
+  // keeps them raw — `cam=-121.2,32.6,7.2,40,-60`, `taxon=worms:217452` (Ben, 2026-09-10: "doesn't get so ugly")
+  const url = `${location.pathname}?${p.toString().replace(/%2C/g, ",").replace(/%3A/g, ":")}`;
   if (url !== location.pathname + location.search) history.replaceState(null, "", url);
 }
 

@@ -19,7 +19,7 @@ import { Menu, Group } from "./ui";
 import { Panel, EdgePills, MaxPanel, Sheet, Sparkline, VSpark, SHEET_PEEK, type CardId, type CardBox, type Detent, type Dock, type EdgePill } from "./panels";
 import { Sentence } from "./sentence";
 import { LayersCard } from "./layers";
-import { Curtain3D } from "./curtain";
+import { Curtain3D, Nav3D, cam3d } from "./curtain";
 import { bathyFromSel, bathyOn, boundaryLayerIds, effectiveLayers, isPalette, LAND_LAYER, PALETTES, type BoundaryState, type SpatialLayerDef, type SpatialLayers } from "./basemap";
 import spatialFallback from "./spatial_layers.fallback";
 import type { IconName } from "./icons";
@@ -1109,7 +1109,7 @@ export function App() {
     cruise: { left: selectOpen ? 340 : 10, right: 60, bottom: yearsOpen ? 160 : 10, height: "34%" },
     station: { top: 52, right: rightBand, width: 340, maxHeight: tallCap },
     timing: { top: 52, right: rightBand + (stationUp ? 350 : 0), width: 420, maxHeight: tallCap },
-    layers: { top: 52, right: rightBand + (stationUp ? 350 : 0), width: 270, maxHeight: tallCap },
+    layers: { top: 52, right: rightBand + (stationUp ? 350 : 0) + (view3dOn ? 40 : 0), width: 270, maxHeight: tallCap }, // 3-D: clear of the camera column under the row
   };
   const docks: Record<PanelId, Dock> = { select: "left", depth: "right", years: "bottom", section: "bottom", cruise: "bottom", station: "right", timing: "right", layers: "right" };
   const closeCard: Partial<Record<CardId, () => void>> = { station: () => setSel({ station: null }), timing: () => setAdvanced(false), layers: () => setLayersOpen(false) };
@@ -1216,17 +1216,18 @@ export function App() {
       <div className="main">
         <div className="panel mapwrap" ref={mapBox} data-tour="map">
           {view3dOn
-            ? <Curtain3D cells={sectionCells} clim={climCells} anom={sel.anom && !!climCells} theme={theme} line={sel.line} grid={grid} exag={sel.exag ?? 60} onExag={(v) => setSel({ exag: v })} unit={unitLabel} />
+            ? <Curtain3D cells={sectionCells} clim={climCells} anom={sel.anom && !!climCells} theme={theme} line={sel.line} grid={grid} exag={sel.exag ?? 60} onExag={(v) => setSel({ exag: v })} unit={unitLabel} cam={sel.cam} onCam={(c) => setSel({ cam: c })} />
             : <MapView layers={layers} theme={theme} bathy={bathyFromSel(sel)} boundaries={boundaries} view={sel.map ?? MAP_HOME} onView={(v) => setSel({ map: v })} onOverlay={(o) => { overlayRef.current = o; }} getTooltip={getTooltip} onClick={onClick} onFirstFrame={() => timing.add("first_paint", performance.now() - window.__t0, "basemap + grid dots")} />}
-          {/* the map's own row, top right: zoom · layers · its ⬇ (· 3-D in the Sections lens); Depth and the cards start under it */}
+          {/* the map's own row, top right: zoom · layers · its ⬇ (· the camera group · 3-D in the Sections lens); Depth and the cards start under it */}
           <div className="map-tr">
             <span className="map-zoom" role="group" aria-label="zoom">
-              <IconButton icon="ui-plus" label="Zoom in" className="map-zoom-btn" onClick={() => (window as any).__map?.zoomIn()} />
-              <IconButton icon="ui-minus" label="Zoom out" className="map-zoom-btn" onClick={() => (window as any).__map?.zoomOut()} />
+              <IconButton icon="ui-plus" label="Zoom in" className="map-zoom-btn" onClick={() => (view3dOn ? cam3d.zoom(0.5) : (window as any).__map?.zoomIn())} />
+              <IconButton icon="ui-minus" label="Zoom out" className="map-zoom-btn" onClick={() => (view3dOn ? cam3d.zoom(-0.5) : (window as any).__map?.zoomOut())} />
             </span>
             <IconButton icon="ui-map-layers" label="Map layers — the sea floor" className="map-layers-btn" data-tour="layers"
               onClick={() => { if (layersOpen) setLayersOpen(false); else { setLayersOpen(true); setTopCard("layers"); if (phone) setSheet({ panel: "layers", detent: "half" }); } }} />
             <Menu className="export-menu map-export" icon="ui-download" label="" title="export the map: PNG (the map and its title, stamped) · CSV (the table it draws) — WebGL has no SVG" align="right" data-tour="map-export" items={exportItems("map")} />
+            {view3dOn && <Nav3D />}
             {displayLens === "section" && sel.realm === "env" && !phone &&
               <button type="button" className="map-3d-btn" title="the section as a 3-D curtain over the sea floor (D28)"
                 onClick={() => setSel({ view3d: !sel.view3d })}>{sel.view3d ? "2D" : "3D"}</button>}
