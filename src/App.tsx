@@ -1175,10 +1175,10 @@ export function App() {
               (style.css), not <picture>: html-to-image's clone loses the image inside a <picture>, and the feedback capture
               is set from this header; v1: the 32 px mark (src/brand.ts) */}
           {BRAND === "v2" ? <>
-            <img className="cc-logo-dark cc-logo-lockup" src={LOGO.dark} alt="CalCOFI" height={LOGO.height} />
-            <img className="cc-logo-light cc-logo-lockup" src={LOGO.light} alt="CalCOFI" height={LOGO.height} />
-            <img className="cc-logo-dark cc-logo-mark" src={LOGO.markDark} alt="CalCOFI" height={LOGO.height} loading="lazy" />
-            <img className="cc-logo-light cc-logo-mark" src={LOGO.markLight} alt="CalCOFI" height={LOGO.height} loading="lazy" />
+            <img className="cc-logo-dark cc-logo-lockup" src={LOGO.dark} alt="CalCOFI.io" height={LOGO.height} />
+            <img className="cc-logo-light cc-logo-lockup" src={LOGO.light} alt="CalCOFI.io" height={LOGO.height} />
+            <img className="cc-logo-dark cc-logo-mark" src={LOGO.markDark} alt="CalCOFI.io" height={LOGO.height} loading="lazy" />
+            <img className="cc-logo-light cc-logo-mark" src={LOGO.markLight} alt="CalCOFI.io" height={LOGO.height} loading="lazy" />
           </> : <>
             <img className="cc-logo-dark" src={LOGO.dark} alt="CalCOFI" width="32" height="32" />
             <img className="cc-logo-light" src={LOGO.light} alt="CalCOFI" width="32" height="32" />
