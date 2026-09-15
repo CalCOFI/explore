@@ -7,7 +7,7 @@ import { useRef, useState } from "react";
 import { Icon } from "./icons";
 import { BATHY_PARTS, type BathyPart, type LayerStyle, type Sel } from "./state";
 import { LAND_ID, PALETTES, baseLabelDefaultOpacity, bathyDefaultOpacity, defaultLayers, effectiveLayers, isPalette, labelDefaultOpacity, sameLayers, type SpatialLayerDef } from "./basemap";
-import { RAMPS, RAMP_IDS, parseRamp, rampCss, defaultRamp } from "./ramps";
+import { RAMPS, RAMP_IDS, parseRamp, rampCss, defaultRamp, lensRamp } from "./ramps";
 
 const LABELS: Record<BathyPart, string> = { relief: "shaded relief", depth: "depth colour", contours: "contours" };
 // the one-colour strip: mid-tone Material shades in the registry's families — they read on dark and light alike
@@ -62,7 +62,7 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
   const groups = [...new Set(addable.map((d) => d.group))];
   // the data layer (Ben, 2026-09-07): on/off, opacity, the colour ramp (+ reversed). It draws in deck's own canvas, above
   // every MapLibre layer — moving it BELOW a boundary layer needs the interleaved overlay (plan 2026-09-07 D36, spike-gated)
-  const ramp = parseRamp(p.sel.ramp ?? defaultRamp(p.sel.realm, p.sel.var, p.sel.anom && p.sel.lens === "section"));
+  const ramp = parseRamp(lensRamp(p.sel));
   const rampId = `${ramp.base}${ramp.reversed ? "_r" : ""}`;
   const setRamp = (base: string, reversed: boolean) => { const id = `${base}${reversed ? "_r" : ""}`; p.setSel({ ramp: id === defaultRamp(p.sel.realm, p.sel.var) ? null : id }); };
   const dOpacity = p.sel.datao ?? 1;
