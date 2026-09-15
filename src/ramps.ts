@@ -58,16 +58,19 @@ export function defaultRamp(realm: "bio" | "env", variable: string, anomaly = fa
   if (anomaly) return "balance";
   if (realm === "bio") return DEFAULT_RAMP;
   const v = variable.toLowerCase();
+  // density BEFORE temperature: sigma_theta ("potential density") contains "theta" and matched /temp|theta/ first,
+  // drawing thermal instead of dense (WS-R2 parity check, 2026-09-16)
+  if (/sigma|dens/.test(v)) return "dense";
   if (/temp|theta/.test(v)) return "thermal";
   if (/salin|salt/.test(v)) return "haline";
   if (/oxy/.test(v)) return "ice"; // not cmocean's oxy: its red/grey/yellow breaks assume fixed 0–10 ml/L limits, and the legend is a 5–95 % window
   if (/chl|fluor|phyto|algae|prochl|synech/.test(v)) return "algae";
-  if (/sigma|dens/.test(v)) return "dense";
   if (/nitr|phos|silic|ammon|nutri/.test(v)) return "tempo";
   if (/par\b|light|irrad|rad/.test(v)) return "solar";
   if (/ph\b|alkal|dic|carbon|pco2/.test(v)) return "matter";
   if (/depth|bathy/.test(v)) return "deep";
-  if (/wind|speed|current/.test(v)) return "speed";
+  // a direction is not a speed (wind_dir_deg matched /wind/ and drew the speed ramp — same audit): exclude "dir"
+  if (/wind|speed|current/.test(v) && !/dir/.test(v)) return "speed";
   return DEFAULT_RAMP;
 }
 /** the ONE ramp-selection rule every lens shares: the map, the contour surface, the section heatmap and the

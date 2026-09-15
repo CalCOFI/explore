@@ -27,6 +27,18 @@ describe("defaultRamp() — the one variable -> ramp rule", () => {
   it("an anomaly is always balance, for every group, regardless of realm", () => {
     for (const g of GROUPS) expect(defaultRamp(g.realm, g.v, true)).toBe("balance");
   });
+
+  // WS-R2 parity check (2026-09-16): RAMP_OF on the landing site copies defaultRamp() verbatim, and found these
+  // two regex-order bugs by exercising real column names, not the one-per-group table above
+  it("sigma_theta (potential density) is dense, not thermal — density is tested before temperature", () => {
+    expect(defaultRamp("env", "sigma_theta", false)).toBe("dense");
+  });
+  it("wind_dir_deg is a direction, not a speed — falls to the default ramp, not speed", () => {
+    expect(defaultRamp("env", "wind_dir_deg", false)).toBe("viridis");
+  });
+  it("a true wind speed still gets the speed ramp", () => {
+    expect(defaultRamp("env", "wind_speed_kt", false)).toBe("speed");
+  });
 });
 
 // map / hex / region / cruise dots, the contour surface, the section heatmap and the section's 3-D curtain all

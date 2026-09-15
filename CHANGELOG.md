@@ -15,3 +15,7 @@
   `lensRamp()` too, so there is exactly one rule. Added `rampPlotly()` (`src/ramps.ts`) so a Plotly panel paints
   the same 11-stop ramp the map/contour lenses draw. New `tests/ramps.default.test.ts` (`npm test`, via a new
   `vitest` devDependency — the repo had no test runner before this).
+- **ramps: two `defaultRamp()` regex-order bugs** (WS-R2 parity check, copying the rule verbatim into the landing
+  site's `RAMP_OF`): `sigma_theta` matched `/temp|theta/` before `/sigma|dens/` and drew thermal instead of dense —
+  density is now tested first. `wind_dir_deg` matched `/wind/` and drew the speed ramp — a direction is not a
+  speed, so `/wind|speed|current/` now excludes anything matching `/dir/` and falls to the default (viridis).
