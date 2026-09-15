@@ -21,7 +21,7 @@ import { Deck, MapView as DeckMapView, COORDINATE_SYSTEM, SimpleMeshLayer, Scatt
 import { PMTiles } from "pmtiles";
 import { BATHY_URL, BATHY_RAMP } from "./basemap";
 import { colorScale } from "./map";
-import { RAMP_DIV, type SectionCell } from "./charts";
+import { type SectionCell } from "./charts";
 import type { GridCell } from "./map";
 import { roundCam, sameCam, type Cam } from "./state";
 import { IconButton } from "./ui";
@@ -120,17 +120,10 @@ function rampTexture(theme: "dark" | "light"): HTMLCanvasElement {
   ctx.fillStyle = g; ctx.fillRect(0, 0, 256, 1); return cv;
 }
 
-function divergingAt(t: number, dark: boolean): string {
-  const stops = RAMP_DIV(dark); let a = stops[0], b = stops[stops.length - 1];
-  for (let i = 0; i < stops.length - 1; i++) if (t >= stops[i][0] && t <= stops[i + 1][0]) { a = stops[i]; b = stops[i + 1]; break; }
-  const f = (b[0] - a[0]) > 0 ? (t - a[0]) / (b[0] - a[0]) : 0;
-  const px = (h: string) => [1, 3, 5].map((k) => parseInt(h.slice(k, k + 2), 16));
-  const ca = px(a[1]), cb = px(b[1]);
-  return `rgb(${ca.map((v, i) => Math.round(v + (cb[i] - v) * f)).join(",")})`;
-}
-
-/** the curtain's texture: one column per station, one row per 10 m bin; no value = transparent */
-function curtainTexture(cells: SectionCell[], clim: SectionCell[] | null, anom: boolean, theme: string,
+/** the curtain's texture: one column per station, one row per 10 m bin; no value = transparent. `ramp` is the
+ * SAME id App.tsx resolves for the map/contour/section lenses (ramps.ts defaultRamp()) — already "balance" when
+ * `anom` is set, so this function carries no ramp logic of its own */
+function curtainTexture(cells: SectionCell[], clim: SectionCell[] | null, anom: boolean, ramp: string,
                         stations: number[], maxY: number): { cv: HTMLCanvasElement; painted: number } {
   const K = 8, rows = Math.max(1, Math.round(maxY / 10) + 1);
   const cv = document.createElement("canvas"); cv.width = Math.max(1, stations.length * K); cv.height = rows;
@@ -142,8 +135,8 @@ function curtainTexture(cells: SectionCell[], clim: SectionCell[] | null, anom: 
   if (!vals.length) return { cv, painted: 0 };
   const amax = Math.max(0.1, ...vals.map(Math.abs));
   const lo = Math.min(...vals), hi = Math.max(...vals);
-  const base = colorScale([lo, hi], 255);
-  const paint = (v: number) => anom ? divergingAt((v / amax + 1) / 2, theme === "dark") : `rgb(${base(v).slice(0, 3).join(",")})`;
+  const scale = colorScale(anom ? [-amax, amax] : [lo, hi], 255, ramp);
+  const paint = (v: number) => `rgb(${scale(v).slice(0, 3).join(",")})`;
   // a bottle cast samples discrete standard depths: interpolate each station's column between its valued
   // bins (what the 2-D panel's zsmooth does), never past the deepest one — the curtain ends where the data does
   for (let xi = 0; xi < stations.length; xi++) {
@@ -160,7 +153,7 @@ function curtainTexture(cells: SectionCell[], clim: SectionCell[] | null, anom: 
 }
 
 export function Curtain3D(p: { cells: SectionCell[]; clim: SectionCell[] | null; anom: boolean; theme: "dark" | "light";
-                               line: number; grid: GridCell[]; exag: number;
+                               line: number; grid: GridCell[]; exag: number; ramp: string;
                                cam: Cam | null; onCam: (c: Cam | null) => void }) {
   const el = useRef<HTMLDivElement>(null);
   const deck = useRef<any>(null);
@@ -257,7 +250,7 @@ export function Curtain3D(p: { cells: SectionCell[]; clim: SectionCell[] | null;
       });
       const cidx = new Uint32Array((cN - 1) * 6); q = 0;
       for (let i = 0; i < cN - 1; i++) { const a = i, b = i + 1, c = cN + i, dd = cN + i + 1; cidx[q++] = a; cidx[q++] = c; cidx[q++] = b; cidx[q++] = b; cidx[q++] = c; cidx[q++] = dd; }
-      const { cv: ctexture, painted } = curtainTexture(p.cells, p.clim, p.anom, p.theme, stations, maxY);
+      const { cv: ctexture, painted } = curtainTexture(p.cells, p.clim, p.anom, p.ramp, stations, maxY);
       // a hairline frame: the anomaly ramp's midpoint is deliberately the PANEL's background colour, which on
       // this stage is the terrain — a near-normal curtain would otherwise vanish into it (light theme, 1950)
       const surf = cs.map((t) => [...off(t.home[0], t.home[1]), 0] as [number, number, number]);
@@ -315,7 +308,7 @@ export function Curtain3D(p: { cells: SectionCell[]; clim: SectionCell[] | null;
         : "");
     })().catch((e) => setStatus(`3-D scene failed: ${e.message}`));
     return () => { dead = true; };
-  }, [p.cells, p.clim, p.anom, p.theme, p.line, p.grid.length, p.exag]);
+  }, [p.cells, p.clim, p.anom, p.theme, p.line, p.grid.length, p.exag, p.ramp]);
 
   // deck's canvas gets a child React never reconciles: as a sibling of the status line it vanished the moment
   // React removed that line (probe 2026-09-10: canvas.isConnected flipped false as status went blank)

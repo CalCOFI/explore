@@ -9,7 +9,7 @@ import { buildLayers, MapView, quantileDomain, colorScale, type GridCell, type S
 import { computeSurface, surfaceImage, isolines, niceLevels, joinSegments, labelPoints, thinLabels, cellToLonLat, cellValue, landMask, MASK_KM, type Surface as SurfaceResult } from "./contour";
 import { LensPicker } from "./lenspicker";
 import type { MapboxOverlay } from "@deck.gl/mapbox";
-import { defaultRamp, rampCss } from "./ramps";
+import { lensRamp, rampCss, seriesRamp } from "./ramps";
 import { DepthStrip, YearStrip, SectionPlot, CruiseSeries, StationCard, MONTH_LOD_YEARS, type DepthRow, type YearRow, type SectionCell, type CruiseRow, type GanttRow, type StripMode } from "./charts";
 import { resolveVersion, fetchCatalog, fetchVersions, sources, sidecarUrl, earlySidecar, type Catalog } from "./release";
 import { buildBundle, saveBlob, copyAs } from "./bundle";
@@ -506,8 +506,11 @@ export function App() {
   }, [displayLens, lensRows, covStation, stat, preSlice]);
 
   // what the contour lens draws: the chosen surface coloured on its own 5–95 % window (the statistic itself shares the
-  // station dots' window, so the two lenses agree), pretty isolines, and the legend's unit
-  const rampId = sel.ramp ?? defaultRamp(sel.realm, sel.var, sel.anom && sel.lens === "section" && sel.realm === "env");
+  // station dots' window, so the two lenses agree), pretty isolines, and the legend's unit. Shared by the map, the
+  // contour surface, the section heatmap and the section's 3-D curtain — one ramp id, one rule (ramps.ts lensRamp()).
+  const rampId = lensRamp(sel);
+  // the year strip's cruise-calendar cells never draw an anomaly (ramps.ts seriesRamp())
+  const seriesRampId = seriesRamp(sel);
   // the land clip follows the grid (one fetch per grid extent; the tiles are cached by the curtain's mosaic map)
   const gridKey = surf ? [surf.grid.lon0, surf.grid.latS, surf.grid.nx, surf.grid.ny].join(",") : null;
   useEffect(() => {
@@ -1003,9 +1006,9 @@ export function App() {
     <div className={`tab-body tab-${tab}`} data-tour={tab === "refine" ? "filters" : undefined}>{tab === "select" ? selectTab : tab === "refine" ? refineTab : shareTab}</div>
   </>;
   const depthBody = (wide: boolean) => <DepthStrip rows={depthRows} band={sel.depth} theme={theme} unit={unitLabel} empty={depthEmpty} onBand={(b) => setSel({ depth: b ?? [0, 500] })} byDataset={wide && depthDs.length ? { rows: depthDs, color: dsColor, short } : null} />;
-  const yearsBody = <YearStrip rows={yearRows} monthRows={monthRows} onNeedMonths={setNeedMonths} years={years} months={sel.months} yearMax={yearMax} theme={theme} mode={seriesMode} unit={unitLabel} stat={stat} log={ylog}
+  const yearsBody = <YearStrip rows={yearRows} monthRows={monthRows} onNeedMonths={setNeedMonths} years={years} months={sel.months} yearMax={yearMax} theme={theme} mode={seriesMode} unit={unitLabel} stat={stat} log={ylog} ramp={seriesRampId}
     view={sel.yview} onView={(v) => setSel({ yview: v })} onYears={(y, m) => setSel({ years: y ?? [1949, YEAR_OPEN], months: y ? m ?? null : null })} gantt={gantt} />;
-  const sectionBody = <SectionPlot cells={sectionCells} clim={climCells} anom={sel.anom && sel.realm === "env" && !!climCells} yLabel={sel.realm === "env" ? "depth (m)" : "year"} theme={theme} unit={unitLabel}
+  const sectionBody = <SectionPlot cells={sectionCells} clim={climCells} anom={sel.anom && sel.realm === "env" && !!climCells} yLabel={sel.realm === "env" ? "depth (m)" : "year"} theme={theme} unit={unitLabel} ramp={rampId}
     title={`line ${sel.line} · ${sel.realm === "env" ? `depth section · cruise ${sel.cruise ?? "—"}${sel.anom && climCells ? ` · the difference from the ${climWindow ? `${climWindow[0]}–${climWindow[1]}` : "1993–2013"} normal` : ""}` : "station by year · all cruises · the tows are depth-integrated, so the axis is year"}`} />;
   const cruiseBody = <CruiseSeries rows={cruiseRows} stat={stat} selected={sel.cruise} theme={theme} unit={unitLabel} onPick={(k) => setSel({ cruise: k })} />;
   const stationBody = <StationCard summary={stationCard?.summary} detail={stationCard?.detail} theme={theme} short={short} yearMax={yearMax} />;
@@ -1217,7 +1220,7 @@ export function App() {
       <div className="main">
         <div className="panel mapwrap" ref={mapBox} data-tour="map">
           {view3dOn
-            ? <Curtain3D cells={sectionCells} clim={climCells} anom={sel.anom && !!climCells} theme={theme} line={sel.line} grid={grid} exag={sel.exag ?? 60} cam={sel.cam} onCam={(c) => setSel({ cam: c })} />
+            ? <Curtain3D cells={sectionCells} clim={climCells} anom={sel.anom && !!climCells} theme={theme} line={sel.line} grid={grid} exag={sel.exag ?? 60} ramp={rampId} cam={sel.cam} onCam={(c) => setSel({ cam: c })} />
             : <MapView layers={layers} theme={theme} bathy={bathyFromSel(sel)} boundaries={boundaries} view={sel.map ?? MAP_HOME} onView={(v) => setSel({ map: v })} onOverlay={(o) => { overlayRef.current = o; }} getTooltip={getTooltip} onClick={onClick} onFirstFrame={() => timing.add("first_paint", performance.now() - window.__t0, "basemap + grid dots")} />}
           {/* the map's own row, top right: zoom · layers · its ⬇ (· the camera group · 3-D in the Sections lens); Depth and the cards start under it */}
           <div className="map-tr">

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "./icons";
 import { colorScale, quantileDomain } from "./map";
+import { rampPlotly } from "./ramps";
 // Plotly is ~3.5 MB of the bundle and no panel needs it before the slice answers: load it lazily
 let PlotlyMod: any = null;
 const plotly = () => PlotlyMod ? Promise.resolve(PlotlyMod) : import("plotly.js-dist-min").then((m) => (PlotlyMod = m.default ?? m));
@@ -103,6 +104,9 @@ export function YearStrip(p: {
   view: [number, number] | null; onView: (v: [number, number] | null) => void;
   onYears: (y: [number, number] | null, months?: [number, number] | null) => void;
   gantt?: { rows: GanttRow[]; selected: string | null; onPick: (k: string) => void } | null;
+  ramp: string | null; // the cruise calendar's cell colour (ramps.ts); the calendar never shows an anomaly, so
+                        // this is always the variable's OWN ramp, never the section's anomaly ramp (App.tsx passes
+                        // the non-anomaly value in even while the section lens has anom=1)
 }) {
   const [handle, setHandle] = useState<number | null>(null);
   const full: [number, number] = [1948, p.yearMax + 1];
@@ -114,7 +118,7 @@ export function YearStrip(p: {
   const monthRes = monthly || (p.mode === "cruises" && span <= MONTH_LOD_YEARS); // the brush snaps to months
   const yearsSet = p.years[0] > 1949 || p.years[1] < p.yearMax || !!p.months;
   const fy = yearsToFy(p.years, p.months);
-  const ref = usePlot([p.rows, p.monthRows, p.years, p.months, p.yearMax, p.theme, p.mode, p.unit, p.stat, p.view, p.gantt, monthly, p.log], (div, Plotly) => {
+  const ref = usePlot([p.rows, p.monthRows, p.years, p.months, p.yearMax, p.theme, p.mode, p.unit, p.stat, p.view, p.gantt, monthly, p.log, p.ramp], (div, Plotly) => {
     const b = base(p.theme);
     const r = monthly ? p.monthRows! : p.rows;
     const bw = monthly ? 1 / 12 : 0.85;
@@ -174,7 +178,7 @@ export function YearStrip(p: {
       const g = p.gantt.rows;
       const statOf = (d: GanttRow) => (p.stat === "n" ? d.n : d[p.stat]) as number | null;
       const lg = (v: number) => Math.log10(1 + Math.max(0, v));
-      const dom = quantileDomain(g.map((d) => lg(statOf(d) ?? NaN)), p.stat), col = colorScale(dom, 255);
+      const dom = quantileDomain(g.map((d) => lg(statOf(d) ?? NaN)), p.stat), col = colorScale(dom, 255, p.ramp);
       const ramp = (v: number | null) => { if (v == null || !Number.isFinite(v)) return col(null); const t = dom[1] > dom[0] ? Math.min(1, Math.max(0, (lg(v) - dom[0]) / (dom[1] - dom[0]))) : 0.5; return col(dom[0] + (0.15 + 0.85 * t) * (dom[1] - dom[0])); };
       const zoomedIn = span <= MONTH_LOD_YEARS;
       const plotW = Math.max(100, div.clientWidth - 52), minW = (2.5 * span) / plotW; // a span narrower than 2.5 px draws at 2.5 px
@@ -288,13 +292,6 @@ function ContextBar(p: { full: [number, number]; view: [number, number]; onView:
   );
 }
 
-// the diverging ramp of an anomaly: blue = below normal, red = above, the neutral pinned to zero and drawn in the
-// panel's own colour so "normal" is the background. The SAME five stops as ctd-transects (RAMP_DIV_*), so a section
-// reads identically in the two products. Written out because Plotly's built-in "RdBu" runs BLUE -> red (0 =
-// rgb(5,10,172)), the reverse of the ColorBrewer scale its name suggests — the first release of this panel used it
-// with reversescale and painted +2 °C blue.
-export const RAMP_DIV = (dark: boolean): [number, string][] => [[0, "#0d366b"], [0.25, "#3987e5"], [0.5, dark ? "#383835" : "#f0efec"], [0.75, "#e34948"], [1, "#7d1b28"]];
-
 export interface SectionCell { station: number; y: number; v: number; n: number; month?: number }
 
 /* A CalCOFI station number IS a distance, on a different scale: `+proj=calcofi` is equidistant along a line at
@@ -307,8 +304,8 @@ export interface SectionCell { station: number; y: number; v: number; n: number;
  * real distortion, and hanging a distance ruler off it would have printed uneven distances at even pixel spacing. */
 export const KM_PER_STATION = 7.386;
 
-export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | null; anom: boolean; yLabel: string; theme: string; unit: string; title: string }) {
-  const ref = usePlot([p.cells, p.clim, p.anom, p.theme, p.yLabel, p.unit, p.title], (div, Plotly) => {
+export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | null; anom: boolean; yLabel: string; theme: string; unit: string; title: string; ramp: string }) {
+  const ref = usePlot([p.cells, p.clim, p.anom, p.theme, p.yLabel, p.unit, p.title, p.ramp], (div, Plotly) => {
     const b = base(p.theme);
     // stations run OFFSHORE -> NEARSHORE, i.e. station number DESCENDING, so the section reads like the map it was
     // cut from: a CalCOFI line runs west-south-west off the coast, so the high station numbers are the western
@@ -336,7 +333,9 @@ export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | nul
     const cd = ys.map(() => stas.map((sta) => sta));
     const traces = xs.length ? [{
       type: "heatmap", x: xs, y: ys, z, zsmooth: "best", connectgaps: false,
-      colorscale: p.anom ? RAMP_DIV(p.theme === "dark") : "Viridis",
+      // the SAME rule as the map/contour lenses (ramps.ts defaultRamp()): the caller resolves anomaly -> "balance"
+      // before this prop lands here, so this component carries no ramp logic of its own
+      colorscale: rampPlotly(p.ramp),
       ...(p.anom ? { zmid: 0, zmin: -amax, zmax: amax } : {}),
       colorbar: { thickness: 10, len: 0.9, title: { text: p.anom ? `Δ ${p.unit}` : p.unit, side: "right" }, tickfont: { size: 10 } },
       customdata: cd,
