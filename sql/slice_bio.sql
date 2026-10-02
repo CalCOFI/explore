@@ -7,9 +7,11 @@
 -- a dataset that ships its own zeros (cufes, zooscan, zoodb, phyllosoma) is left as it is. zero rows have
 -- obs_id NULL and qual_ok TRUE; every template counts n = count(obs_id) (records) and n_samples = tows, so the
 -- counts shown stay the records and only the statistics (mean, se, median) see the zeros.
+-- site_key rides along (same column set as slice_env.sql) so a template shared by both realms can name it; it is
+-- NULL for datasets with no station (cufes, bird-mammal, phytoplankton). line / station stay the grid cell's here.
 CREATE OR REPLACE TABLE slice AS
 WITH pos AS (
-  SELECT obs_id, dataset_key, root_id, grid_key,
+  SELECT obs_id, dataset_key, root_id, grid_key, site_key,
          regexp_extract(grid_key, 'ln([0-9.]+)', 1)::DOUBLE AS line, regexp_extract(grid_key, 'st(-?[0-9.]+)', 1)::DOUBLE AS station,
          cruise_key, latitude, longitude, datetime, year, quarter, depth_min_m, depth_max_m, depth_bin,
          taxon_key, life_stage, measurement_type, units, value, measurement_qual, qual_ok,
@@ -21,7 +23,7 @@ positive_only AS (
   WHERE dataset_key IN (SELECT DISTINCT dataset_key FROM pos)
   GROUP BY dataset_key HAVING count(*) FILTER (WHERE value = 0) = 0),
 tow AS (
-  SELECT dataset_key, root_id, any_value(grid_key) AS grid_key, any_value(cruise_key) AS cruise_key,
+  SELECT dataset_key, root_id, any_value(grid_key) AS grid_key, any_value(site_key) AS site_key, any_value(cruise_key) AS cruise_key,
          any_value(latitude) AS latitude, any_value(longitude) AS longitude, any_value(datetime) AS datetime,
          any_value(year) AS year, any_value(quarter) AS quarter, any_value(depth_min_m) AS depth_min_m,
          any_value(depth_max_m) AS depth_max_m, any_value(depth_bin) AS depth_bin, any_value(tow_type) AS tow_type,
@@ -35,7 +37,7 @@ stage AS (
   FROM pos GROUP BY dataset_key, life_stage)
 SELECT * FROM pos
 UNION ALL
-SELECT NULL AS obs_id, t.dataset_key, t.root_id, t.grid_key,
+SELECT NULL AS obs_id, t.dataset_key, t.root_id, t.grid_key, t.site_key,
        regexp_extract(t.grid_key, 'ln([0-9.]+)', 1)::DOUBLE AS line, regexp_extract(t.grid_key, 'st(-?[0-9.]+)', 1)::DOUBLE AS station,
        t.cruise_key, t.latitude, t.longitude, t.datetime, t.year, t.quarter, t.depth_min_m, t.depth_max_m, t.depth_bin,
        {{taxon}} AS taxon_key, s.life_stage, s.measurement_type, s.units, 0.0 AS value, NULL AS measurement_qual, TRUE AS qual_ok,
