@@ -2,7 +2,9 @@
 // through every panel STATE the UI plan names, screenshot each at 1280 × 800 (desktop) and 390 × 844
 // (phone), assert no horizontal overflow and that every control is reachable, and dump the timing marks.
 // the Claude-in-Chrome tab never paints, so this script is the only verification path.
-//   node scripts/verify.mjs [baseUrl] [outDir] [--only=regex] [--timing]
+//   node scripts/verify.mjs [baseUrl] [outDir] [--only=regex] [--timing] [--headless]
+// --headless runs Chrome's new headless mode (no window): enough for the DOM and layout assertions and for the
+// screenshots; the timing runs and anything that needs a real GPU frame stay headed
 import puppeteer from "puppeteer-core";
 import fs from "node:fs";
 import path from "node:path";
@@ -19,7 +21,7 @@ fs.mkdirSync(out, { recursive: true });
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const DESKTOP = { width: 1280, height: 800 };
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
-const browser = await puppeteer.launch({ executablePath: CHROME, headless: false, userDataDir: profile,
+const browser = await puppeteer.launch({ executablePath: CHROME, headless: opt.headless != null ? "new" : false, userDataDir: profile,
   args: ["--window-size=1300,900", "--no-first-run", "--no-default-browser-check", "--hide-scrollbars"], defaultViewport: DESKTOP });
 const errors = [];
 let page;
@@ -87,6 +89,13 @@ const clickLens = async (txt) => { await click(".lenspick-active"); await sleep(
 // FILTERS and EXPORT start folded (U7): a step that reaches into one expands it first
 // the light layout (2026-09-06): Share and Refine are tabs of the Select panel, More options a disclosure that remembers its state
 const expandGroup = async (name) => { if (name === "export") await clickText(".tabs button", "Share"); else if (name === "filters") await clickText(".tabs button", "Refine"); else { const open = await page.$(".more-toggle[aria-expanded=true]"); if (!open) await click(".more-toggle"); } await sleep(250); };
+// the per-cast grain (plan 2026-10-02 D2, explore#13): the variable to drive is the one the APP lists from the release's
+// registry (window.__cast.vars, src/castgrain.ts) with the most casts — a state never names a measurement type
+const castKey = async () => { await page.waitForFunction(() => (window.__cast?.vars ?? []).length > 0, { timeout: 60000 }); return page.evaluate(() => window.__cast.vars.slice().sort((a, b) => b.n - a.n)[0].key); };
+const gotoCast = async (qs = "", viewport = DESKTOP) => { const k = await castKey(); await ready(`${base}?tour=off&var=${encodeURIComponent(k)}${qs}`, viewport); await sleep(900); return k; };
+const castFacts = () => page.evaluate(() => { const t = (q) => document.querySelector(q)?.innerText?.replace(/\s+/g, " ").trim() ?? ""; const mark = (n) => (window.__marks ?? []).filter((m) => m.name === n).slice(-1)[0]?.note ?? "";
+  return { grain: window.__cast?.grain, sentence: t(".ts-text"), legend: t(".ts-legend") || t(".legend"), line: t(".derived-line"), href: document.querySelector(".derived-line a")?.href ?? "", depth: t(".pill-depth") || t(".phone-pills"), note: t("[data-cast-note]"),
+    station: mark("query:station"), region: mark("query:region"), depthStrip: mark("query:depth_strip") }; });
 async function ready(url, viewport = DESKTOP, until = "lens") {
   await page.setViewport(viewport);
   await page.goto(url, { waitUntil: "domcontentloaded" });
@@ -753,6 +762,37 @@ const STATES = [
   { name: "v2_phone", url: "?tour=off", viewport: PHONE, steps: async () => {}, assert: async () => {
       const b = await page.evaluate(() => ({ v: window.ccTheme?.version, src: [...document.querySelectorAll(".cc-header .cc-home img")].find((i) => i.getBoundingClientRect().width > 0)?.currentSrc ?? "", hdr: document.querySelector(".cc-header").getBoundingClientRect().height })); if (b.v !== "2") return;
       console.log(`  header ${b.hdr}px · logo ${b.src.split("/").pop()}`); if (!/logo_calcofi(_light)?\.svg$/.test(b.src)) fail(`v2_phone: the header shows ${b.src.split("/").pop()} (expected the bare mark under 480 px)`); if (b.hdr > 48) fail(`v2_phone: header ${b.hdr}px`); } },
+  // the per-cast grain (plan 2026-10-02 D2, explore#13): one value per cast from sample_measurement ⋈ sample_root
+  { name: "g_cast_station", url: "?tour=off", steps: async () => { await gotoCast(); }, assert: async () => { const f = await castFacts(); console.log(`  ${f.sentence} | ${f.legend} | ${f.line}`);
+      if (f.grain !== "cast") fail(`g_cast_station: grain ${f.grain}`);
+      if (!/\(derived, one value per cast\)/.test(f.sentence)) fail(`g_cast_station: the sentence does not say derived, per cast: ${f.sentence}`);
+      if (/·\s\d+–\d+ m\b/.test(f.sentence)) fail(`g_cast_station: the sentence carries a depth clause: ${f.sentence}`);
+      if (!/ casts\b/.test(f.legend)) fail(`g_cast_station: the legend does not count casts: ${f.legend}`);
+      if (!/one value per cast/.test(f.line) || !/calcofi\.io\/datasets\//.test(f.href)) fail(`g_cast_station: no derived line with its dataset page (${f.line} · ${f.href})`);
+      if (!/no depth axis/.test(f.depth)) fail(`g_cast_station: the Depth pill does not say there is no depth axis (${f.depth})`);
+      if (!/^[1-9]\d* rows$/.test(f.station)) fail(`g_cast_station: the Stations lens returned ${f.station}`);
+      if (f.depthStrip !== "0 rows") fail(`g_cast_station: a depth profile for a per-cast variable (${f.depthStrip})`); } },
+  { name: "g_cast_dark", url: "?tour=off", steps: async () => { await gotoCast("&theme=dark"); }, assert: async () => { const th = await page.evaluate(() => document.documentElement.dataset.theme); if (th !== "dark") fail(`g_cast_dark: theme ${th}`); } },
+  { name: "g_cast_picker", url: "?tour=off", steps: async () => { await gotoCast(); await click("#variable-btn"); await sleep(500); }, assert: async () => {
+      const r = await page.evaluate(() => { const g = document.querySelector(".browse-group.open"); const it = g?.querySelector(".browse-item.sel"); return { group: g?.querySelector(".browse-row .lab")?.innerText ?? "", badge: it?.querySelector(".badge")?.innerText ?? "", tip: it?.getAttribute("title") ?? "" }; });
+      console.log(`  ${r.group.replace(/\s+/g, " ")} · badge ${r.badge}`);
+      if (!/^Derived \(hydrographic\)/.test(r.group)) fail(`g_cast_picker: the tree did not open on the Derived (hydrographic) group (${r.group})`);
+      if (!/derived/i.test(r.badge)) fail("g_cast_picker: the selected item wears no derived badge");
+      if (!/Derived, not measured — one value per cast/.test(r.tip)) fail(`g_cast_picker: the hover is not the definition (${r.tip.slice(0, 80)})`); } },
+  { name: "g_cast_sentence_open", url: "?tour=off", steps: async () => { await gotoCast(); await click(".ts-toggle"); await sleep(400); await page.evaluate(() => [...document.querySelectorAll(".sentence .sc")].find((b) => /^derived/.test(b.innerText.trim()))?.click()); await sleep(400); }, assert: async () => {
+      const r = await page.evaluate(() => ({ pop: document.querySelector(".derived-pop")?.innerText ?? "", href: document.querySelector(".derived-pop a")?.href ?? "" }));
+      if (!/Derived, not measured — one value per cast/.test(r.pop) || !/calcofi\.io\/datasets\//.test(r.href)) fail(`g_cast_sentence_open: the derived chip's popover lacks the definition or the dataset page (${r.pop.slice(0, 80)} · ${r.href})`); } },
+  { name: "g_cast_depth_band", url: "?tour=off", steps: async () => { await gotoCast("&depth=200-300"); }, assert: async () => { const f = await castFacts();
+      if (!/^[1-9]\d* rows$/.test(f.station)) fail(`g_cast_depth_band: a depth band emptied a per-cast map (${f.station})`); if (/·\s\d+–\d+ m\b/.test(f.sentence)) fail(`g_cast_depth_band: depth clause in ${f.sentence}`); } },
+  { name: "g_cast_region", url: "?tour=off", steps: async () => { await gotoCast("&lens=region&layer=National%20Marine%20Sanctuaries"); await sleep(800); }, assert: async () => { const f = await castFacts(); console.log(`  region ${f.region}`);
+      if (!/^[1-9]\d* rows$/.test(f.region)) fail(`g_cast_region: the Regions lens returned ${f.region}`); } },
+  { name: "g_cast_contour", url: "?tour=off", steps: async () => { await gotoCast("&lens=contour"); await waitMark(/^contour:/, 60000); await sleep(600); } },
+  { name: "g_cast_cruise", url: "?tour=off", steps: async () => { await gotoCast("&lens=cruise"); await sleep(800); } },
+  { name: "g_cast_section_note", url: "?tour=off", steps: async () => { await gotoCast("&lens=section&line=90"); await sleep(600); }, assert: async () => { const f = await castFacts(); if (!/Sections cut the water column/.test(f.note)) fail(`g_cast_section_note: no note (${f.note})`); } },
+  { name: "g_cast_hex_note", url: "?tour=off", steps: async () => { await gotoCast("&lens=hex&res=5"); await sleep(600); }, assert: async () => { const f = await castFacts(); if (!/Hexagons are not drawn for a per-cast variable/.test(f.note)) fail(`g_cast_hex_note: no note (${f.note})`); } },
+  { name: "g_cast_phone", url: "?tour=off", viewport: PHONE, steps: async () => { await gotoCast("", PHONE); }, assert: async () => { const f = await castFacts(); console.log(`  ${f.legend} | ${f.depth}`);
+      if (!/per cast/.test(f.legend) || / \d+–\d+ m\b/.test(f.legend)) fail(`g_cast_phone: the legend title is not the per-cast one (${f.legend})`); if (!/no depth axis/.test(f.depth)) fail(`g_cast_phone: Depth pill ${f.depth}`); } },
+  { name: "g_cast_phone_dark", url: "?tour=off", viewport: PHONE, steps: async () => { await gotoCast("&theme=dark", PHONE); } },
 ];
 // every tour step: its anchor resolves and is on screen in the state its before() produced; one screenshot per step
 async function walkTour(name) {

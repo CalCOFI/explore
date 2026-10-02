@@ -45,6 +45,22 @@ says what the app does and how to work on it without needing them.
   which is in force, for which datasets, and how many observations it excludes; open it for the formulas.
   One pill per dataset × stage; a ⚠ pill is a raw count with no effort in the release. The default stage
   and denominator follow the same rule as `calcofi4r::cc_default_stage()` / `cc_default_denominator()`.
+- **A derived variable says so, and a per-cast one has no depth.** The *Derived (hydrographic)* group in the variable
+  picker holds what the `calcofi_ctd-derived` dataset publishes: values computed from the CTD profiles rather than
+  measured. Two are **per depth bin** (spice, the sensor-pair averaged sigma-theta) and read like any other variable.
+  The rest are **per cast** — one number for the whole cast: a mixed-layer depth, the depth and value of the
+  chlorophyll maximum, the integrated chlorophyll. A per-cast value is not a depth observation, so the release keeps it
+  in `sample_measurement` on the cast's `sample` rather than in `obs_env`, and the app joins it itself
+  (`sql/slice_cast.sql`: `sample_measurement` ⋈ `sample_root`) into the same slice every lens runs on. So the title
+  sentence carries **no depth clause** — *"Mixed-layer depth, … (derived, one value per cast), the mean at each
+  station, all years · all seasons."* — the count is **casts**, the Depth pill says *no depth axis*, and the depth band
+  never filters it. *Stations*, *Contours*, *Cruises* and *Regions* draw it; *Sections* (they cut depth) and *Hexagons*
+  (the release carries no H3 cell on a cast) say why they do not. Hover the word *derived*, the picker row or *how it
+  is computed* for the definition — the registry's own `description` and `derivation`, never text written in the app —
+  and follow the link to the dataset page for its methods. **Nothing is keyed on a measurement-type name**: what is
+  per-cast, its label, units, definition and ramp all come from the release's `measurement_type` registry
+  (`src/castgrain.ts`), so a type renamed or redefined in the next release needs no edit here.
+  [`docs/cast-grain.md`](docs/cast-grain.md) is the design.
 - **A contour is computed in the browser, and it shows its own error.** The *Contours* lens interpolates a point
   summary under the same filters as every other lens — by default **every site** (each cast, tow or site at its own
   position to 0.01°, repeat occupations pooled; `sql/contour_cast.sql`), or the **station grid** (one point per
@@ -256,6 +272,9 @@ unset, they default to the real release on `https://storage.googleapis.com/calco
 ### Checks
 
 ```sh
+npm test                                                                   # vitest: the rules, on synthetic fixtures
+npx tsc --noEmit                                                           # the type check (npm run build runs it too)
+node scripts/smoke_release.mjs https://calcofi.io/explore/ smoke.png       # after a release or a deploy: the promoted release, and the per-cast grain
 node scripts/verify.mjs http://localhost:5178/ shots/dev --only=<regex>   # drive the app through its states
 node scripts/verify.mjs http://localhost:5179/ shots/prod --timing        # + cold/warm lens timings
 node scripts/bundle_check.mjs http://localhost:5178/ shots/bundle          # download two bundles and list them
@@ -273,7 +292,17 @@ every file with its URL.
 `verify.mjs` opens the installed Chrome (headed, fresh profile) at 1280 × 800 and 390 × 844, walks every
 named state, screenshots each, asserts no horizontal overflow and every control in view, and writes
 `results.json`. It is the only reliable way to see the app under automation; `--only` picks states by
-regex. `npm run build` also type-checks (`tsc --noEmit`).
+regex, `--headless` runs without a window (the DOM and layout assertions and the screenshots; the timing runs
+stay headed). `npm run build` also type-checks (`tsc --noEmit`).
+
+`npm test` runs the rules on small synthetic fixtures (`tests/`): the ramp rule, the quality predicate (pinned to
+`calcofi4r::cc_qual_ok_sql()` byte for byte), the per-cast grain's registry rules, and — in **duckdb-wasm's node
+build, the same engine the browser ships** (`tests/helpers/duck.ts`) — the SQL templates themselves and the SQL that
+*Copy code* hands over. `smoke_release.mjs` is the check against a real release: it exits 1 when the page does not name
+`latest.txt`'s version, or when the per-cast pass fails (the variable the app lists from the registry, opened in the
+Stations lens: every value placed and counted, no depth clause, the copied SQL carrying the
+`sample_measurement` ⋈ `sample_root` join against content-addressed URLs). `SMOKE_CAST_VAR=<type>` picks the
+variable, `SMOKE_CAST=off` skips the pass for a release older than v2026.10.01.
 
 ## Deploy
 
@@ -316,7 +345,11 @@ screenshot in the mail). Usage analytics go through the fleet's GA4 snippet in `
   `src/icon-paths.ts`, and the app renders the same paths inline).
 - **Code map:** `sql/*.sql` are the lens queries the browser runs (`{{named}}` params, the shared
   filter in `_filters.sql`; `density.sql` is the denominator fixture shared with calcofi4r /
-  calcofi4py) · `src/engine.ts` renders and times them · `src/state.ts` is the URL selection model
+  calcofi4py; `slice_cast.sql` / `cast_census.sql` / `cast_list.sql` are the per-cast grain) · `src/sqltpl.ts` is
+  the template renderer (pure, so a test can run a template) and `src/engine.ts` runs and times them ·
+  `src/castgrain.ts` says which variables are per-cast and derived, from the registry · `src/qual.ts` is
+  `qualOkSQL()`, the quality predicate's twin · `src/reproduce.ts` resolves the SQL a view ran against the release's
+  URLs for *Copy code* and the bundle · `src/state.ts` is the URL selection model
   (`fromUrl` / `toUrl`), the stage/denominator defaults and the denominator formulas · `src/App.tsx` the
   shell · `src/map.tsx` the layers and the lens-to-lens morph · `src/contour.ts` + `src/contour.worker.ts` the Contours lens's interpolators, isolines and bitmap · `src/ramps.ts` the colour ramps · `src/lenspicker.tsx` the lens picker · `src/charts.tsx` the Plotly panels ·
   `src/picker.tsx` the organism / variable / cruise picker (tree + flat list) · `src/panels.tsx` the
