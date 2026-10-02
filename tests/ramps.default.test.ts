@@ -91,3 +91,35 @@ describe("rampPlotly() — the Plotly colorscale a section heatmap/curtain draws
     }
   });
 });
+
+// the per-cast grain (plan 2026-10-02 D2, explore#13): a per-cast type's NAME encodes its criterion, not its quantity —
+// mld_sigma_theta_003 is a depth in metres, not a density; mld_temperature_02 is not a temperature; chl_max_depth is not
+// a chlorophyll. The name regex above gets five of v2026.10.01's seven per-cast types wrong, so a per-cast variable
+// hands the rule its REGISTRY units: metres is a depth and draws `deep`. A per-bin variable passes no registry hint
+// and keeps the name rule, unchanged.
+describe("defaultRamp() with the registry's units — per-cast variables", () => {
+  const cast = (units: string | null) => ({ grain: "cast" as const, units });
+  it("the name alone is wrong for a per-cast depth (why the hint exists)", () => {
+    expect(defaultRamp("env", "mld_sigma_theta_003", false)).toBe("dense");
+    expect(defaultRamp("env", "mld_temperature_02", false)).toBe("thermal");
+    expect(defaultRamp("env", "chl_max_depth", false)).toBe("algae");
+  });
+  it("a per-cast value in metres is a depth: deep, whatever its name says", () => {
+    for (const v of ["mld_sigma_theta_003", "mld_sigma_theta_0125", "mld_temperature_02", "chl_max_depth", "chl_integrated_depth", "a_type_renamed_next_release"])
+      expect(defaultRamp("env", v, false, cast("m"))).toBe("deep");
+  });
+  it("a per-cast value in any other unit keeps the name rule (chlorophyll at its maximum, integrated chlorophyll)", () => {
+    expect(defaultRamp("env", "chl_max", false, cast("ug/L"))).toBe("algae");
+    expect(defaultRamp("env", "chl_integrated", false, cast("mg/m2"))).toBe("algae");
+    expect(defaultRamp("env", "mld_sigma_theta_003", false, cast(null))).toBe("dense"); // no units in the registry = no hint
+  });
+  it("a per-bin variable is untouched by the units rule, even in metres", () => {
+    expect(defaultRamp("env", "sigma_theta", false, { grain: "bin", units: "m" })).toBe("dense");
+  });
+  it("lensRamp() and seriesRamp() pass the hint through; a manual ramp= still wins", () => {
+    for (const lens of ["station", "hex", "region", "cruise", "contour", "section"])
+      expect(lensRamp({ ramp: null, realm: "env", var: "mld_sigma_theta_003", anom: false, lens }, cast("m"))).toBe("deep");
+    expect(seriesRamp({ ramp: null, realm: "env", var: "mld_temperature_02" }, cast("m"))).toBe("deep");
+    expect(lensRamp({ ramp: "matter", realm: "env", var: "mld_sigma_theta_003", anom: false, lens: "station" }, cast("m"))).toBe("matter");
+  });
+});

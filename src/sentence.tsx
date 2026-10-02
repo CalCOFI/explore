@@ -20,6 +20,10 @@ export interface SentenceCtx {
   years: [number, number]; yearMax: number; hasDepthAxis: boolean; hasClim: boolean; climWindow: [number, number] | null;
   datasetsInSlice: string[]; dsOn: (dk: string) => boolean; toggleDataset: (dk: string) => void; dsColor: (dk: string) => string; short: (dk: string) => string;
   subject: string; unit: string;
+  // a derived variable says so right after its name (castgrain.ts): the word, its hover (the registry's definition) and
+  // the popover's parts — the definition, how it is computed, the dataset page that holds its methods
+  derived?: DerivedNote | null;
+  countWord?: string;         // what the count counts: "observations", or "casts" for a per-cast variable
   domain: [string, string]; bar: string; count: number; status: string; ready: boolean; seaFloor: boolean;
   extra?: ReactNode;          // the boundary-layer legend rows, an empty result's note — under the sentence
   native: boolean; phone: boolean; loading: string | null;
@@ -53,7 +57,19 @@ export function ChipPop(p: { label: ReactNode; title?: string; icon?: IconName; 
     </span>);
 }
 
-type Part = string | { key: string; text: ReactNode; control?: () => ReactNode; bold?: boolean };
+/** what the app says about a derived variable, wherever it names one (the sentence, the Controls panel) */
+export interface DerivedNote { word: string; tip: string; label: string; grain: string; how: string | null; datasetName: string; datasetUrl: string }
+/** the definition and its links, as a block: the sentence's chip opens it, the Controls panel shows the same parts in a line */
+export function DerivedBody(p: { d: DerivedNote }) {
+  return <div className="derived-pop">
+    <p><b>{p.d.label}</b></p>
+    <p>Derived, not measured — {p.d.grain}.</p>
+    {p.d.how && <span className="how">{p.d.how}</span>}
+    <a href={p.d.datasetUrl} target="_blank" rel="noopener">{p.d.datasetName}: methods ↗</a>
+  </div>;
+}
+
+type Part = string | { key: string; text: ReactNode; control?: () => ReactNode; bold?: boolean; title?: string };
 
 export function Sentence(c: SentenceCtx) {
   const { sel, setSel } = c;
@@ -109,9 +125,12 @@ export function Sentence(c: SentenceCtx) {
   // ── the sentence, one grammar for both renderings ─────────────────────────────────────────────
   const parts: Part[] = [];
   const w = (s: string) => parts.push(s);
-  const chip = (key: string, text: ReactNode, control?: () => ReactNode, bold = false) => parts.push({ key, text, control, bold });
+  const chip = (key: string, text: ReactNode, control?: () => ReactNode, bold = false, title?: string) => parts.push({ key, text, control, bold, title });
   if (c.open) chip("realm", sel.realm === "bio" ? "Biology" : "Environment", realmMenu);
   chip("subject", c.subject, subjectPicker, true);
+  // a derived variable: "(derived, one value per cast)" — the hover is its definition, the chip opens it with its dataset page
+  const derived = sel.realm === "env" ? c.derived : null;
+  if (derived) { w(" ("); chip("derived", derived.word, () => <ChipPop label={derived.word} icon="ui-about" title={derived.tip} width={340}><DerivedBody d={derived} /></ChipPop>, false, derived.tip); w(")"); }
   if (sel.realm === "bio") { w(" "); chip("stage", sel.stage ?? "all life stages", stageMenu); }
   w(", the "); chip("stat", STAT_WORD[sel.stat], statMenu);
   if (sel.realm === "bio") { w(" "); chip("den", sel.den ? DEN_LABEL[sel.den] : "…", denMenu); }
@@ -139,7 +158,7 @@ export function Sentence(c: SentenceCtx) {
   // sentence squeezed into a column beside an unwrapping legend was the 2026-09-07 bug.
   const legend = <span className="ts-legend" data-tour="legend">
     <span>{c.domain[0]}</span><span className="bar" style={{ background: c.bar }} /><span>{c.domain[1]} {c.unit}</span>
-    <span className="hint">· 5–95 %{c.ready ? ` · ${fmtN(c.count)} observations` : ""}</span>
+    <span className="hint">· 5–95 %{c.ready ? ` · ${fmtN(c.count)} ${c.countWord ?? "observations"}` : ""}</span>
   </span>;
   return (
     <div className={`sentence${c.open ? " open" : ""}`} data-tour="sentence" style={c.band}>
@@ -149,7 +168,7 @@ export function Sentence(c: SentenceCtx) {
           <div className="ts-foot">{legend}<span className="sp" /><span className="hint">the same pickers as the Controls panel — change a part, the map follows</span><IconButton icon="ui-up" label="Done — back to the title" className="ts-toggle" onClick={c.onToggle} data-tour="sentence-toggle" /></div>
         </> : <>
           <div className="ts-row">
-            <span className="ts-text">{parts.map((p, i) => typeof p === "string" ? p : p.bold ? <b key={p.key}>{p.text}</b> : <span key={p.key}>{p.text}</span>)}</span>
+            <span className="ts-text">{parts.map((p, i) => typeof p === "string" ? p : p.bold ? <b key={p.key}>{p.text}</b> : <span key={p.key} className={p.key === "derived" ? "derived" : undefined} title={p.title}>{p.text}</span>)}</span>
             <IconButton icon="ui-down" label="Change what the map shows" className="ts-toggle" onClick={c.onToggle} data-tour="sentence-toggle" />
           </div>
           <div className="ts-legend-row">{legend}</div>

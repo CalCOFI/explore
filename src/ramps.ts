@@ -53,10 +53,16 @@ export function rampPlotly(id: string | null | undefined): [number, string][] {
   const R = rampColors(id);
   return R.map((c, i) => [i / (R.length - 1), `rgb(${c.join(",")})`]);
 }
+/** what the release's registry says about the variable, for the one case its name cannot answer: a PER-CAST type is
+ * named after its criterion, not its quantity (mld_sigma_theta_003 is a depth, not a density; chl_max_depth is not a
+ * chlorophyll), so a per-cast variable hands the rule its registry units (src/castgrain.ts). Per-bin callers pass none. */
+export interface RampHint { grain?: "bin" | "cast" | null; units?: string | null }
 /** cmocean's conventions by variable, when the URL names no ramp */
-export function defaultRamp(realm: "bio" | "env", variable: string, anomaly = false): string {
+export function defaultRamp(realm: "bio" | "env", variable: string, anomaly = false, hint?: RampHint | null): string {
   if (anomaly) return "balance";
   if (realm === "bio") return DEFAULT_RAMP;
+  // a per-cast value in metres is a depth (a mixed-layer depth, the depth of a maximum): deep, shallow light to deep dark
+  if (hint?.grain === "cast" && hint.units === "m") return "deep";
   const v = variable.toLowerCase();
   // density BEFORE temperature: sigma_theta ("potential density") contains "theta" and matched /temp|theta/ first,
   // drawing thermal instead of dense (WS-R2 parity check, 2026-09-16)
@@ -77,12 +83,12 @@ export function defaultRamp(realm: "bio" | "env", variable: string, anomaly = fa
  * section's 3-D curtain all draw the SAME id for a given selection — a manual `ramp=` first, else the variable's
  * cmocean convention, `balance` only when the section lens is drawing an env anomaly (`anom=1`). No lens computes
  * its own version of this expression; each passes it this selection and gets back the id to draw with. */
-export function lensRamp(sel: { ramp: string | null; realm: "bio" | "env"; var: string; anom: boolean; lens: string }): string {
-  return sel.ramp ?? defaultRamp(sel.realm, sel.var, sel.anom && sel.lens === "section" && sel.realm === "env");
+export function lensRamp(sel: { ramp: string | null; realm: "bio" | "env"; var: string; anom: boolean; lens: string }, hint?: RampHint | null): string {
+  return sel.ramp ?? defaultRamp(sel.realm, sel.var, sel.anom && sel.lens === "section" && sel.realm === "env", hint);
 }
 /** the year strip's cruise calendar: one cell per cruise, coloured by that cruise's own summary stat — it never
  * draws a difference from climatology, so it always gets the variable's OWN ramp, even while the section lens
  * (drawn behind a different panel) has `anom=1` */
-export function seriesRamp(sel: { ramp: string | null; realm: "bio" | "env"; var: string }): string {
-  return sel.ramp ?? defaultRamp(sel.realm, sel.var, false);
+export function seriesRamp(sel: { ramp: string | null; realm: "bio" | "env"; var: string }, hint?: RampHint | null): string {
+  return sel.ramp ?? defaultRamp(sel.realm, sel.var, false, hint);
 }

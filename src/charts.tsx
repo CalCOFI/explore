@@ -107,7 +107,9 @@ export function YearStrip(p: {
   ramp: string | null; // the cruise calendar's cell colour (ramps.ts); the calendar never shows an anomaly, so
                         // this is always the variable's OWN ramp, never the section's anomaly ramp (App.tsx passes
                         // the non-anomaly value in even while the section lens has anom=1)
+  countWord?: string;   // what a bar counts: "observations", or "casts" for a per-cast variable (castgrain.ts)
 }) {
+  const cw = p.countWord ?? "observations";
   const [handle, setHandle] = useState<number | null>(null);
   const full: [number, number] = [1948, p.yearMax + 1];
   const view = p.view ?? full;
@@ -118,7 +120,7 @@ export function YearStrip(p: {
   const monthRes = monthly || (p.mode === "cruises" && span <= MONTH_LOD_YEARS); // the brush snaps to months
   const yearsSet = p.years[0] > 1949 || p.years[1] < p.yearMax || !!p.months;
   const fy = yearsToFy(p.years, p.months);
-  const ref = usePlot([p.rows, p.monthRows, p.years, p.months, p.yearMax, p.theme, p.mode, p.unit, p.stat, p.view, p.gantt, monthly, p.log, p.ramp], (div, Plotly) => {
+  const ref = usePlot([p.rows, p.monthRows, p.years, p.months, p.yearMax, p.theme, p.mode, p.unit, p.stat, p.view, p.gantt, monthly, p.log, p.ramp, cw], (div, Plotly) => {
     const b = base(p.theme);
     const r = monthly ? p.monthRows! : p.rows;
     const bw = monthly ? 1 / 12 : 0.85;
@@ -128,7 +130,7 @@ export function YearStrip(p: {
     let cal: CalCell[] = [];
     if (p.mode === "n") {
       data = [{ x: r.map((d) => d.year), y: r.map((d) => d.n), type: "bar", width: bw, marker: { color: b.accent },
-        customdata: r.map((d) => d.n_samples), hovertemplate: (monthly ? "%{x:.2f}" : "%{x}") + ": %{y} observations, %{customdata} samples<extra></extra>" }];
+        customdata: r.map((d) => d.n_samples), hovertemplate: (monthly ? "%{x:.2f}" : "%{x}") + `: %{y} ${cw}, %{customdata} samples<extra></extra>` }];
     } else if (p.mode === "mean") {
       // log scale (D20 follow-up): the axis keeps the ORIGINAL values — decade labels plus minor gridlines at one
       // even linear step, which bunch toward the top, so the eye reads the compression. log(0) does not exist, so a
@@ -197,7 +199,7 @@ export function YearStrip(p: {
         type: "bar", x: cal.map((c) => (c.x0 + c.x1) / 2), width: cal.map((c) => c.x1 - c.x0), base: cal.map((c) => c.y0), y: cal.map((c) => c.h),
         marker: { color: cal.map((c) => `rgb(${c.rgba[0]},${c.rgba[1]},${c.rgba[2]})`), line: { width: g.map((d) => (d.cruise_key === p.gantt!.selected ? 2 : 0)), color: b.pick } },
         customdata: g.map((d) => [d.cruise_key, new Date(d.t0 * 1000).toISOString().slice(0, 10), new Date(d.t1 * 1000).toISOString().slice(0, 10), d.n_sta, d.n, fmtStat(statOf(d)), d.ship]),
-        hovertemplate: "<b>%{customdata[0]}</b> · %{customdata[6]}<br>%{customdata[1]} → %{customdata[2]} · %{customdata[3]} stations · %{customdata[4]} observations · " + p.stat + " %{customdata[5]}<extra></extra>",
+        hovertemplate: "<b>%{customdata[0]}</b> · %{customdata[6]}<br>%{customdata[1]} → %{customdata[2]} · %{customdata[3]} stations · %{customdata[4]} " + cw + " · " + p.stat + " %{customdata[5]}<extra></extra>",
       }];
       // month labels: every month when a row is >= 11 px, the quarters otherwise (the folded strip)
       const rowH = (div.clientHeight - 28) / 12;
@@ -212,7 +214,7 @@ export function YearStrip(p: {
     Plotly.react(div, data, {
       ...b, showlegend: false, dragmode: "select", selectdirection: "h", bargap: 0.15,
       xaxis: { ...b.xaxis, type: "linear", range: [view[0], view[1]], fixedrange: false, ...xticks },
-      yaxis: { ...b.yaxis, title: { text: p.mode === "n" ? "observations" : p.mode === "mean" ? `mean ${p.unit}` : "", standoff: 2 }, fixedrange: true },
+      yaxis: { ...b.yaxis, title: { text: p.mode === "n" ? cw : p.mode === "mean" ? `mean ${p.unit}` : "", standoff: 2 }, fixedrange: true },
       margin: { l: 44, r: 8, t: 6, b: 22 }, shapes: brush, annotations: [], ...layout,
     }, { ...CFG, scrollZoom: true, doubleClick: false as any });
     const d = div as any;
@@ -304,8 +306,8 @@ export interface SectionCell { station: number; y: number; v: number; n: number;
  * real distortion, and hanging a distance ruler off it would have printed uneven distances at even pixel spacing. */
 export const KM_PER_STATION = 7.386;
 
-export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | null; anom: boolean; yLabel: string; theme: string; unit: string; title: string; ramp: string }) {
-  const ref = usePlot([p.cells, p.clim, p.anom, p.theme, p.yLabel, p.unit, p.title, p.ramp], (div, Plotly) => {
+export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | null; anom: boolean; yLabel: string; theme: string; unit: string; title: string; ramp: string; empty?: string | null }) {
+  const ref = usePlot([p.cells, p.clim, p.anom, p.theme, p.yLabel, p.unit, p.title, p.ramp, p.empty], (div, Plotly) => {
     const b = base(p.theme);
     // stations run OFFSHORE -> NEARSHORE, i.e. station number DESCENDING, so the section reads like the map it was
     // cut from: a CalCOFI line runs west-south-west off the coast, so the high station numbers are the western
@@ -367,13 +369,18 @@ export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | nul
       yaxis2: { overlaying: "y", visible: false, range: [0, 1], fixedrange: true },
       margin: { l: 50, r: 10, t: 62, b: 36 },
       // the env section is one cruise's cut, the bio section every cruise's — so the empty note names the right axes
-      annotations: xs.length ? [] : [{ text: isDepth ? "no rows for this line × cruise × filters" : "no rows for this line × filters", xref: "paper", yref: "paper", x: 0.5, y: 0.5, showarrow: false }],
+      // (a per-cast variable hands its own reason: a section cuts depth, and it has none — App.tsx)
+      annotations: xs.length ? [] : [{ text: p.empty ?? (isDepth ? "no rows for this line × cruise × filters" : "no rows for this line × filters"), xref: "paper", yref: "paper", x: 0.5, y: 0.5, showarrow: false }],
     }, CFG);
     // the two axes carry different units, so `matches` cannot hold them together: re-derive the station range
     // from the km range after any zoom. Our own relayout fires this again, hence the no-op guard.
     const d = div as any;
     d.removeAllListeners?.("plotly_relayout");
     d.on("plotly_relayout", () => {
+      // an EMPTY section has no trace on the station axis, so Plotly builds no xaxis2: relayouting its range threw
+      // "Cannot read properties of undefined (reading '_template')" on every resize of an empty card (any variable with
+      // no rows for the line; a per-cast variable always — found by WS-1002E, live since the two-ruler axis)
+      if (!d._fullLayout?.xaxis2) return;
       const r = (d._fullLayout?.xaxis?.range ?? []).map(Number);
       if (r.length !== 2 || !r.every(Number.isFinite)) return;
       const want = [kmToSta(r[0]), kmToSta(r[1])];
@@ -386,14 +393,14 @@ export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | nul
 }
 
 export interface CruiseRow { cruise_key: string; n: number; n_samples: number; n_sta: number; mean: number | null; med: number | null; t0: number; t1: number }
-export function CruiseSeries(p: { rows: CruiseRow[]; stat: "mean" | "med" | "n"; selected: string | null; theme: string; unit: string; onPick: (k: string) => void }) {
-  const ref = usePlot([p.rows, p.stat, p.selected, p.theme, p.unit], (div, Plotly) => {
+export function CruiseSeries(p: { rows: CruiseRow[]; stat: "mean" | "med" | "n"; selected: string | null; theme: string; unit: string; onPick: (k: string) => void; countWord?: string }) {
+  const ref = usePlot([p.rows, p.stat, p.selected, p.theme, p.unit, p.countWord], (div, Plotly) => {
     const b = base(p.theme);
     const y = p.rows.map((d) => (p.stat === "n" ? d.n : d[p.stat]));
     Plotly.react(div, [{
       x: p.rows.map((d) => new Date(d.t0 * 1000)), y, type: "scatter", mode: "markers",
       marker: { size: p.rows.map((d) => (d.cruise_key === p.selected ? 12 : 6)), color: p.rows.map((d) => (d.cruise_key === p.selected ? b.pick : b.accent)), line: { width: 0.5, color: "#000" } },
-      text: p.rows.map((d) => `${d.cruise_key}<br>${d.n_sta} stations, ${d.n} observations`), hovertemplate: "%{text}<br>%{y:.2f}<extra></extra>",
+      text: p.rows.map((d) => `${d.cruise_key}<br>${d.n_sta} stations, ${d.n} ${p.countWord ?? "observations"}`), hovertemplate: "%{text}<br>%{y:.2f}<extra></extra>",
     }], {
       ...b, showlegend: false, xaxis: { ...b.xaxis, fixedrange: true }, yaxis: { ...b.yaxis, title: { text: `${p.stat} ${p.unit}`, standoff: 2 }, fixedrange: true },
       margin: { l: 44, r: 8, t: 6, b: 22 }, hovermode: "closest",

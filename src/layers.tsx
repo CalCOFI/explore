@@ -7,13 +7,13 @@ import { useRef, useState } from "react";
 import { Icon } from "./icons";
 import { BATHY_PARTS, type BathyPart, type LayerStyle, type Sel } from "./state";
 import { LAND_ID, PALETTES, baseLabelDefaultOpacity, bathyDefaultOpacity, defaultLayers, effectiveLayers, isPalette, labelDefaultOpacity, sameLayers, type SpatialLayerDef } from "./basemap";
-import { RAMPS, RAMP_IDS, parseRamp, rampCss, defaultRamp, lensRamp } from "./ramps";
+import { RAMPS, RAMP_IDS, parseRamp, rampCss, defaultRamp, lensRamp, type RampHint } from "./ramps";
 
 const LABELS: Record<BathyPart, string> = { relief: "shaded relief", depth: "depth colour", contours: "contours" };
 // the one-colour strip: mid-tone Material shades in the registry's families — they read on dark and light alike
 const SWATCHES = ["#1565c0", "#42a5f5", "#00838f", "#2e7d32", "#7cb342", "#f57c00", "#8d6e63", "#7b1fa2", "#c2185b", "#546e7a"];
 
-export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; theme: "dark" | "light"; defs: SpatialLayerDef[]; view3d?: boolean }) {
+export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; theme: "dark" | "light"; defs: SpatialLayerDef[]; view3d?: boolean; rampHint?: RampHint | null }) {
   const parts = p.sel.bathy ?? [...BATHY_PARTS];
   const on = parts.length > 0;
   const def = bathyDefaultOpacity(p.theme);
@@ -62,9 +62,9 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
   const groups = [...new Set(addable.map((d) => d.group))];
   // the data layer (Ben, 2026-09-07): on/off, opacity, the colour ramp (+ reversed). It draws in deck's own canvas, above
   // every MapLibre layer — moving it BELOW a boundary layer needs the interleaved overlay (plan 2026-09-07 D36, spike-gated)
-  const ramp = parseRamp(lensRamp(p.sel));
+  const ramp = parseRamp(lensRamp(p.sel, p.rampHint)); // the same hint App.tsx passes: a per-cast depth draws deep here too
   const rampId = `${ramp.base}${ramp.reversed ? "_r" : ""}`;
-  const setRamp = (base: string, reversed: boolean) => { const id = `${base}${reversed ? "_r" : ""}`; p.setSel({ ramp: id === defaultRamp(p.sel.realm, p.sel.var) ? null : id }); };
+  const setRamp = (base: string, reversed: boolean) => { const id = `${base}${reversed ? "_r" : ""}`; p.setSel({ ramp: id === defaultRamp(p.sel.realm, p.sel.var, false, p.rampHint) ? null : id }); };
   const dOpacity = p.sel.datao ?? 1;
   const families: ("cmocean" | "viridis" | "oce")[] = ["cmocean", "viridis", "oce"];
   return (

@@ -5,6 +5,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { PickingInfo } from "@deck.gl/core";
 import { engine, timing, hexExpr, datasetFilterSql, type Mark, type Row } from "./engine";
 import { UNIFIED, members, setUnified, unifiedDefs } from "./variables";
+import { castVariables, derivedFamily, derivedTip, grainCount, grainWord, variableGrain, DERIVED_FAMILY, type CastCensusRow, type RegistryRow, type VarGrain } from "./castgrain";
+import { qualOkSQL } from "./qual";
 import { buildLayers, MapView, quantileDomain, colorScale, type GridCell, type StatRow, type LayerInputs } from "./map";
 import { computeSurface, surfaceImage, isolines, niceLevels, joinSegments, labelPoints, thinLabels, cellToLonLat, cellValue, landMask, MASK_KM, type Surface as SurfaceResult } from "./contour";
 import { LensPicker } from "./lenspicker";
@@ -17,7 +19,7 @@ import { Icon } from "./icons";
 import { Picker, type PickerItem, type GroupOpt } from "./picker";
 import { Menu, Group } from "./ui";
 import { Panel, EdgePills, MaxPanel, Sheet, Sparkline, VSpark, SHEET_PEEK, type CardId, type CardBox, type Detent, type Dock, type EdgePill } from "./panels";
-import { Sentence } from "./sentence";
+import { Sentence, type DerivedNote } from "./sentence";
 import { LayersCard } from "./layers";
 import { Curtain3D, Nav3D, cam3d } from "./curtain";
 import { bathyFromSel, bathyOn, boundaryLayerIds, effectiveLayers, isPalette, LAND_LAYER, PALETTES, type BoundaryState, type SpatialLayerDef, type SpatialLayers } from "./basemap";
@@ -26,7 +28,7 @@ import type { IconName } from "./icons";
 import { Welcome, About, seenWelcome, markWelcome, markCiteAck } from "./help";
 import { fromUrl as selFromUrl } from "./state";
 import { SourcesLine, SourcesModal } from "./sources";
-import { citeBibtex, citeText } from "./cite";
+import { citeBibtex, citeText, datasetPageUrl } from "./cite";
 import { FeedbackDialog } from "./feedback";
 import { startTour, type TourActions } from "./tour";
 import { IconButton, type MenuItem } from "./ui";
@@ -47,7 +49,7 @@ const DS_SHORT: Record<string, string> = {
   swfsc_ichthyo: "ichthyo", swfsc_cufes: "CUFES", calcofi_bottle: "bottle", "calcofi_ctd-cast": "CTD", calcofi_dic: "DIC", calcofi_mets: "METS",
   "cce-lter_zoodb": "zoodb", "cce-lter_zooscan": "zooscan", "cce-lter_euphausiids": "euphausiids", calcofi_phytoplankton: "phyto",
   calcofi_phyllosoma: "phyllosoma", "sio_mesopelagic-fish": "mesopelagic", "farallon_bird-mammal": "farallon", "cdfw_dungeness-crab": "dungeness",
-  "sio_pic-zooplankton": "PIC", "calcofi_picoplankton": "picoplankton",
+  "sio_pic-zooplankton": "PIC", "calcofi_picoplankton": "picoplankton", "calcofi_ctd-derived": "CTD derived",
 };
 const short = (d: string) => DS_SHORT[d] ?? d;
 // brand v1's theme-toggle pair (Material Design Icons brightness-7 / brightness-4, Apache-2.0): the same
@@ -64,8 +66,15 @@ const native = new URLSearchParams(location.search).get("native") === "1"; // D1
 const phoneQuery = matchMedia("(max-width: 899px)");
 
 // registered buffer names: the SQL templates read these (`{{src}}` etc.), never a URL
-const REG = { obs_bio: "obs_bio.parquet", sample_root: "sample_root.parquet", sample_spatial: "sample_spatial.parquet", taxon: "taxon.parquet", measurement_type: "measurement_type.parquet", dataset: "dataset.parquet", cruise: "cruise.parquet", provider: "provider.parquet" } as const;
+const REG = { obs_bio: "obs_bio.parquet", sample_root: "sample_root.parquet", sample_spatial: "sample_spatial.parquet", taxon: "taxon.parquet", measurement_type: "measurement_type.parquet", dataset: "dataset.parquet", cruise: "cruise.parquet", provider: "provider.parquet", sample_measurement: "sample_measurement.parquet" } as const;
 const envReg = (v: string) => `obs_env_${v}.parquet`;
+// does the release hold a per-bin object (an obs_env partition) for any member type of this variable? The per-bin path
+// when it does; a variable with none is per-cast only if the registry says so (castgrain.ts variableGrain())
+// (a catalog with no obs_env table — a release before the browser objects — has none: an empty map, never a throw in render)
+const binParts = (cat: Catalog | null): Map<string, string> => (cat?.tables.some((t) => t.name === "obs_env") ? sources(cat, "obs_env").partitions : new Map());
+const hasBinObject = (cat: Catalog | null, key: string) => { const parts = binParts(cat); return members(key).some((m) => parts.has(m)); };
+const hasCastTable = (cat: Catalog | null) => !!cat?.tables.some((t) => t.name === "sample_measurement");
+const castTokens = () => ({ sm_src: q(REG.sample_measurement), root_src: q(REG.sample_root), mt_src: q(REG.measurement_type) });
 // the release's `climatology` table, one hive object per measurement type like obs_env (calcofi4db::build_climatology())
 const climReg = (v: string) => `climatology_${v}.parquet`;
 const hasClim = (cat: Catalog | null) => !!cat?.tables.some((t) => t.name === "climatology");
@@ -124,7 +133,12 @@ export function App() {
     return d.geom === "polygon" ? `sp-${above.id}-fill` : d.geom === "line" ? `sp-${above.id}-line` : d.geom === "label" ? `sp-${above.id}-symbol-1` : d.geom === "raster" ? `sp-${above.id}-raster` : `sp-${above.id}-circle`;
   }, [layersEff, sel.land, spatialLayers]);
   const [taxa, setTaxa] = useState<Row[]>([]);
-  const [mt, setMt] = useState<Map<string, { description: string; units: string }>>(new Map());
+  // the release's measurement_type registry: labels and units for every variable, and — for the per-cast grain —
+  // which types are per-sample and how a derived one is computed (castgrain.ts reads grain / derivation / category)
+  const [mt, setMt] = useState<Map<string, RegistryRow>>(new Map());
+  const registryP = useRef<Promise<Map<string, RegistryRow>> | null>(null);
+  // what sample_measurement holds per dataset × type (sql/cast_census.sql, then cast_list.sql once sample_root is in)
+  const [castCensus, setCastCensus] = useState<CastCensusRow[]>([]);
   const [yearsEdit, setYearsEdit] = useState(false);
   const [phone, setPhone] = useState(phoneQuery.matches);
   const [datasets, setDatasets] = useState<Row[]>([]);
@@ -205,6 +219,14 @@ export function App() {
     }
     return loads.current.get(name)!;
   };
+  // the registry, once: the boot starts it, and the slice effect awaits it for a variable with no per-bin object
+  // (it may run before the boot reaches its own call). A release older than a column reads it as null.
+  const loadRegistry = () => (registryP.current ??= ensure(REG.measurement_type)
+    .then(() => engine.exec(`SELECT * FROM ${q(REG.measurement_type)}`, "measurement_type"))
+    .then((rows) => {
+      const m = new Map<string, RegistryRow>(rows.map((r) => [String(r.measurement_type), { measurement_type: String(r.measurement_type), description: r.description ?? null, units: r.units ?? null, derivation: r.derivation ?? null, grain: r.grain ?? null, category: r.category ?? null }]));
+      setMt(m); return m;
+    }));
 
   // ── boot: catalog + sidecars (static first paint), engine + objects behind it ─
   useEffect(() => {
@@ -257,14 +279,12 @@ export function App() {
       // the engine + the objects every lens needs, in parallel with the paint
       setStatus("engine warming…");
       ensure(REG.obs_bio); ensure(REG.taxon); ensure(REG.measurement_type); ensure(REG.sample_spatial); ensure(REG.dataset);
-      if (sel.realm === "env") for (const m of members(sel.var)) ensure(envReg(m)); // after setUnified(), so the members are the release's
+      // after setUnified(), so the members are the release's; a per-cast variable has no obs_env object to warm (the slice effect fetches its own)
+      if (sel.realm === "env") { const parts = binParts(cat); for (const m of members(sel.var)) if (parts.has(m)) ensure(envReg(m)); }
       Promise.all([ensure(REG.obs_bio), ensure(REG.taxon)])
         .then(() => engine.query("taxa", { src: q(REG.obs_bio), taxon_src: q(REG.taxon) })).then((r) => setTaxa(r));
-      Promise.all([ensure(REG.measurement_type), ensure(REG.dataset)]).then(async () => {
-        const rows = await engine.exec(`SELECT measurement_type, description, units FROM ${q(REG.measurement_type)}`, "measurement_type");
-        setMt(new Map(rows.map((r) => [r.measurement_type, { description: r.description, units: r.units }])));
-        setDatasets(await engine.exec(`SELECT * FROM ${q(REG.dataset)}`, "dataset"));
-      });
+      loadRegistry().catch((e) => console.warn("measurement_type registry:", e.message));
+      ensure(REG.dataset).then(async () => setDatasets(await engine.exec(`SELECT * FROM ${q(REG.dataset)}`, "dataset")));
       // the curating organizations (metadata/provider.csv) when the release ships them: `provider_short` is the
       // label the Sources line and the Sources modal want. No table -> cite.ts's PROVIDER_SHORT map, as before.
       if (cat.tables.some((t) => t.name === "provider"))
@@ -304,18 +324,33 @@ export function App() {
     if (key === sliceKey) return;
     const g = ++gen.current;
     (async () => {
-      const files = sel.realm === "bio" ? [REG.obs_bio] : members(sel.var).map(envReg);
+      // the grain of an env variable: per-bin when the release holds an obs_env object for it (the path every release
+      // took before the per-cast grain); else per-cast when the registry says the type is per-sample — one value per
+      // cast, read from sample_measurement ⋈ sample_root (sql/slice_cast.sql, plan 2026-10-02 D2). Anything else is
+      // not a variable of this release, and the status says so.
+      let grain: VarGrain = "bin";
+      if (sel.realm === "env" && !hasBinObject(catalog, sel.var)) {
+        const vg = hasCastTable(catalog) ? variableGrain(sel.var, false, await loadRegistry()) : null;
+        if (g !== gen.current) return;
+        if (!vg) throw new Error(`${sel.var} is not a variable of release ${catalog.version}`);
+        grain = vg;
+      }
+      const files = sel.realm === "bio" ? [REG.obs_bio] : grain === "cast" ? [REG.sample_measurement, REG.sample_root, REG.measurement_type] : members(sel.var).map(envReg);
       setPicker([]); // the old realm's rows must never render under the new one (stale keyed DOM)
       setStatus(`fetching ${files.join(", ")}…`);
       await Promise.all(files.map((f) => ensure(f)));
       if (g !== gen.current) return;
       setStatus("building slice…");
       const t = performance.now();
-      await (sel.realm === "bio" ? engine.query("slice_bio", { src: q(REG.obs_bio), taxon: sel.taxon }) : engine.query("slice_env", { src: envSrc(sel.var) }));
+      await (sel.realm === "bio" ? engine.query("slice_bio", { src: q(REG.obs_bio), taxon: sel.taxon })
+        : grain === "cast" ? engine.query("slice_cast", { ...castTokens(), type: sel.var, qual_ok: qualOkSQL("sm") })
+        : engine.query("slice_env", { src: envSrc(sel.var) }));
       const rows = (await engine.query("picker", {})) as PickerRow[];
       if (g !== gen.current) return;
-      timing.add(`slice:${key}`, performance.now() - t, `${fmtN(rows.reduce((a, r) => a + r.n, 0))} observations`);
+      timing.add(`slice:${key}`, performance.now() - t, `${grainCount(grain, rows.reduce((a, r) => a + r.n, 0))}${grain === "cast" ? " (sample_measurement ⋈ sample_root)" : ""}`);
       setPicker(rows);
+      // sample_root is in now: the census gains the years and how many values a root sample places (cast_list.sql)
+      if (grain === "cast") engine.query("cast_list", castTokens()).then((r) => setCastCensus(r as CastCensusRow[])).catch((e) => console.warn("cast_list:", e.message));
       // the dataset filter is set against THIS slice's pills: a dataset the new slice does not have (ichthyo carried from
       // Biology into a temperature view, whose datasets are bottle and CTD) would filter everything out — prune it, and
       // drop it when nothing is left or everything is
@@ -334,6 +369,22 @@ export function App() {
       setSliceKey(key);
     })().catch((e) => { console.error(e); setStatus(`error: ${e.message}`); });
   }, [catalog, sel.realm, sel.taxon, sel.var]);
+
+  // ── the per-cast grain (castgrain.ts): which env variables are one value per cast, from the registry ─────────────
+  // the census of sample_measurement is fetched once the first lens has answered (2.6 MB, off the cold-start path) —
+  // it is what lists the per-cast variables in the picker; a per-cast `var=` in the URL fetches it with its slice
+  useEffect(() => {
+    if (!lensReady || !hasCastTable(catalog) || castCensus.length) return;
+    ensure(REG.sample_measurement).then(() => engine.query("cast_census", { sm_src: q(REG.sample_measurement) }))
+      .then((r) => setCastCensus((cur) => (cur.length ? cur : (r as CastCensusRow[])))) // cast_list.sql's richer rows win if they landed first
+      .catch((e) => console.warn("cast_census:", e.message));
+  }, [lensReady, catalog]);
+  const castVars = useMemo(() => castVariables(mt, castCensus), [mt, castCensus]);
+  const varGrain: VarGrain | null = useMemo(() => (sel.realm === "env" && catalog ? variableGrain(sel.var, hasBinObject(catalog, sel.var), mt) : null), [sel.realm, sel.var, catalog, mt]);
+  const isCast = varGrain === "cast";
+  // the registry's word on the selected variable, for the one thing its name cannot say (ramps.ts RampHint)
+  const rampHint = useMemo(() => (isCast ? { grain: "cast" as const, units: mt.get(sel.var)?.units ?? null } : null), [isCast, mt, sel.var]);
+  (window as any).__cast = { grain: varGrain, vars: castVars, census: castCensus }; // scripts/smoke_release.mjs reads the registry-keyed list from here
 
   // ── lens queries ───────────────────────────────────────────────────────────
   const val = sel.realm === "bio" ? VAL_COL[sel.den ?? "raw"] : "value";
@@ -508,9 +559,9 @@ export function App() {
   // what the contour lens draws: the chosen surface coloured on its own 5–95 % window (the statistic itself shares the
   // station dots' window, so the two lenses agree), pretty isolines, and the legend's unit. Shared by the map, the
   // contour surface, the section heatmap and the section's 3-D curtain — one ramp id, one rule (ramps.ts lensRamp()).
-  const rampId = lensRamp(sel);
+  const rampId = lensRamp(sel, rampHint);
   // the year strip's cruise-calendar cells never draw an anomaly (ramps.ts seriesRamp())
-  const seriesRampId = seriesRamp(sel);
+  const seriesRampId = seriesRamp(sel, rampHint);
   // the land clip follows the grid (one fetch per grid extent; the tiles are cached by the curtain's mosaic map)
   const gridKey = surf ? [surf.grid.lon0, surf.grid.latS, surf.grid.nx, surf.grid.ny].join(",") : null;
   useEffect(() => {
@@ -618,25 +669,48 @@ export function App() {
     for (const x of env) { const c = byType.get(x.measurement_type) ?? { n: 0, y0: 9999, y1: 0, ds: new Map(), cat: null }; c.n += x.n_obs; c.y0 = Math.min(c.y0, x.year_min ?? 9999); c.y1 = Math.max(c.y1, x.year_max ?? 0); c.ds.set(x.dataset_key, (c.ds.get(x.dataset_key) ?? 0) + x.n_obs); c.cat = c.cat ?? x.category ?? null; byType.set(x.measurement_type, c); }
     const defs = unifiedDefs();
     const inUnified = new Set(defs.flatMap((v) => v.members));
+    // a variable a derived dataset publishes wears the family (the picker's Derived (hydrographic) group), a `derived`
+    // badge and, on hover, the registry's own definition — per-bin (spice, the averaged sigma-theta) and per-cast alike
+    const derived = (key: string, label: string, units: string | null | undefined, ds: string[], grain: VarGrain) => {
+      const family = derivedFamily(ds);
+      return family ? { family, badge: "derived", tip: derivedTip({ label, units: units ?? null, derivation: mt.get(key)?.derivation ?? null }, grain, dsRow(ds[0])?.dataset_name_short) } : {};
+    };
     const item = (key: string, label: string, units: string | undefined, c: { n: number; y0: number; y1: number; ds: Map<string, number>; cat: string | null }, search = ""): PickerItem => {
       const ds = [...c.ds.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k);
       // the registry's category (coverage.json, since calcofi4db 3.25.0) wins; the keyword rule is the stopgap for a release without it
-      return { key, label, sub: units, n: c.n, year: c.y1 || null, year0: c.y0 < 9999 ? c.y0 : null, datasets: ds, groups: { category: c.cat ?? envCategory(key, label), dataset: ds[0] ?? "—" }, search: `${key} ${search}` };
+      return { key, label, sub: units, n: c.n, year: c.y1 || null, year0: c.y0 < 9999 ? c.y0 : null, datasets: ds, groups: { category: c.cat ?? envCategory(key, label), dataset: ds[0] ?? "—" }, search: `${key} ${search}`, ...derived(key, label, units, ds, "bin") };
     };
     // a unified variable (bottle + CTD headline types, comparable) is one row; every other type is its own
     const uni = defs.map((v) => { const c = { n: 0, y0: 9999, y1: 0, ds: new Map<string, number>(), cat: null as string | null }; for (const m of v.members) { const x = byType.get(m); if (x) { c.n += x.n; c.y0 = Math.min(c.y0, x.y0); c.y1 = Math.max(c.y1, x.y1); c.cat = c.cat ?? x.cat; for (const [k, n] of x.ds) c.ds.set(k, (c.ds.get(k) ?? 0) + n); } }
       const lab = v.label !== v.key ? v.label : (mt.get(v.members[0])?.description ?? ENV_VARS_FALLBACK[v.key] ?? v.key);
-      const u = lab.match(/\(([^)]+)\)$/)?.[1] ?? mt.get(v.members[0])?.units; return item(v.key, lab.replace(/\s*\([^)]+\)$/, ""), u, c, v.members.join(" ")); }).filter((v) => v.n > 0);
-    const rest = [...byType.entries()].filter(([k]) => !inUnified.has(k)).map(([k, c]) => { const m = mt.get(k); return item(k, m?.description ?? ENV_VARS_FALLBACK[k] ?? k, m?.units, c); });
-    return [...uni, ...rest];
-  }, [cov, mt, catalog]);
+      const u = lab.match(/\(([^)]+)\)$/)?.[1] ?? mt.get(v.members[0])?.units ?? undefined; return item(v.key, lab.replace(/\s*\([^)]+\)$/, ""), u, c, v.members.join(" ")); }).filter((v) => v.n > 0);
+    const rest = [...byType.entries()].filter(([k]) => !inUnified.has(k)).map(([k, c]) => { const m = mt.get(k); return item(k, m?.description ?? ENV_VARS_FALLBACK[k] ?? k, m?.units ?? undefined, c); });
+    // the per-cast variables: coverage.json lists per-observation types only, so these come from the registry and the
+    // release's own sample_measurement (castgrain.ts castVariables()). The count is casts; the unit line says so.
+    const cast = castVars.filter((v) => !byType.has(v.key)).map((v): PickerItem => ({
+      key: v.key, label: v.label, sub: `${v.units ? `${v.units} · ` : ""}per cast`, n: v.n, year: v.y1, year0: v.y0, datasets: v.datasets,
+      groups: { category: v.category ?? envCategory(v.key, v.label), dataset: v.datasets[0] ?? "—" }, search: `${v.key} derived per cast`,
+      ...derived(v.key, v.label, v.units, v.datasets, "cast") }));
+    return [...uni, ...rest, ...cast];
+  }, [cov, mt, catalog, castVars, datasets]);
   const variableGroups = useMemo<GroupOpt[]>(() => [
-    { key: "category", label: "category", icon: (c) => categoryIcon(c), rank: categoryRank },
+    { key: "category", label: "category", icon: (c) => (c === DERIVED_FAMILY ? "ui-line" : categoryIcon(c)), rank: categoryRank },
     { key: "dataset", label: "dataset", short: short }], []);
   const dateOf = (t: number) => new Date(t * 1000).toISOString().slice(0, 10);
   const cruiseItems = useMemo<PickerItem[]>(() => cruiseRows.map((c) => ({ key: c.cruise_key, label: c.cruise_key, sub: `${dateOf(c.t0)} → ${dateOf(c.t1)} · ${c.n_sta} stations`, n: c.n, year: +c.cruise_key.slice(0, 4) })), [cruiseRows]);
   const sectionCruiseItems = useMemo<PickerItem[]>(() => sectionCruises.map((c) => ({ key: c.cruise_key, label: c.cruise_key, sub: `${c.n_sta} stations · ${fmtN(c.n)} observations`, n: c.n_sta, year: c.year })), [sectionCruises]);
   const envVar = variableItems.find((v) => v.key === sel.var);
+  // what the app says about a derived variable, in the title sentence and under the picker: the registry's description
+  // and derivation, the grain, and the page of the dataset that publishes it (its methods) — nothing written here
+  const derivedNote = useMemo((): DerivedNote | null => {
+    if (sel.realm !== "env" || !envVar?.family || !varGrain) return null;
+    const dk = envVar.datasets?.find((d) => derivedFamily([d])) ?? envVar.datasets?.[0] ?? "";
+    const r = mt.get(sel.var);
+    return { word: varGrain === "cast" ? `derived, ${grainWord("cast")}` : "derived", tip: envVar.tip ?? "", label: `${envVar.label}${r?.units ? ` (${r.units})` : ""}`, grain: grainWord(varGrain),
+      how: r?.derivation ?? null, datasetName: dsRow(dk)?.dataset_name_short ?? short(dk), datasetUrl: datasetPageUrl(dk) };
+  }, [sel.realm, sel.var, envVar, varGrain, mt, datasets]);
+  // what a count counts: a per-cast variable has one value per cast
+  const countWord = isCast ? "casts" : "observations";
   const yearsSet = sel.years[0] !== 1949 || sel.years[1] !== YEAR_OPEN || !!sel.months;
   const depthSet = sel.depth[0] !== 0 || sel.depth[1] !== 500;
   const copyLink = async () => { try { await navigator.clipboard.writeText(location.href); setStatus("link copied"); } catch { setStatus("clipboard blocked"); } };
@@ -757,7 +831,8 @@ export function App() {
   const taxonRow = taxa.find((t) => t.taxon_key === sel.taxon);
   const legendTitle = preSlice ? "root samples · all datasets (coverage.json, before the engine is warm)" : sel.realm === "bio"
     ? `${STAT_LABEL[stat]} · ${taxonRow?.common_name ?? taxonRow?.scientific_name ?? sel.taxon} · ${sel.stage ?? "all life stages"} · ${unitLabel}${zerosNote}`
-    : `${STAT_LABEL[stat]} · ${envVar ? `${envVar.label}${envVar.sub ? ` (${envVar.sub})` : ""}` : sel.var} · ${sel.depth[0]}–${sel.depth[1]} m`;
+    // a per-cast variable has no depth clause: its unit line already reads "m · per cast"
+    : `${STAT_LABEL[stat]} · ${envVar ? `${envVar.label}${envVar.sub ? ` (${envVar.sub})` : ""}` : sel.var}${isCast ? "" : ` · ${sel.depth[0]}–${sel.depth[1]} m`}`;
   const lines = useMemo(() => [...new Set(grid.map((c) => c.line))].sort((a, b) => a - b), [grid]);
   const stationCard = useMemo(() => {
     if (!sel.station) return null;
@@ -775,7 +850,7 @@ export function App() {
       const lensParams: Record<string, any> = sel.lens === "hex" ? { hex: hexExpr(sel.res) } : sel.lens === "region" ? { layer: sel.layer } : sel.lens === "section" ? { line: sel.line, cruise: sel.cruise } : {};
       const summary = sel.lens === "hex" ? hexRows : sel.lens === "region" ? regionRows : sel.lens === "cruise" ? cruiseRows : sel.lens === "section" ? sectionCells : stationRows;
       const { blob, name } = await buildBundle({
-        sel, version, catalog, params, lensParams, lensTemplate, summary: summary as Row[], summaryKey: sel.lens, grid, regionFeatures: layerFeatures,
+        sel, version, catalog, params, lensParams, lensTemplate, grain: varGrain, summary: summary as Row[], summaryKey: sel.lens, grid, regionFeatures: layerFeatures,
         datasets, unit: unitLabel, envFile: sel.realm === "env" ? envReg(sel.var) : null, bioSrcName: REG.obs_bio, hexRes: sel.res, onStatus: setBundling,
       });
       (window as any).__lastBundle = { name, bytes: blob.size };
@@ -790,7 +865,7 @@ export function App() {
   const lensPar = (): Record<string, any> => sel.lens === "hex" ? { hex: hexExpr(sel.res) } : sel.lens === "region" ? { layer: sel.layer } : sel.lens === "section" ? { line: sel.line, cruise: sel.cruise } : {};
   const copy = async (kind: "sql" | "r" | "py") => {
     if (!catalog || !version) return;
-    const text = copyAs(kind, { sel, catalog, version, params, lensParams: lensPar(), lensTemplate: lensTpl() });
+    const text = copyAs(kind, { sel, catalog, version, params, lensParams: lensPar(), lensTemplate: lensTpl(), grain: varGrain });
     try { await navigator.clipboard.writeText(text); setStatus(`copied ${kind.toUpperCase()} (${text.length.toLocaleString()} chars)`); } catch { setStatus("clipboard blocked"); }
     (window as any).__lastCopy = text;
   };
@@ -811,7 +886,7 @@ export function App() {
       return null;
     }
     const id = info.layer?.id;
-    if (id === "stations") { const s = stationMap.get(o.grid_key); return { text: `${o.grid_key} · line ${o.line} station ${o.station}\n${s ? (preSlice ? `${fmtN(s.n)} root samples, all datasets` : `${STAT_LABEL[stat]} ${fmt(statOf(s))} · ${fmtN(s.n)} observations · ${s.n_samples} samples · ${s.y0}–${s.y1}`) : "no observations in selection"}\nclick for the station's coverage card` }; }
+    if (id === "stations") { const s = stationMap.get(o.grid_key); return { text: `${o.grid_key} · line ${o.line} station ${o.station}\n${s ? (preSlice ? `${fmtN(s.n)} root samples, all datasets` : isCast ? `${STAT_LABEL[stat]} ${fmt(statOf(s))} ${unitLabel} · ${grainCount("cast", s.n)} · ${s.y0}–${s.y1}` : `${STAT_LABEL[stat]} ${fmt(statOf(s))} · ${fmtN(s.n)} observations · ${s.n_samples} samples · ${s.y0}–${s.y1}`) : `no ${countWord} in selection`}\nclick for the station's coverage card` }; }
     if (id === "surface") { const px = (info as any).bitmap?.pixel; const v = px && surf && surfVals ? cellValue(surfVals, surf.grid, px[0], px[1]) : null; return v == null ? null : { text: `${SURFACE_LABEL[sel.surface]}: ${fmt(v)} ${legendUnit}\n${INTERP_WORD[sel.interp]} over ${surf!.fit.n} stations · leave-one-out RMSE ${fmt(surf!.fit.loo)}` }; }
     if (id === "hexes") return { text: `${o.hex}\n${STAT_LABEL[stat]} ${fmt(statOf(o))} · ${fmtN(o.n)} observations · ${o.n_samples} samples` };
     if (id === "regions") { const s = regionStats.get(o.properties.spatial_key); return { text: `${o.properties.name}\n${s ? `${STAT_LABEL[stat]} ${fmt(statOf(s))} · ${fmtN(s.n)} observations · ${s.n_samples} samples · ${s.y0}–${s.y1}` : "no data"}` }; }
@@ -838,11 +913,19 @@ export function App() {
 
   // ── the light layout (2026-09-06): the map is the page, every panel floats, the title sentence says what you see ─
   const organism = organismItems.find((i) => i.key === sel.taxon);
-  const subject = sel.realm === "bio" ? (organism?.label ?? taxonRow?.common_name ?? taxonRow?.scientific_name ?? sel.taxon) : (envVar?.label ?? sel.var);
-  const selectSummary = sel.realm === "bio" ? `${subject} · ${sel.stage ?? "all life stages"} · ${unitLabel}${zerosNote}` : `${subject} · ${sel.depth[0]}–${sel.depth[1]} m`;
+  const subject = sel.realm === "bio" ? (organism?.label ?? taxonRow?.common_name ?? taxonRow?.scientific_name ?? sel.taxon) : (envVar?.label ?? mt.get(sel.var)?.description ?? sel.var); // the registry's words while the picker's list is still on its way
+  const selectSummary = sel.realm === "bio" ? `${subject} · ${sel.stage ?? "all life stages"} · ${unitLabel}${zerosNote}` : isCast ? `${subject} · per cast` : `${subject} · ${sel.depth[0]}–${sel.depth[1]} m`;
   const depthSummary = sliceKey && !depthRows.length ? "Depth · no depth axis" : `Depth ${sel.depth[0]}–${sel.depth[1]} m`;
-  const depthEmpty = "depth-integrated net tows —<br>no water-column profile for this selection;<br>the tow span will draw here<br>once the release carries it";
-  const seriesToggle = <span className="seg" role="group" aria-label="year strip mode" data-tour="strip-mode"><button className={seriesMode === "n" ? "on" : ""} onClick={() => setSeriesMode("n")}>observations</button><button className={seriesMode === "mean" ? "on" : ""} onClick={() => setSeriesMode("mean")}>mean ± se</button><button className={seriesMode === "cruises" ? "on" : ""} onClick={() => setSeriesMode("cruises")} title="a year × month calendar, one cell per cruise coloured by the summary stat; zoom in for the dates and codes; click a cell to pick the cruise"><Icon name="ui-gantt" />cruises</button></span>;
+  // the two lenses a per-cast variable does not draw in (docs/cast-grain.md): Sections cut depth, and a per-cast value
+  // has none; Hexagons pool by the H3 cell on each observation, and sample_root carries no cell for a cast
+  const castLensNote = !isCast ? null
+    : sel.lens === "section" ? "Sections cut the water column, and a per-cast variable is one value for the whole cast — nothing to draw here. See it at"
+    : sel.lens === "hex" ? "Hexagons are not drawn for a per-cast variable yet (the release carries no H3 cell on a cast). See it at"
+    : null;
+  // why a pick has no depth axis: a net tow is depth-integrated; a per-cast variable is one value for the whole cast
+  const noDepthWhy = isCast ? "it is one value for the whole cast" : "its net tows are depth-integrated";
+  const depthEmpty = isCast ? "one value per cast —<br>a per-cast variable has<br>no water-column profile" : "depth-integrated net tows —<br>no water-column profile for this selection;<br>the tow span will draw here<br>once the release carries it";
+  const seriesToggle = <span className="seg" role="group" aria-label="year strip mode" data-tour="strip-mode"><button className={seriesMode === "n" ? "on" : ""} onClick={() => setSeriesMode("n")}>{countWord}</button><button className={seriesMode === "mean" ? "on" : ""} onClick={() => setSeriesMode("mean")}>mean ± se</button><button className={seriesMode === "cruises" ? "on" : ""} onClick={() => setSeriesMode("cruises")} title="a year × month calendar, one cell per cruise coloured by the summary stat; zoom in for the dates and codes; click a cell to pick the cruise"><Icon name="ui-gantt" />cruises</button></span>;
   const logChip = seriesMode === "mean" ? <button type="button" className={`chip${ylog ? " on" : ""}`} aria-pressed={ylog} title="log scale — the axis keeps the original values; the minor gridlines sit at one even step, so they bunch toward the top. A zero mean sits on the axis floor (log 0 does not exist); the hover always carries the true value" onClick={() => setYlog(!ylog)}>log</button> : null;
   const Q_LABEL = ["Jan–Mar", "Apr–Jun", "Jul–Sep", "Oct–Dec"];
   const seasonLabel = sel.q?.length && sel.q.length < 4 ? sel.q.map((x) => `Q${x}`).join(" ") : "all";
@@ -910,8 +993,16 @@ export function App() {
           <select value={sel.stage ?? ""} onChange={(e) => { const st = e.target.value || null; setSel({ stage: st, den: defaultDen(picker, st) }); }}>
             {stages.map(([s, n]) => <option key={s ?? "null"} value={s ?? ""}>{s ?? "(none)"} ({fmtN(n)})</option>)}
           </select></label>
-      </> : <Picker id="variable" label="variable" value={sel.var} items={variableItems} onChange={(k) => setSel({ var: k, cruise: null })}
-        groups={variableGroups} defaultGroup="category" browse placeholder="search temperature, nitrate, chlorophyll…" dsColor={dsColor} dsShort={short} loading={variableItems.length ? null : "…"} native={native} sheet={phone} data-tour="picker" openSignal={pickerSignal} />}
+      </> : <>
+        <Picker id="variable" label="variable" value={sel.var} items={variableItems} onChange={(k) => setSel({ var: k, cruise: null })}
+          groups={variableGroups} defaultGroup="category" browse placeholder="search temperature, nitrate, chlorophyll…" dsColor={dsColor} dsShort={short} loading={variableItems.length ? null : "…"} native={native} sheet={phone} data-tour="picker" openSignal={pickerSignal} />
+        {/* a derived variable says so under its name: the grain, its definition on hover (the registry's own words) and the dataset page that holds its methods */}
+        {derivedNote && <div className="derived-line" data-derived={varGrain ?? undefined}>
+          <i className="badge">derived</i><span>{derivedNote.grain}</span>
+          {derivedNote.how && <span className="how" tabIndex={0} title={derivedNote.tip}>how it is computed</span>}
+          <a href={derivedNote.datasetUrl} target="_blank" rel="noopener" title={`${derivedNote.datasetName} — the dataset page, with its methods and citation`}>{derivedNote.datasetName} ↗</a>
+        </div>}
+      </>}
     </Group>
     <Group title="View as" icon="ui-layers" data-tour="lenses">
       <LensPicker lens={sel.lens} onLens={onLens} />
@@ -955,10 +1046,10 @@ export function App() {
           }) : envPills.map(([dk, c]) => <span key={dk} className={`pill ${dsOn(dk) ? "" : "off"} ${sel.datasets && dsOn(dk) ? "sel" : ""}`} style={{ cursor: "pointer" }} onClick={() => toggleDataset(dk)} title="bottle and CTD values of one variable are comparable · click to toggle this dataset"><i className="dot" style={{ background: dsColor(dk) }} />{short(dk)} {fmtN(c.n)}{c.n_flagged ? ` · ${fmtN(c.n_flagged)} flagged` : ""}</span>)}
         </div>
         <SourcesLine datasets={viewDatasetRows} providerTable={providerTable} onAll={openSources} loading={picker.length ? "no dataset in view" : status} />
-        <div className="hint">{fmtN(inView)} observations in view · {sel.realm === "env" ? "averaged across datasets that share this variable; never across variables" : sel.den === "raw" ? "raw counts are not comparable across gear or datasets" : "averaged across datasets that share this life stage and standardization; never across them"}</div>
+        <div className="hint">{fmtN(inView)} {countWord} in view · {sel.realm === "env" ? "averaged across datasets that share this variable; never across variables" : sel.den === "raw" ? "raw counts are not comparable across gear or datasets" : "averaged across datasets that share this life stage and standardization; never across them"}</div>
       </div>}
     </section>
-    <div className="card-foot">{sliceKey ? `${fmtN(inView)} observations in view` : status} · <button type="button" className="linkish" onClick={openSources}>{viewDatasetKeys.length ? `${viewDatasetKeys.length} source${viewDatasetKeys.length === 1 ? "" : "s"}` : "sources"}</button></div>
+    <div className="card-foot">{sliceKey ? `${fmtN(inView)} ${countWord} in view` : status} · <button type="button" className="linkish" onClick={openSources}>{viewDatasetKeys.length ? `${viewDatasetKeys.length} source${viewDatasetKeys.length === 1 ? "" : "s"}` : "sources"}</button></div>
   </>;
   // ③ Refine: the years, the season, the depth band (only where a pick has a depth axis) and the datasets
   const refineTab = <>
@@ -973,7 +1064,7 @@ export function App() {
       {depthAvail || !sliceKey ? <>
         <div className="row"><input type="number" style={{ width: 66 }} value={sel.depth[0]} min={0} max={sel.depth[1] - 10} step={10} onChange={(e) => setSel({ depth: [+e.target.value, sel.depth[1]] })} />–<input type="number" style={{ width: 66 }} value={sel.depth[1]} min={sel.depth[0] + 10} max={6500} step={10} onChange={(e) => setSel({ depth: [sel.depth[0], +e.target.value] })} /> m<button type="button" className="pill act" disabled={!depthSet} onClick={() => setSel({ depth: [0, 500] })}>0–500 m</button></div>
         <div className="hint">or drag on the Depth panel — <button type="button" className="linkish" onClick={() => { if (phone) setSheet({ panel: "depth", detent: "half" }); else if (folded("depth")) toggleFold("depth"); }}>open it</button></div>
-      </> : <div className="hint">this pick has no depth axis — its net tows are depth-integrated, so the band does not apply</div>}
+      </> : <div className="hint">this pick has no depth axis — {noDepthWhy}, so the band does not apply</div>}
     </Group>
     <Group title="Datasets" icon="ui-data">
       <div className="pills">{datasetsInSlice.map((dk) => <button key={dk} type="button" className={`pill act${dsOn(dk) ? "" : " off"}`} onClick={() => toggleDataset(dk)} title="click to leave this dataset out, or to bring it back"><i className="dot" style={{ background: dsColor(dk) }} />{short(dk)}</button>)}{!datasetsInSlice.length && <span className="pill off">{status}</span>}</div>
@@ -1006,15 +1097,16 @@ export function App() {
     <div className={`tab-body tab-${tab}`} data-tour={tab === "refine" ? "filters" : undefined}>{tab === "select" ? selectTab : tab === "refine" ? refineTab : shareTab}</div>
   </>;
   const depthBody = (wide: boolean) => <DepthStrip rows={depthRows} band={sel.depth} theme={theme} unit={unitLabel} empty={depthEmpty} onBand={(b) => setSel({ depth: b ?? [0, 500] })} byDataset={wide && depthDs.length ? { rows: depthDs, color: dsColor, short } : null} />;
-  const yearsBody = <YearStrip rows={yearRows} monthRows={monthRows} onNeedMonths={setNeedMonths} years={years} months={sel.months} yearMax={yearMax} theme={theme} mode={seriesMode} unit={unitLabel} stat={stat} log={ylog} ramp={seriesRampId}
+  const yearsBody = <YearStrip rows={yearRows} monthRows={monthRows} onNeedMonths={setNeedMonths} years={years} months={sel.months} yearMax={yearMax} theme={theme} mode={seriesMode} unit={unitLabel} stat={stat} log={ylog} ramp={seriesRampId} countWord={countWord}
     view={sel.yview} onView={(v) => setSel({ yview: v })} onYears={(y, m) => setSel({ years: y ?? [1949, YEAR_OPEN], months: y ? m ?? null : null })} gantt={gantt} />;
   const sectionBody = <SectionPlot cells={sectionCells} clim={climCells} anom={sel.anom && sel.realm === "env" && !!climCells} yLabel={sel.realm === "env" ? "depth (m)" : "year"} theme={theme} unit={unitLabel} ramp={rampId}
+    empty={isCast ? "a section cuts the water column —<br>a per-cast variable is one value for the whole cast" : null}
     title={`line ${sel.line} · ${sel.realm === "env" ? `depth section · cruise ${sel.cruise ?? "—"}${sel.anom && climCells ? ` · the difference from the ${climWindow ? `${climWindow[0]}–${climWindow[1]}` : "1993–2013"} normal` : ""}` : "station by year · all cruises · the tows are depth-integrated, so the axis is year"}`} />;
-  const cruiseBody = <CruiseSeries rows={cruiseRows} stat={stat} selected={sel.cruise} theme={theme} unit={unitLabel} onPick={(k) => setSel({ cruise: k })} />;
+  const cruiseBody = <CruiseSeries rows={cruiseRows} stat={stat} selected={sel.cruise} theme={theme} unit={unitLabel} onPick={(k) => setSel({ cruise: k })} countWord={countWord} />;
   const stationBody = <StationCard summary={stationCard?.summary} detail={stationCard?.detail} theme={theme} short={short} yearMax={yearMax} />;
   // D28 reshaped: the Sections lens (env) as a deck-only curtain scene — desktop only, the phone keeps 2-D
   const view3dOn = sel.view3d && displayLens === "section" && sel.realm === "env" && !phone;
-  const layersBody = <LayersCard sel={sel} setSel={setSel} theme={theme} defs={spatialLayers.layers} view3d={view3dOn} />;
+  const layersBody = <LayersCard sel={sel} setSel={setSel} theme={theme} defs={spatialLayers.layers} view3d={view3dOn} rampHint={rampHint} />;
   const seaFloorOn = bathyOn(bathyFromSel(sel));
   const visibleBoundaries = layersEff.map((st) => ({ st, d: spatialLayers.layers.find((d) => d.id === st.id) })).filter((x): x is { st: (typeof x)["st"]; d: SpatialLayerDef } => !!x.d);
   // the legend lists the boundaries drawn, not the reference kinds (labels, a raster): a name layer in the legend is overkill (Ben, 2026-09-09)
@@ -1131,7 +1223,7 @@ export function App() {
   const minimized = (cs: CardId[]) => cs.filter((c) => cardOpen[c] && minCards[c]).map(cardPill);
   // the Depth pill's three states: quiet (no depth axis for this pick), available (the band, a sparkline of the profile,
   // one pulse the moment it arrives) and brushed (the band is the filter; × resets it)
-  const depthPill: EdgePill = { id: "depth", icon: "ui-tune", muted: !!sliceKey && !depthAvail, on: depthAvail, pulse: depthPulse, "data-tour": "depth", title: depthAvail ? "open the water column — drag a band to slice the map to those depths" : sliceKey ? "no depth axis for this pick — its net tows are depth-integrated" : "the water column",
+  const depthPill: EdgePill = { id: "depth", icon: "ui-tune", muted: !!sliceKey && !depthAvail, on: depthAvail, pulse: depthPulse, "data-tour": "depth", title: depthAvail ? "open the water column — drag a band to slice the map to those depths" : sliceKey ? `no depth axis for this pick — ${noDepthWhy}` : "the water column",
     label: depthAvail ? <><b>Depth {sel.depth[0]}–{sel.depth[1]} m</b>{!depthSet && <span className="hint"> · drag to brush</span>}</> : sliceKey ? <>Depth<span className="hint"> · no depth axis</span></> : "Depth",
     extra: depthAvail ? <><VSpark rows={depthRows} band={sel.depth} />{depthSet && <button type="button" className="edge-x" aria-label="reset the depth band" title="reset the depth band" onClick={() => setSel({ depth: [0, 500] })}><Icon name="ui-close" /></button>}</> : undefined,
     onRestore: () => toggleFold("depth") };
@@ -1150,7 +1242,9 @@ export function App() {
         <span>{d.name}</span>{isPalette(st.color) && d.names && <span className="hint">by name · {d.names.length}</span>}
       </div>)}
     </div>}
-    {emptyResult && <div className="hint warn legend-empty">nothing in the selection{filterWords.length ? ` — the filters (${filterWords.join(" · ")}) leave no observation` : ""}
+    {/* a per-cast variable in a lens that cannot draw it says why, and where to go — it is not "nothing in the selection" */}
+    {castLensNote && <div className="hint warn legend-empty" data-cast-note={sel.lens}>{castLensNote} <button type="button" className="linkish" onClick={() => onLens("station")}>Stations</button></div>}
+    {emptyResult && !castLensNote && <div className="hint warn legend-empty">nothing in the selection{filterWords.length ? ` — the filters (${filterWords.join(" · ")}) leave no observation` : ""}
       {sel.datasets && <> · <button type="button" className="linkish" onClick={() => setSel({ datasets: null })}>all datasets</button></>}</div>}
     {!preSlice && !emptyResult && sel.realm === "bio" && denInfo(sel.den ?? "raw").excluded > 0 && <div className="hint legend-empty">{fmtN(denInfo(sel.den ?? "raw").excluded)} observations excluded by the standardization</div>}
   </>;
@@ -1166,7 +1260,7 @@ export function App() {
   const sentence = !phone && <Sentence sel={sel} setSel={setSel} onLens={onLens} organismItems={organismItems} organismGroups={organismGroups} variableItems={variableItems} variableGroups={variableGroups}
     sectionCruiseItems={sectionCruiseItems} cruiseItems={cruiseItems} lines={lines} layerNames={layerNames} regionName={regionName} stages={stages} denRows={(d) => denInfo(d).rows} defaultDen={(s) => defaultDen(picker, s)}
     years={years} yearMax={yearMax} hasDepthAxis={depthAvail} hasClim={hasClim(catalog)} climWindow={climWindow} datasetsInSlice={datasetsInSlice} dsOn={dsOn} toggleDataset={toggleDataset} dsColor={dsColor} short={short}
-    subject={subject} unit={preSlice ? "root samples" : (legendUnit ?? unitLabel)} domain={[(legendUnit === "year" ? fmtYear : fmt)(legendDomain[0]), (legendUnit === "year" ? fmtYear : fmt)(legendDomain[1])]} bar={rampCss(rampId)} count={inView} status={status} ready={!!sliceKey} seaFloor={seaFloorOn}
+    subject={subject} derived={derivedNote} countWord={countWord} unit={preSlice ? "root samples" : (legendUnit ?? unitLabel)} domain={[(legendUnit === "year" ? fmtYear : fmt)(legendDomain[0]), (legendUnit === "year" ? fmtYear : fmt)(legendDomain[1])]} bar={rampCss(rampId)} count={inView} status={status} ready={!!sliceKey} seaFloor={seaFloorOn}
     native={native} phone={phone} loading={status} open={sentenceOpen} onToggle={toggleSentence} extra={legendExtra}
     band={{ left: selectOpen ? 340 : 48, right: Math.max(displayLens === "section" && sel.realm === "env" ? 200 : 160, rightBand + (stationUp ? 350 : 0) + (cardOpen.timing && !minCards.timing ? 430 : cardOpen.layers && !minCards.layers ? 280 : 0)) }} />;
 
@@ -1243,7 +1337,7 @@ export function App() {
               <div className="ttl">{legendTitle}</div>
               <div className="bar" style={{ background: rampCss(rampId) }} />
               <div className="ticks"><span>{fmt(domain[0])}</span><span>5–95 %</span><span>{fmt(domain[1])}</span></div>
-              <div className="hint">{status}{sliceKey ? ` · ${fmtN(inView)} observations` : ""}</div>
+              <div className="hint">{status}{sliceKey ? ` · ${fmtN(inView)} ${countWord}` : ""}</div>
               {legendExtra}
             </div>
           </div>}

@@ -21,6 +21,9 @@ export interface PickerItem {
   datasets?: string[];              // colour dots
   groups?: Record<string, string>;  // group key -> value (category · dataset · class)
   search?: string;                  // extra searchable text
+  family?: string | null;           // a second home in the Browse tree, beside its category: "Derived (hydrographic)" (castgrain.ts)
+  badge?: string;                   // a word on the row: "derived"
+  tip?: string;                     // the hover: a derived variable's definition, from the registry
 }
 export type SortKey = "az" | "n" | "recent";
 export interface GroupOpt { key: string; label: string; icon?: (v: string) => IconName | undefined; rank?: (v: string) => number; short?: (v: string) => string }
@@ -56,7 +59,9 @@ export function Picker(p: {
   const [browseBy, setBrowseByRaw] = useState<"category" | "dataset">(() => (remember<"category" | "dataset">(p.id, "browse", undefined) ?? "category"));
   // a group is closed (absent), open to the selected item alone ("sel", with a "… N more" row) or open to all its items ("all")
   const [openGroups, setOpenGroups] = useState<Record<string, "sel" | "all">>({});
-  const groupKeysOf = (it: PickerItem, by: "category" | "dataset") => (by === "category" ? [it.groups?.category ?? "Other"] : (it.datasets?.length ? it.datasets : ["—"]));
+  // by category an item lists under its category — and, when it has a family, under the family too, family FIRST so the
+  // tree opens on it (a derived variable is found with the other derived ones, and still where its science puts it)
+  const groupKeysOf = (it: PickerItem, by: "category" | "dataset") => (by === "category" ? [...(it.family ? [it.family] : []), it.groups?.category ?? "Other"] : (it.datasets?.length ? it.datasets : ["—"]));
   // the home state of the tree: the selected item's category (its first dataset, by dataset) open to that item
   const homeGroups = (by: "category" | "dataset"): Record<string, "sel" | "all"> => { const it = p.items.find((x) => x.key === p.value); return it ? { [groupKeysOf(it, by)[0]]: "sel" } : {}; };
   const setBrowseBy = (b: "category" | "dataset") => { setBrowseByRaw(b); remember(p.id, "browse", b); setOpenGroups(homeGroups(b)); };
@@ -175,10 +180,10 @@ export function Picker(p: {
   return (
     <div ref={root} className={`picker${open ? " open" : ""}${p.sheet ? " fullscreen" : ""}${chip ? " picker-chip" : ""}`} data-tour={p["data-tour"]}>
       {!chip && <label className="f" htmlFor={`${p.id}-btn`}>{p.label}{p.hint && <span className="hint"> {p.hint}</span>}</label>}
-      <button ref={btn} id={`${p.id}-btn`} type="button" className={chip ? `sc${open ? " open" : ""}` : "picker-btn"} aria-haspopup="listbox" aria-expanded={open} aria-controls={listId} onClick={() => setOpen((v) => !v)} title={selected ? `${selected.label}${selected.sub ? ` — ${selected.sub}` : ""}` : p.value}>
+      <button ref={btn} id={`${p.id}-btn`} type="button" className={chip ? `sc${open ? " open" : ""}` : "picker-btn"} aria-haspopup="listbox" aria-expanded={open} aria-controls={listId} onClick={() => setOpen((v) => !v)} title={selected ? (selected.tip ?? `${selected.label}${selected.sub ? ` — ${selected.sub}` : ""}`) : p.value}>
         {selected?.datasets?.length ? <span className="dots">{selected.datasets.map(dot)}</span> : null}
         {chip ? <span className="sc-val">{selected?.label ?? (p.loading ?? p.value)}</span>
-          : <span className="picker-val">{selected?.label ?? (p.loading ?? p.value)}{selected?.sub && <small className={selected.subItalic ? "i" : ""}>{selected.sub}</small>}</span>}
+          : <span className="picker-val">{selected?.label ?? (p.loading ?? p.value)}{(selected?.sub || selected?.badge) && <small className={selected.subItalic ? "i" : ""}>{selected.badge && <i className="badge">{selected.badge}</i>}{selected.sub}</small>}</span>}
         <Icon name="ui-down" className={chip ? "car" : undefined} />
       </button>
       {open && <div className="picker-pop" role="dialog" aria-label={p.label} style={p.sheet ? undefined : box ?? { visibility: "hidden" }}>
@@ -218,9 +223,9 @@ export function Picker(p: {
                 <span className="dots">{g.ds.slice(0, 6).map(dot)}</span>
                 <span className="cnt" title={`${fmtN(g.n)} ${p.countLabel ?? "observations"}`}><span className="bar" style={{ width: `${Math.max(1, Math.round(44 * Math.log10(g.n + 1) / Math.log10(Math.max(1, ...browseGroups.map((x) => x.n)) + 1)))}px` }} /><span>{fmtN(g.n)}</span></span>
               </div>
-              {on && <ul role="group">{shown.map((it) => <li key={it.key} role="treeitem" className={`browse-item${it.key === p.value ? " sel" : ""}`} onClick={() => choose(it)}>
+              {on && <ul role="group">{shown.map((it) => <li key={it.key} role="treeitem" className={`browse-item${it.key === p.value ? " sel" : ""}`} onClick={() => choose(it)} title={it.tip} data-key={it.key}>
                 <span className="dots">{(it.datasets ?? []).map(dot)}</span>
-                <span className="lab">{it.label}{it.sub && <small className={it.subItalic ? "i" : ""}>{it.sub}</small>}</span>
+                <span className="lab">{it.label}{(it.sub || it.badge) && <small className={it.subItalic ? "i" : ""}>{it.badge && <i className="badge">{it.badge}</i>}{it.sub}</small>}</span>
                 <span className="hint span">{span(it.year0, it.year)}</span>
                 <span className="cnt"><span className="bar" style={{ width: `${Math.max(1, Math.round(44 * Math.log10(it.n + 1) / Math.log10(maxN + 1)))}px` }} /><span>{fmtN(it.n)}</span></span>
               </li>)}
@@ -235,10 +240,10 @@ export function Picker(p: {
             {s.title != null && <div className="picker-group" role="presentation">{s.icon && <Icon name={s.icon} />}<span>{s.title}</span><span className="hint">{fmtN(s.items.length)} · {fmtN(s.n)}</span></div>}
             <ul role="group" aria-label={s.title ?? undefined}>
               {s.items.map((it) => { const i = idx++; const on = it.key === p.value; return (
-                <li key={it.key} id={`${p.id}-opt-${i}`} data-i={i} role="option" aria-selected={on} className={`${i === active ? "active" : ""}${on ? " sel" : ""}`}
+                <li key={it.key} id={`${p.id}-opt-${i}`} data-i={i} role="option" aria-selected={on} className={`${i === active ? "active" : ""}${on ? " sel" : ""}`} title={it.tip}
                   onMouseMove={() => { if (i !== active) setActive(i); }} onMouseDown={(e) => e.preventDefault()} onClick={() => choose(it)}>
                   <span className="dots">{(it.datasets ?? []).map(dot)}</span>
-                  <span className="lab">{it.label}{it.sub && <small className={it.subItalic ? "i" : ""}>{it.sub}</small>}</span>
+                  <span className="lab">{it.label}{(it.sub || it.badge) && <small className={it.subItalic ? "i" : ""}>{it.badge && <i className="badge">{it.badge}</i>}{it.sub}</small>}</span>
                   <span className="cnt" title={`${fmtN(it.n)} ${p.countLabel ?? "observations"}`}><span className="bar" style={{ width: `${Math.max(1, Math.round(44 * Math.log10(it.n + 1) / Math.log10(maxN + 1)))}px` }} /><span>{fmtN(it.n)}</span></span>
                 </li>); })}
             </ul>
