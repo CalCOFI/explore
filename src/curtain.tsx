@@ -259,12 +259,13 @@ export function Curtain3D(p: { cells: SectionCell[]; clim: SectionCell[] | null;
       const ref = p.grid.filter((g) => g.home[0] >= bb.w && g.home[0] <= bb.e && g.home[1] >= bb.s && g.home[1] <= bb.n);
       const byLine = new Map<number, GridCell[]>();
       for (const g of ref) (byLine.get(g.line) ?? byLine.set(g.line, []).get(g.line)!).push(g);
-      const threads = [...byLine.entries()].map(([ln, gs]) => ({ line: ln, path: gs.sort((a, b) => a.station - b.station).map((g) => [...off(g.home[0], g.home[1]), 0] as [number, number, number]) }));
+      // a station on a line of its own (the SCCOOS inshore cells, v2026.10.04) has no thread, only its one label
+      const threads = [...byLine.entries()].filter(([, gs]) => gs.length > 1).map(([ln, gs]) => ({ line: ln, path: gs.sort((a, b) => a.station - b.station).map((g) => [...off(g.home[0], g.home[1]), 0] as [number, number, number]) }));
       const fmtN = (x: number) => (Number.isInteger(x) ? String(x) : x.toFixed(1));
       // a line's name at BOTH ends: the offshore end is out of frame as often as not (Ben, 2026-09-10: "label the Lines too")
       const lineEnds = [...byLine.entries()].flatMap(([ln, gs]) => {
         const sorted = gs.slice().sort((a, b) => a.station - b.station);
-        return [sorted[0], sorted[sorted.length - 1]].map((g) => ({ text: `line ${fmtN(ln)}`, pos: [...off(g.home[0], g.home[1]), 0] as [number, number, number], own: ln === p.line }));
+        return (sorted.length > 1 ? [sorted[0], sorted[sorted.length - 1]] : sorted).map((g) => ({ text: `line ${fmtN(ln)}`, pos: [...off(g.home[0], g.home[1]), 0] as [number, number, number], own: ln === p.line }));
       });
       const dark = p.theme === "dark";
       const ink = (a: number) => (dark ? [220, 230, 240, a] : [30, 45, 60, a]) as [number, number, number, number];

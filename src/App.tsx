@@ -7,6 +7,8 @@ import { engine, timing, hexExpr, datasetFilterSql, type Mark, type Row } from "
 import { UNIFIED, members, setUnified, unifiedDefs } from "./variables";
 import { castVariables, derivedFamily, derivedTip, grainCount, grainWord, variableGrain, DERIVED_FAMILY, type CastCensusRow, type RegistryRow, type VarGrain } from "./castgrain";
 import { qualOkSQL } from "./qual";
+import { nearestSectionLine, resolveStation, sectionLines, type CrosswalkRow } from "./gridkey";
+import { lit } from "./sqltpl";
 import { buildLayers, MapView, quantileDomain, colorScale, type GridCell, type StatRow, type LayerInputs } from "./map";
 import { computeSurface, surfaceImage, isolines, niceLevels, joinSegments, labelPoints, thinLabels, cellToLonLat, cellValue, landMask, MASK_KM, type Surface as SurfaceResult } from "./contour";
 import { LensPicker } from "./lenspicker";
@@ -66,7 +68,7 @@ const native = new URLSearchParams(location.search).get("native") === "1"; // D1
 const phoneQuery = matchMedia("(max-width: 899px)");
 
 // registered buffer names: the SQL templates read these (`{{src}}` etc.), never a URL
-const REG = { obs_bio: "obs_bio.parquet", sample_root: "sample_root.parquet", sample_spatial: "sample_spatial.parquet", taxon: "taxon.parquet", measurement_type: "measurement_type.parquet", dataset: "dataset.parquet", cruise: "cruise.parquet", provider: "provider.parquet", sample_measurement: "sample_measurement.parquet" } as const;
+const REG = { obs_bio: "obs_bio.parquet", sample_root: "sample_root.parquet", sample_spatial: "sample_spatial.parquet", taxon: "taxon.parquet", measurement_type: "measurement_type.parquet", dataset: "dataset.parquet", cruise: "cruise.parquet", provider: "provider.parquet", sample_measurement: "sample_measurement.parquet", grid_crosswalk: "grid_crosswalk.parquet" } as const;
 const envReg = (v: string) => `obs_env_${v}.parquet`;
 // does the release hold a per-bin object (an obs_env partition) for any member type of this variable? The per-bin path
 // when it does; a variable with none is per-cast only if the registry says so (castgrain.ts variableGrain())
@@ -74,7 +76,9 @@ const envReg = (v: string) => `obs_env_${v}.parquet`;
 const binParts = (cat: Catalog | null): Map<string, string> => (cat?.tables.some((t) => t.name === "obs_env") ? sources(cat, "obs_env").partitions : new Map());
 const hasBinObject = (cat: Catalog | null, key: string) => { const parts = binParts(cat); return members(key).some((m) => parts.has(m)); };
 const hasCastTable = (cat: Catalog | null) => !!cat?.tables.some((t) => t.name === "sample_measurement");
-const castTokens = () => ({ sm_src: q(REG.sample_measurement), root_src: q(REG.sample_root), mt_src: q(REG.measurement_type) });
+// root_hex7: the cast's H3 cell, when the release's sample_root carries one (hex7 on sample / sample_root since
+// v2026.10.04); NULL before it, and the Hexagons lens then says why it does not draw a per-cast variable
+const castTokens = (rootHex7 = false) => ({ sm_src: q(REG.sample_measurement), root_src: q(REG.sample_root), mt_src: q(REG.measurement_type), root_hex7: rootHex7 ? "r.hex7" : "NULL::UBIGINT" });
 // the release's `climatology` table, one hive object per measurement type like obs_env (calcofi4db::build_climatology())
 const climReg = (v: string) => `climatology_${v}.parquet`;
 const hasClim = (cat: Catalog | null) => !!cat?.tables.some((t) => t.name === "climatology");
@@ -139,6 +143,12 @@ export function App() {
   const registryP = useRef<Promise<Map<string, RegistryRow>> | null>(null);
   // what sample_measurement holds per dataset × type (sql/cast_census.sql, then cast_list.sql once sample_root is in)
   const [castCensus, setCastCensus] = useState<CastCensusRow[]>([]);
+  // the release's sample_root carries hex7 (v2026.10.04+): a per-cast variable then draws in Hexagons too
+  const [castHex, setCastHex] = useState<boolean | null>(null);
+  const rootHex7Ref = useRef<Promise<boolean> | null>(null);
+  // a `?station=` link resolved against this release's grid (gridkey.ts resolveStation): what the card says about it
+  const [stationNote, setStationNote] = useState<{ key: string; note: string; warn: boolean } | null>(null);
+  const [lineNote, setLineNote] = useState<string | null>(null); // a `?line=` with no section, and where it went instead
   const [yearsEdit, setYearsEdit] = useState(false);
   const [phone, setPhone] = useState(phoneQuery.matches);
   const [datasets, setDatasets] = useState<Row[]>([]);
@@ -250,6 +260,32 @@ export function App() {
         grid_key: f.properties.grid_key, line: f.properties.line, station: f.properties.station, home: [f.properties.lon_ctr, f.properties.lat_ctr],
       })).sort((a: GridCell, b: GridCell) => a.line - b.line || a.station - b.station);
       setGrid(cells); setCov(cv);
+      // a saved `?station=` link names a cell of the grid it was made on. v2026.10.04 redrew the grid (one cell per
+      // official station; a kept key may name a different polygon), so resolve it through the release's grid_crosswalk:
+      // the new cell holding the largest share of the old one, and the card says so — never a silent different area
+      const bootStation = BOOT.get("station");
+      if (bootStation) {
+        const keys = new Set(cells.map((c) => c.grid_key));
+        const xw: Promise<CrosswalkRow[] | null> = cat.tables.some((x) => x.name === "grid_crosswalk")
+          ? ensure(REG.grid_crosswalk).then(() => engine.exec(`SELECT prev_grid_key, grid_key, prev_frac FROM ${q(REG.grid_crosswalk)} WHERE prev_grid_key = ${lit(bootStation)}`, "grid_crosswalk"))
+            .then((r) => r.map((x) => ({ prev_grid_key: String(x.prev_grid_key), grid_key: String(x.grid_key), prev_frac: Number(x.prev_frac) })))
+            .catch((e) => { console.warn("grid_crosswalk:", e.message); return null; })
+          : Promise.resolve(null);
+        xw.then((rows) => {
+          const r = resolveStation(bootStation, keys, rows, v);
+          if (r.kind === "same") return;
+          setStationNote({ key: r.key, note: r.note, warn: r.kind !== "redrawn" });
+          if (r.kind === "moved") setSelRaw((s) => (s.station === bootStation ? { ...s, station: r.key } : s));
+          timing.add("station:resolve", 0, `${bootStation} → ${r.kind}${r.kind === "moved" ? ` ${r.key}` : ""}`);
+        });
+      }
+      // a `?line=` with no section to draw (a one-station line, or a line not in this grid) goes to the nearest one, and says so
+      const secLines = sectionLines(cells);
+      const bootLine = BOOT.get("line");
+      if (bootLine != null && secLines.length && !secLines.includes(Number(bootLine))) {
+        const to = nearestSectionLine(Number(bootLine), secLines);
+        if (to != null) { setSelRaw((s) => ({ ...s, line: to, cruise: null })); setLineNote(`line ${bootLine} has no section in ${v}'s grid (fewer than two stations) — showing line ${to}`); }
+      }
       // the release's cross-dataset crosswalk (measurement_type.variable) supersedes src/variables.ts once it is there
       const byVar = new Map<string, Set<string>>();
       for (const x of cv.variables) if (x.realm === "env" && x.variable) (byVar.get(x.variable) ?? byVar.set(x.variable, new Set()).get(x.variable)!).add(x.measurement_type);
@@ -340,17 +376,22 @@ export function App() {
       setStatus(`fetching ${files.join(", ")}…`);
       await Promise.all(files.map((f) => ensure(f)));
       if (g !== gen.current) return;
+      // does this release's sample_root carry the cast's H3 cell? (a column probe on the registered object, once)
+      const hex7 = grain === "cast" ? (rootHex7Ref.current ??= engine.exec(`SELECT count(*) AS n FROM (DESCRIBE SELECT * FROM ${q(REG.sample_root)}) WHERE column_name = 'hex7'`, "probe:sample_root.hex7").then((r) => Number(r[0]?.n) > 0)) : null;
+      const rootHex7 = hex7 ? await hex7 : false;
+      if (grain === "cast") setCastHex(rootHex7);
+      if (g !== gen.current) return;
       setStatus("building slice…");
       const t = performance.now();
       await (sel.realm === "bio" ? engine.query("slice_bio", { src: q(REG.obs_bio), taxon: sel.taxon })
-        : grain === "cast" ? engine.query("slice_cast", { ...castTokens(), type: sel.var, qual_ok: qualOkSQL("sm") })
+        : grain === "cast" ? engine.query("slice_cast", { ...castTokens(rootHex7), type: sel.var, qual_ok: qualOkSQL("sm") })
         : engine.query("slice_env", { src: envSrc(sel.var) }));
       const rows = (await engine.query("picker", {})) as PickerRow[];
       if (g !== gen.current) return;
       timing.add(`slice:${key}`, performance.now() - t, `${grainCount(grain, rows.reduce((a, r) => a + r.n, 0))}${grain === "cast" ? " (sample_measurement ⋈ sample_root)" : ""}`);
       setPicker(rows);
       // sample_root is in now: the census gains the years and how many values a root sample places (cast_list.sql)
-      if (grain === "cast") engine.query("cast_list", castTokens()).then((r) => setCastCensus(r as CastCensusRow[])).catch((e) => console.warn("cast_list:", e.message));
+      if (grain === "cast") engine.query("cast_list", castTokens(rootHex7)).then((r) => setCastCensus(r as CastCensusRow[])).catch((e) => console.warn("cast_list:", e.message));
       // the dataset filter is set against THIS slice's pills: a dataset the new slice does not have (ichthyo carried from
       // Biology into a temperature view, whose datasets are bottle and CTD) would filter everything out — prune it, and
       // drop it when nothing is left or everything is
@@ -384,7 +425,7 @@ export function App() {
   const isCast = varGrain === "cast";
   // the registry's word on the selected variable, for the one thing its name cannot say (ramps.ts RampHint)
   const rampHint = useMemo(() => (isCast ? { grain: "cast" as const, units: mt.get(sel.var)?.units ?? null } : null), [isCast, mt, sel.var]);
-  (window as any).__cast = { grain: varGrain, vars: castVars, census: castCensus }; // scripts/smoke_release.mjs reads the registry-keyed list from here
+  (window as any).__cast = { grain: varGrain, vars: castVars, census: castCensus, hex: castHex }; // scripts/smoke_release.mjs reads the registry-keyed list (and whether sample_root carries hex7) from here
 
   // ── lens queries ───────────────────────────────────────────────────────────
   const val = sel.realm === "bio" ? VAL_COL[sel.den ?? "raw"] : "value";
@@ -521,7 +562,7 @@ export function App() {
   const gridHome = useMemo(() => new Map<string, [number, number]>(grid.map((c) => [c.grid_key, c.home])), [grid]);
   const wantSe = sel.surface === "se";
   const fitGrain: Grain = sel.interp === "tps" ? "station" : sel.grain; // the spline needs every point in one system: station grid only (D40)
-  const showInputs = sel.inputs ?? fitGrain === "station"; // D43: the inputs are a layer of their own — on for 218 station dots, off for thousands of sites
+  const showInputs = sel.inputs ?? fitGrain === "station"; // D43: the inputs are a layer of their own — on for the station dots, off for thousands of sites
   const CAST_NMAX = 24, CAST_CELL = 0.1; // the site grain: 24 nearest per cell on 0.1° cells (measured 2026-09-07: 32 on 0.06° took 12.8 s for 44,946 casts)
   useEffect(() => {
     if (sel.lens !== "contour" || !lensReady) return;
@@ -833,7 +874,11 @@ export function App() {
     ? `${STAT_LABEL[stat]} · ${taxonRow?.common_name ?? taxonRow?.scientific_name ?? sel.taxon} · ${sel.stage ?? "all life stages"} · ${unitLabel}${zerosNote}`
     // a per-cast variable has no depth clause: its unit line already reads "m · per cast"
     : `${STAT_LABEL[stat]} · ${envVar ? `${envVar.label}${envVar.sub ? ` (${envVar.sub})` : ""}` : sel.var}${isCast ? "" : ` · ${sel.depth[0]}–${sel.depth[1]} m`}`;
-  const lines = useMemo(() => [...new Set(grid.map((c) => c.line))].sort((a, b) => a - b), [grid]);
+  // the lines a section can be drawn along: two stations or more (gridkey.ts). The SCCOOS inshore stations sit each on a
+  // "line" of its own (93.4, 86.8 …): a station on the map and in the card, never a one-column section
+  const lines = useMemo(() => sectionLines(grid), [grid]);
+  const ownLine = (l: number) => grid.length > 0 && !lines.includes(l);
+  const OWN_LINE = "on a line of its own — no section";
   const stationCard = useMemo(() => {
     if (!sel.station) return null;
     const detail = covStations?.stations.find((s) => s.grid_key === sel.station);
@@ -850,7 +895,7 @@ export function App() {
       const lensParams: Record<string, any> = sel.lens === "hex" ? { hex: hexExpr(sel.res) } : sel.lens === "region" ? { layer: sel.layer } : sel.lens === "section" ? { line: sel.line, cruise: sel.cruise } : {};
       const summary = sel.lens === "hex" ? hexRows : sel.lens === "region" ? regionRows : sel.lens === "cruise" ? cruiseRows : sel.lens === "section" ? sectionCells : stationRows;
       const { blob, name } = await buildBundle({
-        sel, version, catalog, params, lensParams, lensTemplate, grain: varGrain, summary: summary as Row[], summaryKey: sel.lens, grid, regionFeatures: layerFeatures,
+        sel, version, catalog, params, lensParams, lensTemplate, grain: varGrain, rootHex7: !!castHex, summary: summary as Row[], summaryKey: sel.lens, grid, regionFeatures: layerFeatures,
         datasets, unit: unitLabel, envFile: sel.realm === "env" ? envReg(sel.var) : null, bioSrcName: REG.obs_bio, hexRes: sel.res, onStatus: setBundling,
       });
       (window as any).__lastBundle = { name, bytes: blob.size };
@@ -865,7 +910,7 @@ export function App() {
   const lensPar = (): Record<string, any> => sel.lens === "hex" ? { hex: hexExpr(sel.res) } : sel.lens === "region" ? { layer: sel.layer } : sel.lens === "section" ? { line: sel.line, cruise: sel.cruise } : {};
   const copy = async (kind: "sql" | "r" | "py") => {
     if (!catalog || !version) return;
-    const text = copyAs(kind, { sel, catalog, version, params, lensParams: lensPar(), lensTemplate: lensTpl(), grain: varGrain });
+    const text = copyAs(kind, { sel, catalog, version, params, lensParams: lensPar(), lensTemplate: lensTpl(), grain: varGrain, rootHex7: !!castHex });
     try { await navigator.clipboard.writeText(text); setStatus(`copied ${kind.toUpperCase()} (${text.length.toLocaleString()} chars)`); } catch { setStatus("clipboard blocked"); }
     (window as any).__lastCopy = text;
   };
@@ -886,7 +931,7 @@ export function App() {
       return null;
     }
     const id = info.layer?.id;
-    if (id === "stations") { const s = stationMap.get(o.grid_key); return { text: `${o.grid_key} · line ${o.line} station ${o.station}\n${s ? (preSlice ? `${fmtN(s.n)} root samples, all datasets` : isCast ? `${STAT_LABEL[stat]} ${fmt(statOf(s))} ${unitLabel} · ${grainCount("cast", s.n)} · ${s.y0}–${s.y1}` : `${STAT_LABEL[stat]} ${fmt(statOf(s))} · ${fmtN(s.n)} observations · ${s.n_samples} samples · ${s.y0}–${s.y1}`) : `no ${countWord} in selection`}\nclick for the station's coverage card` }; }
+    if (id === "stations") { const s = stationMap.get(o.grid_key); return { text: `${o.grid_key} · line ${o.line} station ${o.station}${ownLine(o.line) ? ` · ${OWN_LINE}` : ""}\n${s ? (preSlice ? `${fmtN(s.n)} root samples, all datasets` : isCast ? `${STAT_LABEL[stat]} ${fmt(statOf(s))} ${unitLabel} · ${grainCount("cast", s.n)} · ${s.y0}–${s.y1}` : `${STAT_LABEL[stat]} ${fmt(statOf(s))} · ${fmtN(s.n)} observations · ${s.n_samples} samples · ${s.y0}–${s.y1}`) : `no ${countWord} in selection`}\nclick for the station's coverage card` }; }
     if (id === "surface") { const px = (info as any).bitmap?.pixel; const v = px && surf && surfVals ? cellValue(surfVals, surf.grid, px[0], px[1]) : null; return v == null ? null : { text: `${SURFACE_LABEL[sel.surface]}: ${fmt(v)} ${legendUnit}\n${INTERP_WORD[sel.interp]} over ${surf!.fit.n} stations · leave-one-out RMSE ${fmt(surf!.fit.loo)}` }; }
     if (id === "hexes") return { text: `${o.hex}\n${STAT_LABEL[stat]} ${fmt(statOf(o))} · ${fmtN(o.n)} observations · ${o.n_samples} samples` };
     if (id === "regions") { const s = regionStats.get(o.properties.spatial_key); return { text: `${o.properties.name}\n${s ? `${STAT_LABEL[stat]} ${fmt(statOf(s))} · ${fmtN(s.n)} observations · ${s.n_samples} samples · ${s.y0}–${s.y1}` : "no data"}` }; }
@@ -896,7 +941,9 @@ export function App() {
   const onClick = (info: PickingInfo) => {
     const o: any = info.object; if (!o) return;
     if (info.layer?.id === "regions") setSel({ region: o.properties.spatial_key === sel.region ? null : o.properties.spatial_key });
-    if (info.layer?.id === "stations" && sel.lens === "section") setSel({ line: o.line, cruise: null });
+    // in Sections a click picks the station's line — unless the line has no section (a station on a line of its own),
+    // which opens the station's card instead
+    if (info.layer?.id === "stations" && sel.lens === "section" && lines.includes(o.line)) { setSel({ line: o.line, cruise: null }); setLineNote(null); }
     else if (info.layer?.id === "stations") setSel({ station: o.grid_key === sel.station ? null : o.grid_key });
   };
 
@@ -916,11 +963,11 @@ export function App() {
   const subject = sel.realm === "bio" ? (organism?.label ?? taxonRow?.common_name ?? taxonRow?.scientific_name ?? sel.taxon) : (envVar?.label ?? mt.get(sel.var)?.description ?? sel.var); // the registry's words while the picker's list is still on its way
   const selectSummary = sel.realm === "bio" ? `${subject} · ${sel.stage ?? "all life stages"} · ${unitLabel}${zerosNote}` : isCast ? `${subject} · per cast` : `${subject} · ${sel.depth[0]}–${sel.depth[1]} m`;
   const depthSummary = sliceKey && !depthRows.length ? "Depth · no depth axis" : `Depth ${sel.depth[0]}–${sel.depth[1]} m`;
-  // the two lenses a per-cast variable does not draw in (docs/cast-grain.md): Sections cut depth, and a per-cast value
-  // has none; Hexagons pool by the H3 cell on each observation, and sample_root carries no cell for a cast
+  // the lenses a per-cast variable does not draw in (docs/cast-grain.md): Sections cut depth, and a per-cast value
+  // has none; Hexagons pool by the H3 cell, which sample_root carries only since v2026.10.04 (an older release has none)
   const castLensNote = !isCast ? null
     : sel.lens === "section" ? "Sections cut the water column, and a per-cast variable is one value for the whole cast — nothing to draw here. See it at"
-    : sel.lens === "hex" ? "Hexagons are not drawn for a per-cast variable yet (the release carries no H3 cell on a cast). See it at"
+    : sel.lens === "hex" && castHex === false ? "Hexagons are not drawn for a per-cast variable in this release (its sample_root carries no H3 cell on a cast). See it at"
     : null;
   // why a pick has no depth axis: a net tow is depth-integrated; a per-cast variable is one value for the whole cast
   const noDepthWhy = isCast ? "it is one value for the whole cast" : "its net tows are depth-integrated";
@@ -960,7 +1007,8 @@ export function App() {
     </div>}
     {sel.lens === "section" && <div className="opt">
       <div className="row">
-        <label className="f">line<select value={sel.line} onChange={(e) => setSel({ line: +e.target.value, cruise: null })}>{lines.map((l) => <option key={l} value={l}>{l}</option>)}</select></label>
+        <label className="f">line<select value={sel.line} onChange={(e) => { setSel({ line: +e.target.value, cruise: null }); setLineNote(null); }}>{lines.map((l) => <option key={l} value={l}>{l}</option>)}</select></label>
+        {lineNote && <div className="hint warn" data-line-note>{lineNote}</div>}
         {/* a cruise picks the ENV section: one occupation of the line, depth down the y-axis. A bio section has no
             depth axis (the tows are depth-integrated), so it runs station x year across every cruise — offering a
             cruise there would be a control that changes nothing */}
@@ -1103,7 +1151,11 @@ export function App() {
     empty={isCast ? "a section cuts the water column —<br>a per-cast variable is one value for the whole cast" : null}
     title={`line ${sel.line} · ${sel.realm === "env" ? `depth section · cruise ${sel.cruise ?? "—"}${sel.anom && climCells ? ` · the difference from the ${climWindow ? `${climWindow[0]}–${climWindow[1]}` : "1993–2013"} normal` : ""}` : "station by year · all cruises · the tows are depth-integrated, so the axis is year"}`} />;
   const cruiseBody = <CruiseSeries rows={cruiseRows} stat={stat} selected={sel.cruise} theme={theme} unit={unitLabel} onPick={(k) => setSel({ cruise: k })} countWord={countWord} />;
-  const stationBody = <StationCard summary={stationCard?.summary} detail={stationCard?.detail} theme={theme} short={short} yearMax={yearMax} />;
+  const stationBody = <>
+    {stationNote && stationNote.key === sel.station && <div className={`hint${stationNote.warn ? " warn" : ""}`} data-station-note>{stationNote.note}</div>}
+    {stationCard && !stationCard.cell && grid.length > 0 && !(stationNote && stationNote.key === sel.station) && <div className="hint warn" data-station-note>{stationCard.grid_key} is not a cell of {version}'s grid</div>}
+    <StationCard summary={stationCard?.summary} detail={stationCard?.detail} theme={theme} short={short} yearMax={yearMax} />
+  </>;
   // D28 reshaped: the Sections lens (env) as a deck-only curtain scene — desktop only, the phone keeps 2-D
   const view3dOn = sel.view3d && displayLens === "section" && sel.realm === "env" && !phone;
   const layersBody = <LayersCard sel={sel} setSel={setSel} theme={theme} defs={spatialLayers.layers} view3d={view3dOn} rampHint={rampHint} />;
@@ -1132,7 +1184,7 @@ export function App() {
   const sectionSub = sel.realm === "env" ? `· depth along line ${sel.line}${sel.cruise ? ` · ${sel.cruise}` : ""}` : `· by year along line ${sel.line}`;
   const titles: Record<PanelId, ReactNode> = {
     select: "Controls", depth: "Depth", years: "Time", section: <>Section <span className="plain">{sectionSub}</span></>, cruise: "Cruise series", layers: "Layers",
-    station: stationCard ? <>{stationCard.grid_key} <span className="plain">· line {stationCard.cell?.line} station {stationCard.cell?.station}</span></> : "Station",
+    station: stationCard ? <>{stationCard.grid_key} {stationCard.cell && <span className="plain">· line {stationCard.cell.line} station {stationCard.cell.station}{ownLine(stationCard.cell.line) ? ` · ${OWN_LINE}` : ""}</span>}</> : "Station",
     timing: <>SQL &amp; timing <span className="plain">· {anyCached ? "warm" : "cold"} · paint {firstPaint ?? "…"} · ready {readyAt ?? "…"} · query {lastQ ? lastQ.ms : "…"} · switch {grain ? grain.ms : "…"} ms</span></>,
   };
   const titleText: Record<PanelId, string> = { select: "Controls", depth: "Depth", years: "Time", section: `Section ${sectionSub}`, cruise: "Cruise series", layers: "Layers", station: stationCard ? `${stationCard.grid_key} · line ${stationCard.cell?.line} station ${stationCard.cell?.station}` : "Station", timing: "SQL & timing" };

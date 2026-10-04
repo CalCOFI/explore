@@ -352,6 +352,7 @@ button.chip { cursor: pointer; }
 .feedback-shot img.off { opacity: 0.3; }
 .feedback-shot .pad { padding: 20px; }
 .hint.warn { color: var(--warn); }
+[data-station-note] { padding: 6px 10px 2px; }
 .annotator { display: flex; flex-direction: column; gap: 6px; }
 .annot-tools .seg button { display: inline-flex; align-items: center; gap: 4px; padding: 4px 7px; }
 .annot-tools .spacer { flex: 1; }

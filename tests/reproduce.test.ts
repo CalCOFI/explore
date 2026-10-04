@@ -59,10 +59,15 @@ describe("Copy code for a per-cast variable — the same join, three runtimes", 
     const [slice, lens] = R.resolvedSql(ctx("cast", "mld_x")).map(([, s]) => local(s));
     db.exec(slice);
     const copied = db.exec(lens);
-    db.exec(render("slice_cast", { sm_src: "sm", root_src: "root", mt_src: "mt", type: "mld_x", qual_ok: qualOkSQL("sm") }));
+    db.exec(render("slice_cast", { sm_src: "sm", root_src: "root", mt_src: "mt", type: "mld_x", qual_ok: qualOkSQL("sm"), root_hex7: "NULL::UBIGINT" }));
     const app = db.exec(render("station", PARAMS));
     expect(copied).toEqual(app);
     expect(copied.map(({ grid_key, n, mean }) => ({ grid_key, n, mean }))).toEqual([{ grid_key: "st60-ln90", n: 2, mean: 30 }]);
+  });
+  // v2026.10.04+: sample_root carries hex7, and the copied slice takes the cast's cell from it as the browser did
+  it("the copied slice takes hex7 from sample_root when the release carries it, NULL before", () => {
+    expect(R.resolvedSql(ctx("cast", "mld_x"))[0][1]).toContain("NULL::UBIGINT AS hex7");
+    expect(R.resolvedSql({ ...ctx("cast", "mld_x"), rootHex7: true })[0][1]).toContain("r.hex7 AS hex7");
   });
   it("Copy SQL is those statements, in order, each ended", () => {
     const text = R.copyAs("sql", ctx("cast", "mld_x"));

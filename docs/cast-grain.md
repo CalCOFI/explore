@@ -43,7 +43,8 @@ WHERE sm.measurement_type = '<type>'
 | `year`, `quarter`, position, `cruise_key`, `grid_key` | the cast's | from `sample_root` |
 | `units` | registry lookup | a scalar subquery, so a repeated registry row cannot double a cast |
 | `qual_ok` | `qualOkSQL("sm")` | below |
-| `site_key`, `line`, `station`, `hex7` | NULL | `sample_root` carries neither a station nor an H3 cell |
+| `site_key`, `line`, `station` | NULL | `sample_root` carries no station |
+| `hex7` | `r.hex7` (v2026.10.04+), else NULL | the cast's res-7 H3 cell, when `sample_root` carries it (`{{root_hex7}}`, a column probe in `App.tsx`) |
 
 **Why `sample_root`, not `sample`** (D2 says `sample`): it is the release's own cut of `sample` to the samples with no
 parent, 10.5 MB against 25.9 MB, with no geometry column, and it carries the `root_id` the Regions lens needs. The
@@ -72,7 +73,7 @@ units (`m`) say it is a depth.
 | Contours | yes: every cast at its own position, or the station grid | works unchanged |
 | Cruises | yes: one dot per cast, a series per cruise | works unchanged |
 | Regions | yes: `root_id` ⋈ `sample_spatial` | works unchanged |
-| Hexagons | yes, in Wave 2 | says why not: no H3 cell on a cast (see Open) |
+| Hexagons | yes: the cast's own `hex7` on `sample_root` (v2026.10.04+) | draws it; on an older release says why not (see Open, 1) |
 | Sections | **per-bin only**: a section cuts depth | says why not; spice and averaged sigma-theta draw there |
 
 ## What the UI says
@@ -103,7 +104,9 @@ rows, max |diff| 1.4e-14; the pasted SQL, R and Python each run as copied.
 
 None of these block the grain; each removes a workaround.
 
-1. **Hexagons.** `sample_root` has no H3 cell. Either the release adds `hex7` to `sample_root`, or the app computes it
+1. **Hexagons — done in v2026.10.04.** The release added `hex7` to `sample` and `sample_root`; the slice takes it, and
+   Hexagons draw a per-cast variable (staging v2026.10.04: `mld_sigma_theta_002`, 9,180 casts, 185 res-5 cells). Before
+   it: `sample_root` had no H3 cell, and the choice was the release adding one or the app computing it
    with h3-js. Measured: the res-10 cell's res-7 parent of the cast position equals the release's `hex7` for 9,271 of
    9,275 casts; the direct res-7 cell for only 8,609. With h3-js the copied SQL needs DuckDB's `h3` extension.
 2. **`coverage.json`** lists no per-sample type, so the app counts `sample_measurement` itself (2.6 MB, fetched after

@@ -181,7 +181,7 @@ export const INTERP_HOW: Record<Interp, string> = {
 };
 export const GRAIN_LABEL: Record<Grain, string> = { station: "station grid", site: "every site" };
 export const GRAIN_HOW: Record<Grain, string> = {
-  station: "one point per grid cell (a nearshore cell holds 2–4 real stations) — the smallest solve, every method",
+  station: "one point per grid cell (one cell per official station since v2026.10.04, plus the historical cells) — the smallest solve, every method",
   site: "one point per site — every cast, tow or site at its own position (to 0.01°), repeat occupations pooled — so the surface sees where the ship actually was; kriging and IDW use the 24 nearest per cell on 0.1° cells (a few seconds)",
 };
 export const SURFACES: Surface[] = ["value", "se", "n", "y0", "y1", "p05", "p95", "spread"];

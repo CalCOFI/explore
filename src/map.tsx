@@ -1,5 +1,5 @@
 // MapLibre (keyless CARTO style, swapped on cc:theme) + deck.gl MapboxOverlay. the station dots are the
-// morph carrier: 218 grid cells in a fixed order, so deck.gl attribute transitions interpolate per station.
+// morph carrier: the release grid cells (218; 225 since v2026.10.04) in a fixed order, so deck.gl attribute transitions interpolate per station.
 import { useEffect, useRef } from "react";
 import * as maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
