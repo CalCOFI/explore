@@ -12,8 +12,9 @@
 --     the cast — the key back to `sample` and to the cast's profile in obs_env / obs_ctd_full
 --   · qual_ok is the quality predicate over the measurement's own dataset_key + measurement_qual: qualOkSQL("sm")
 --     (src/qual.ts), the twin of calcofi4r::cc_qual_ok_sql("sm") / calcofi4py.qual_ok_sql("sm")
---   · site_key / line / station / hex7 are NULL: sample_root carries no site_key and no H3 cell, so Sections and
---     Hexagons do not draw a per-cast value from this slice
+--   · site_key / line / station are NULL: sample_root carries no site_key, so Sections do not draw a per-cast value
+--   · hex7 is the cast's own res-7 H3 cell, {{root_hex7}} = r.hex7 when sample_root carries it (v2026.10.04+), so
+--     Hexagons draw a per-cast value; NULL::UBIGINT for an older release, and the Hexagons lens says why it is empty
 --   · units is a scalar lookup in the registry, not a join: a repeated registry row cannot double a cast
 -- a value whose sample has no sample_root row has no position and is not in the slice; cast_list.sql counts those.
 CREATE OR REPLACE TABLE slice AS
@@ -26,7 +27,7 @@ SELECT sm.sample_measurement_id AS obs_id, sm.dataset_key, r.root_id, r.grid_key
        (SELECT any_value(m.units) FROM {{mt_src}} m WHERE m.measurement_type = {{type}}) AS units,
        sm.measurement_value AS value, sm.measurement_qual, {{qual_ok}} AS qual_ok,
        NULL::VARCHAR AS tow_type, NULL::DOUBLE AS std_haul_factor, NULL::DOUBLE AS prop_sorted, NULL::DOUBLE AS volume_sampled_m3,
-       NULL::DOUBLE AS density_per_10m2, NULL::DOUBLE AS density_per_1000m3, NULL::VARCHAR AS effort_class, NULL::UBIGINT AS hex7,
+       NULL::DOUBLE AS density_per_10m2, NULL::DOUBLE AS density_per_1000m3, NULL::VARCHAR AS effort_class, {{root_hex7}} AS hex7,
        sm.sample_key
 FROM {{sm_src}} sm
 JOIN {{root_src}} r ON r.root_sample_key = sm.sample_key

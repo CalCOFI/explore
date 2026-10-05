@@ -54,7 +54,7 @@ export function rampPlotly(id: string | null | undefined): [number, string][] {
   return R.map((c, i) => [i / (R.length - 1), `rgb(${c.join(",")})`]);
 }
 /** what the release's registry says about the variable, for the one case its name cannot answer: a PER-CAST type is
- * named after its criterion, not its quantity (mld_sigma_theta_003 is a depth, not a density; chl_max_depth is not a
+ * named after its criterion, not its quantity (mld_sigma_theta_002 is a depth, not a density; chl_max_depth is not a
  * chlorophyll), so a per-cast variable hands the rule its registry units (src/castgrain.ts). Per-bin callers pass none. */
 export interface RampHint { grain?: "bin" | "cast" | null; units?: string | null }
 /** cmocean's conventions by variable, when the URL names no ramp */

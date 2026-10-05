@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **the redrawn station grid (release v2026.10.04, WS-1004J1)**. The grid now has one Voronoi cell per official
+  station (SCCOOS inshore stations included, each on a "line" of its own: 81.7, 81.8, 85.4, 86.8, 88.5, 91.7, 93.4)
+  plus the historical cells, with decimals in `grid_key` and a `grid_crosswalk` from the previous grid
+  (`src/gridkey.ts`, `tests/gridkey.test.ts`):
+  · the *line* menu offers only lines with two stations or more (`sectionLines()`); a `line=` link to a one-station
+    line opens the nearest line with a section and says so under the menu; a click on such a station in *Sections*
+    opens its card instead of switching to a section that cannot be drawn; the tooltip and card title say
+    "on a line of its own — no section"; the 3-D curtain draws no one-point thread or doubled label for it.
+  · a saved `station=` link resolves through `grid_crosswalk`: a key gone from the grid opens the new cell with the
+    largest share of the old one, a key redrawn below 90 % of its old area stays, an unknown key stays with an empty
+    card — the card says which, every time.
+  · `sql/slice_bio.sql`'s line / station regex was already decimal-, sign- and `_hist`-safe (obs_bio has no line /
+    station column); it is now pinned by a test, and agrees with `grid.line` / `grid.station` for all 225 cells.
+- **Hexagons draw a per-cast variable** (explore#13, Hexagons part): `sql/slice_cast.sql` takes `hex7` from
+  `sample_root` (`{{root_hex7}}`, a column probe in `App.tsx`; NULL on an older release, where the lens still says
+  why it is empty). *Copy code* hands over the same. `scripts/smoke_release.mjs` checks it, and reads the table
+  store beside `SMOKE_RELEASE_PREFIX` so it runs against a staging cut.
 - **the per-cast grain: derived products that are one value per cast** (WS-1002E, plan 2026-10-02 D2, explore#13;
   design in [`docs/cast-grain.md`](docs/cast-grain.md)). The `calcofi_ctd-derived` dataset's per-cast products
   (v2026.10.01: three mixed-layer depths, the chlorophyll maximum and its depth, the integrated chlorophyll and the

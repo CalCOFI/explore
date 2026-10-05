@@ -1,6 +1,6 @@
 // the Contour lens's numerics, off the main thread: an interpolated surface over a point set, its error surface and
 // its leave-one-out error. Plain typed arrays, no library. Two modes (plan 2026-09-07 § D31, D40):
-//   global (nmax = 0)  every point in one system — the station grain (≤ 218 cells): kriging inverts once, the spline
+//   global (nmax = 0)  every point in one system — the station grain (≤ 225 cells): kriging inverts once, the spline
 //                      picks its smoothing by GCV; the error surface is the n² term and follows in a second message
 //   local  (nmax > 0)  the nmax nearest points per cell (exact, by a bucket search) — the cast grain (tens of thousands
 //                      of root samples): one small solve per cell gives the value AND its error together; the

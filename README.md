@@ -54,8 +54,9 @@ says what the app does and how to work on it without needing them.
   (`sql/slice_cast.sql`: `sample_measurement` ⋈ `sample_root`) into the same slice every lens runs on. So the title
   sentence carries **no depth clause** — *"Mixed-layer depth, … (derived, one value per cast), the mean at each
   station, all years · all seasons."* — the count is **casts**, the Depth pill says *no depth axis*, and the depth band
-  never filters it. *Stations*, *Contours*, *Cruises* and *Regions* draw it; *Sections* (they cut depth) and *Hexagons*
-  (the release carries no H3 cell on a cast) say why they do not. Hover the word *derived*, the picker row or *how it
+  never filters it. *Stations*, *Contours*, *Cruises*, *Regions* and *Hexagons* draw it (Hexagons pool by the cast's
+  own H3 cell, `sample_root.hex7`, which the release carries since v2026.10.04; on an older release the lens says why it
+  is empty); *Sections* (they cut depth) say why they do not. Hover the word *derived*, the picker row or *how it
   is computed* for the definition — the registry's own `description` and `derivation`, never text written in the app —
   and follow the link to the dataset page for its methods. **Nothing is keyed on a measurement-type name**: what is
   per-cast, its label, units, definition and ramp all come from the release's `measurement_type` registry
@@ -77,7 +78,7 @@ says what the app does and how to work on it without needing them.
   fighting it. **Contour labels** (on by default; `labels=off`, a checkbox in the options and a row in the Layers card)
   write the level along each isoline in white on a dark halo, rotated to follow it, one per ~260 px of line and never
   within 70 px of another, so their density follows the zoom. The **inputs** (the sites or stations the surface was fitted to) are a layer of their own — *show the inputs* in the
-  options and a row under *Data* in the Layers card, `inputs=on|off`; on by default for the 218 station dots, off for
+  options and a row under *Data* in the Layers card, `inputs=on|off`; on by default for the station dots, off for
   thousands of sites. The fit line under the method reports the
   **leave-one-out RMSE**, the variogram (nugget · sill · range) or the effective degrees of freedom, and the time it
   took. A cell farther than 60 km from any point is blank, the edge fades over the last 15 km, and **land is clipped**
@@ -112,6 +113,16 @@ says what the app does and how to work on it without needing them.
   over the 665 km of line 90, so the axis is linear in both at once. It is linear rather than categorical
   for that reason: spacing stations evenly by index drew 80 → 90 (74 km) as wide as 30 → 35 (37 km).
   [ctd-transects](https://calcofi.io/ctd-transects/) draws the same section the same way.
+- **A section needs two stations.** The *line* menu offers every line of the release's grid with at least two cells.
+  Since v2026.10.04 the grid has one cell per official station, and the SCCOOS inshore stations each sit on a "line" of
+  their own (93.4, 86.8, 88.5 …): those are stations — on the map, in the station card ("on a line of its own — no
+  section") — never a one-column section. A `line=` link to one opens the nearest line that has a section and says so;
+  clicking such a station in *Sections* opens its card instead of switching the line.
+- **A saved station link follows its cell.** v2026.10.04 redrew the grid, so a `station=` key from an earlier release
+  may name a different polygon or none. The app resolves it through the release's `grid_crosswalk` (`src/gridkey.ts`):
+  a key that is gone opens the new cell holding the largest share of the old one, a key that was redrawn below 90 % of
+  its old area stays, and a key nobody knows stays selected with an empty card — each with a line on the card saying
+  which. It never shows a different area without saying so.
 - **A section's anomaly is a departure from one fixed baseline.** In the *Sections* lens, *anomaly vs
   1993–2013 monthly climatology* subtracts the release's own `climatology` table
   (`calcofi4db::build_climatology()`): the mean for that station, the cast's **own calendar month** and

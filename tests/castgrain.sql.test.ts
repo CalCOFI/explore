@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { render, datasetFilterSql, hexExpr, type Params } from "../src/sqltpl";
 import { qualOkSQL } from "../src/qual";
 import { openDuck, type Duck, type Row } from "./helpers/duck";
+import { latLngToCell, cellToParent } from "h3-js";
 
 let db: Duck;
 beforeAll(async () => {
@@ -19,6 +20,10 @@ beforeAll(async () => {
     (4, 'calcofi_bottle:cast:D',   'calcofi_bottle',   'cast', 'st70-ln90', '2020-01-33RL', 31.500, -121.000, TIMESTAMP '2020-01-16 02:30:00')
   ) t(root_id, root_sample_key, dataset_key, sample_type, grid_key, cruise_key, latitude, longitude, datetime)`);
   db.exec(`ALTER TABLE root ADD COLUMN depth_min_m DOUBLE`); db.exec(`ALTER TABLE root ADD COLUMN depth_max_m DOUBLE`);
+  // hex7 on sample_root (v2026.10.04+): the res-7 cell of each cast's position, as the release stores it (UBIGINT)
+  db.exec(`ALTER TABLE root ADD COLUMN hex7 UBIGINT`);
+  for (const [id, lat, lon] of [[1, 32.004, -120.006], [2, 32.004, -120.006], [3, 31.5, -121], [4, 31.5, -121]] as const)
+    db.exec(`UPDATE root SET hex7 = ${BigInt("0x" + latLngToCell(lat, lon, 7)).toString()}::UBIGINT WHERE root_id = ${id}`);
   // sample_measurement: mld_x on casts A, B, C and on a sample with NO root row; another type on cast A; a flagged
   // bottle value on cast D
   db.exec(`CREATE TABLE sm AS SELECT * FROM (VALUES
@@ -43,7 +48,8 @@ beforeAll(async () => {
 });
 afterAll(() => db.close());
 
-const slice = (type: string) => db.exec(render("slice_cast", { sm_src: "sm", root_src: "root", mt_src: "mt", type, qual_ok: qualOkSQL("sm") }));
+// root_hex7: "r.hex7" for a release whose sample_root carries the cell (App.tsx castTokens), NULL::UBIGINT before it
+const slice = (type: string, rootHex7 = false) => db.exec(render("slice_cast", { sm_src: "sm", root_src: "root", mt_src: "mt", type, qual_ok: qualOkSQL("sm"), root_hex7: rootHex7 ? "r.hex7" : "NULL::UBIGINT" }));
 // the lens parameters as App.tsx builds them for an env variable: every year, every season, the DEFAULT 0–500 m band
 const P = (over: Params = {}): Params => ({ val: "value", y0: 1949, y1: 2026, ym0: 194901, ym1: 202612, quarter_filter: "TRUE", bin: "year", d0: 0, d1: 500, stage: null, dataset_filter: datasetFilterSql(null), zeros: true, ...over });
 const q = (name: string, over: Params = {}) => db.exec(render(name, P(over)));
@@ -81,7 +87,7 @@ describe("slice_cast.sql — one row per cast value, placed by the cast's sample
   });
   it("a registry with a repeated row cannot double a cast (units is a scalar lookup, not a join)", () => {
     db.exec("CREATE OR REPLACE TABLE mt2 AS SELECT * FROM mt UNION ALL SELECT * FROM mt");
-    db.exec(render("slice_cast", { sm_src: "sm", root_src: "root", mt_src: "mt2", type: "mld_x", qual_ok: qualOkSQL("sm") }));
+    db.exec(render("slice_cast", { sm_src: "sm", root_src: "root", mt_src: "mt2", type: "mld_x", qual_ok: qualOkSQL("sm"), root_hex7: "NULL::UBIGINT" }));
     expect(db.exec("SELECT count(*) AS n FROM slice")[0].n).toBe(3);
     slice("mld_x");
   });
@@ -106,7 +112,18 @@ describe("the lens templates on a per-cast slice", () => {
     expect(q("section", { line: 90, cruise: "2020-01-33RL" })).toEqual([]);
     expect(q("section_cruises", { line: 90 })).toEqual([]);
   });
-  it("hex.sql returns nothing: sample_root carries no H3 cell (hex7 is NULL) — Hexagons is not a per-cast lens yet", () => expect(q("hex", { hex: hexExpr(5) })).toEqual([]));
+  it("hex.sql returns nothing on a release whose sample_root carries no H3 cell (hex7 is NULL)", () => expect(q("hex", { hex: hexExpr(5) })).toEqual([]));
+  // v2026.10.04 put hex7 on sample / sample_root: the per-cast slice takes the cast's own cell, and Hexagons draw it
+  it("hex.sql pools casts by the cast's own H3 cell when sample_root carries hex7 (v2026.10.04+)", () => {
+    slice("mld_x", true);
+    try {
+      const want = (lat: number, lon: number, res: number) => cellToParent(latLngToCell(lat, lon, 7), res);
+      expect(q("hex", { hex: hexExpr(5) }).sort(by("hex")).map(({ hex, n, n_samples, mean }) => ({ hex, n, n_samples, mean }))).toEqual(
+        [{ hex: want(32.004, -120.006, 5), n: 2, n_samples: 2, mean: 30 }, { hex: want(31.5, -121, 5), n: 1, n_samples: 1, mean: 30 }].sort(by("hex")));
+      expect(q("hex", { hex: hexExpr(7) }).map((r) => r.hex).sort()).toEqual([latLngToCell(32.004, -120.006, 7), latLngToCell(31.5, -121, 7)].sort());
+      expect(db.exec("SELECT typeof(hex7) AS t FROM slice LIMIT 1")[0].t).toBe("UBIGINT");
+    } finally { slice("mld_x"); }
+  });
   it("the year range and the season filter on the cast's own date", () => {
     expect(q("station", { ym0: 202101, ym1: 202112 }).map((r) => [r.grid_key, r.n, r.mean])).toEqual([["st60-ln90", 1, 40]]);
     expect(q("station", { quarter_filter: "quarter IN (1)" }).sort(by("grid_key")).map((r) => [r.grid_key, r.n, r.mean])).toEqual([["st60-ln90", 1, 20], ["st70-ln90", 1, 30]]);

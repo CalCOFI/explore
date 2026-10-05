@@ -9,13 +9,17 @@
 // one with the most casts (or SMOKE_CAST_VAR=<measurement_type>) in the Stations lens and checks that the slice came
 // from sample_measurement ⋈ sample_root, that every value the release holds is placed and counted, that the title
 // sentence carries no depth clause and says "derived", and that Share › Copy code hands over that same join against
-// content-addressed URLs. Any failed check exits 1. SMOKE_CAST=off skips the pass (a release before v2026.10.01
+// content-addressed URLs; then opens it in Hexagons, which must draw when the release's sample_root carries hex7
+// (v2026.10.04+) and say why not when it does not. Any failed check exits 1. SMOKE_RELEASE_PREFIX points it at
+// a staging cut (ducklake-staging/releases; the tables prefix follows, or SMOKE_TABLES_PREFIX). SMOKE_CAST=off skips the pass (a release before v2026.10.01
 // has no per-cast variable) — a release that should have one and lists none FAILS, it does not skip.
 import puppeteer from "puppeteer-core";
 const base = process.argv[2] ?? "http://localhost:5181/";
 const shot = process.argv[3] ?? "smoke.png";
 const DATA = (process.env.SMOKE_DATA_URL ?? "https://storage.googleapis.com/calcofi-db/").replace(/\/?$/, "/");
 const PREFIX = (process.env.SMOKE_RELEASE_PREFIX ?? "ducklake/releases").replace(/\/$/, "");
+// the content-addressed table store beside that releases prefix (ducklake/tables; ducklake-staging/tables for a staging run)
+const TABLES = (process.env.SMOKE_TABLES_PREFIX ?? PREFIX.replace(/releases$/, "tables")).replace(/\/$/, "");
 // the version the page must name: latest.txt of the same prefix the build reads (was a constant, "v2026.09.04",
 // which every release since has failed)
 const latest = await fetch(`${DATA}${PREFIX}/latest.txt`, { cache: "no-cache" }).then((r) => (r.ok ? r.text() : "")).then((t) => t.trim()).catch(() => "");
@@ -78,7 +82,7 @@ else {
     check(/derived, one value per cast/.test(s.sentence ?? ""), `${v.key}: the title sentence does not say it is derived, per cast: ${s.sentence}`);
     check(/ casts\b/.test(s.legend ?? ""), `${v.key}: the legend does not count casts: ${s.legend}`);
     check(/^https:\/\/calcofi\.io\/datasets\/[^/]+\/$/.test(s.datasetHref ?? ""), `${v.key}: no dataset-page link under the picker (${s.datasetHref})`);
-    for (const t of ["sample_measurement", "sample_root"]) check(gcs.some((u) => u.includes(`ducklake/tables/${t}/`) && u.endsWith("-> 200")), `${v.key}: ${t} was not fetched from its content-addressed object`);
+    for (const t of ["sample_measurement", "sample_root"]) check(gcs.some((u) => u.includes(`${TABLES}/${t}/`) && u.endsWith("-> 200")), `${v.key}: ${t} was not fetched from its content-addressed object`);
     check(!gcs.some((u) => u.includes(`measurement_type=${v.key}/`)), `${v.key}: an obs_env object was fetched for a per-cast variable`);
     // Share › Copy code › SQL: the same join, against the release's own object URLs
     await page.evaluate(() => [...document.querySelectorAll(".tabs [role=tab]")].find((b) => /Share/.test(b.innerText))?.click());
@@ -95,6 +99,19 @@ else {
     out.cast = { var: v.key, listed: vars.map((x) => `${x.key} (${x.n})`), n_release: now?.n ?? null, n_placed: now?.n_placed ?? null, n_slice: nSlice, station: s.station, slice: s.slice,
       sentence: s.sentence, legend: s.legend, derivedLine: s.derivedLine, datasetHref: s.datasetHref, copiedSqlChars: sql.length, gcs: gcs.filter((u) => /sample_measurement|sample_root|measurement_type\//.test(u)), errors: errors.slice(0, 8) };
     await page.screenshot({ path: shot.replace(/\.png$/, "") + "_cast.png" });
+    // Hexagons: a release whose sample_root carries hex7 (v2026.10.04+) draws the per-cast variable in hexagons; an older
+    // one shows the lens's note instead. Either way the page says which — never an unexplained empty map.
+    errors.length = 0;
+    await page.goto(`${base}?tour=off&lens=hex&var=${encodeURIComponent(v.key)}`, { waitUntil: "domcontentloaded", timeout: 120000 });
+    const hexReady = await page.waitForFunction(() => (window.__marks ?? []).some((m) => m.name === "query:hex") || !!document.querySelector("[data-cast-note=hex]"), { timeout: 120000 }).then(() => true, () => false);
+    await new Promise((r) => setTimeout(r, 1500));
+    const h = await page.evaluate(() => ({ hex7: window.__cast?.hex ?? null, rows: (window.__marks ?? []).filter((m) => m.name === "query:hex").slice(-1)[0]?.note ?? null, note: document.querySelector("[data-cast-note=hex]")?.innerText ?? null }));
+    check(hexReady, `${v.key}: the Hexagons lens never answered`);
+    if (h.hex7) check(/^[1-9]\d* rows$/.test(h.rows ?? "") && !h.note, `${v.key}: sample_root carries hex7 but the Hexagons lens drew ${h.rows}${h.note ? ` and says: ${h.note}` : ""}`);
+    else check(!!h.note, `${v.key}: no hex7 on sample_root and the Hexagons lens does not say why it is empty`);
+    check(errors.length === 0, `${v.key} (Hexagons): console errors: ${errors.slice(0, 3).join(" | ")}`);
+    out.cast.hex = h;
+    await page.screenshot({ path: shot.replace(/\.png$/, "") + "_cast_hex.png" });
   }
 }
 out.ok = fails.length === 0; out.fails = fails;

@@ -10,8 +10,8 @@ export type Param = string | number | boolean | null;
 export interface Params { [k: string]: Param }
 // tokens substituted VERBATIM (table expressions, column names, predicates); every other token is a quoted literal.
 // sm_src / mt_src / qual_ok belong to the per-cast slice (sql/slice_cast.sql): sample_measurement, the measurement_type
-// registry and the quality predicate (src/qual.ts qualOkSQL())
-const RAW = new Set(["val", "hex", "where", "where_nodepth", "where_noyear", "src", "taxon_src", "root_src", "spatial_src", "clim_src", "dataset_filter", "quarter_filter", "bin", "sm_src", "mt_src", "qual_ok"]);
+// registry and the quality predicate (src/qual.ts qualOkSQL()); root_hex7 is `r.hex7` or `NULL::UBIGINT` (App.tsx castTokens)
+const RAW = new Set(["val", "hex", "where", "where_nodepth", "where_noyear", "src", "taxon_src", "root_src", "spatial_src", "clim_src", "dataset_filter", "quarter_filter", "bin", "sm_src", "mt_src", "qual_ok", "root_hex7"]);
 export const datasetFilterSql = (ds: string[] | null | undefined) => ds?.length ? `dataset_key IN (${ds.map((d) => lit(d)).join(", ")})` : "TRUE";
 
 // an H3 parent as plain bit arithmetic (calcofi4db::h3_parent_sql): resolution in bits 52–55, one
