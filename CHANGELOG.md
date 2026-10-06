@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **the anomaly is matched on the cruise's month, never the cast's calendar month** (fix). `sql/section.sql` now
+  emits `month = TRY_CAST(substr(cruise_key, 6, 2) AS INTEGER)` — the month SWFSC designates in the `YYYY-MM-NODC`
+  key — and the 2-D section and the 3-D curtain key the baseline through one rule (`src/anomaly.ts`). A cruise that
+  begins on a month's last days occupies its first stations in the month before: 2026-07-3322 worked line 93.3's
+  stations 26.7–45 on 2026-06-30, looked up a June climatology that no 1993–2013 cruise made, and drew them blank;
+  they now subtract the July baseline (`tests/anomaly.test.ts`). Tooltips say "the cruise's month", and the cruise
+  floor they quote is the release's 5 (`CLIM_MIN_CRUISES`; `min_cruises = 5L` at release), not 3.
+
 - **the redrawn station grid (release v2026.10.04, WS-1004J1)**. The grid now has one Voronoi cell per official
   station (SCCOOS inshore stations included, each on a "line" of its own: 81.7, 81.8, 85.4, 86.8, 88.5, 91.7, 93.4)
   plus the historical cells, with decimals in `grid_key` and a `grid_crosswalk` from the previous grid

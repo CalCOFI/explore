@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "./icons";
 import { IconButton, Menu, useAnchor, type MenuItem } from "./ui";
 import { Picker, type PickerItem, type GroupOpt } from "./picker";
+import { CLIM_MIN_CRUISES } from "./anomaly";
 import { DEN_LABEL, DEN_HOW, LENSES, LENS_SHORT, LENS_DESC, LENS_ICON, RES_KM, STAT_WORD, STAT_LABEL, YEAR_OPEN, INTERPS, INTERP_LABEL, INTERP_WORD, INTERP_HOW, SURFACES, SURFACE_LABEL, SURFACE_WORD, GRAIN_LABEL, GRAIN_HOW, type Sel, type Den, type Stat, type Lens, type Grain } from "./state";
 
 const fmtN = (v: number) => v.toLocaleString();
@@ -102,7 +103,7 @@ export function Sentence(c: SentenceCtx) {
   const regionMenu = () => <ChipMenu label={c.regionName ?? ""} title="the selected region — click a polygon on the map to pick another" items={[{ label: "every region", hint: "clear the selection", onSelect: () => setSel({ region: null }) }]} />;
   const lineMenu = () => <ChipMenu label={String(sel.line)} title="the CalCOFI line" items={c.lines.map((l) => ({ label: `line ${l}`, selected: l === sel.line, onSelect: () => setSel({ line: l, cruise: null }) }))} />;
   const cruiseChip = (items: PickerItem[], id: string) => <Picker variant="chip" id={id} label="cruise" hint="newest first" value={sel.cruise ?? ""} items={items} onChange={(k) => setSel({ cruise: k })} sorts={["recent", "n"]} countLabel={id === "ts-section-cruise" ? "stations" : undefined} placeholder="search YYYY-MM-NODC…" loading={items.length ? null : "…"} native={c.native} sheet={c.phone} />;
-  const anomMenu = () => <ChipMenu label={sel.anom ? `shown as the difference from the ${climWord} normal` : "shown as measured"} title="a departure from the release's climatology: this station, the cast's calendar month, this 10 m bin, at least 3 cruises" items={[
+  const anomMenu = () => <ChipMenu label={sel.anom ? `shown as the difference from the ${climWord} normal` : "shown as measured"} title={`a departure from the release's climatology: this station, the cruise's month, this 10 m bin, at least ${CLIM_MIN_CRUISES} cruises`} items={[
     { label: "as measured", selected: !sel.anom, onSelect: () => setSel({ anom: false }) },
     { label: `the difference from the ${climWord} normal`, hint: "red above normal, blue below; a cell with no baseline is blank", selected: sel.anom, onSelect: () => setSel({ anom: true }) }]} />;
   const yearsPop = () => <ChipPop label={yearsWord} icon="ui-years" title="the year range · or drag on the Years panel">

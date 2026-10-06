@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Icon } from "./icons";
 import { colorScale, quantileDomain } from "./map";
 import { rampPlotly } from "./ramps";
+import { anomalyOf, climLookup } from "./anomaly";
 // Plotly is ~3.5 MB of the bundle and no panel needs it before the slice answers: load it lazily
 let PlotlyMod: any = null;
 const plotly = () => PlotlyMod ? Promise.resolve(PlotlyMod) : import("plotly.js-dist-min").then((m) => (PlotlyMod = m.default ?? m));
@@ -294,6 +295,7 @@ function ContextBar(p: { full: [number, number]; view: [number, number]; onView:
   );
 }
 
+// `month` is the cruise's designated month (sql/section.sql), the key the anomaly is matched on (anomaly.ts)
 export interface SectionCell { station: number; y: number; v: number; n: number; month?: number }
 
 /* A CalCOFI station number IS a distance, on a different scale: `+proj=calcofi` is equidistant along a line at
@@ -319,14 +321,14 @@ export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | nul
     const km = (sta: number) => (sta - sta0) * KM_PER_STATION;
     const kmToSta = (v: number) => sta0 + v / KM_PER_STATION;   // exact: the map is affine
     const xs = stas.map(km);
-    // the baseline is month-matched: a cast's value minus the climatology of the calendar month it was occupied in
-    const climMap = new Map((p.clim ?? []).map((c) => [`${c.station}|${c.month}|${c.y}`, c.v]));
+    // the baseline is month-matched on the CRUISE's month (anomaly.ts): a cast's value minus the climatology of the
+    // month its cruise is designated, never the calendar month the station was occupied in
+    const climMap = climLookup(p.clim);
     const z = ys.map((y) => stas.map((x) => {
       const c = p.cells.find((d) => d.station === x && d.y === y);
       if (!c) return null;
       if (!p.anom) return c.v;
-      const k = climMap.get(`${x}|${c.month}|${y}`);
-      return k == null ? null : c.v - k;   // no baseline = blank, never 0
+      return anomalyOf(c, climMap);   // no baseline = blank, never 0
     }));
     const isDepth = p.yLabel.startsWith("depth");
     // a symmetric range about zero, from the data: the colorbar's two ends mean the same magnitude either way
