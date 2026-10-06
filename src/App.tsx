@@ -39,6 +39,7 @@ import { captureView, canvasBlob, luminanceStats, blobStats } from "./capture";
 import { track as trackEvent } from "./track";
 import { BRAND, LOGO, DEFAULT_THEME, fontEmbedCss } from "./brand";
 import { categoryRank, categoryIcon, envCategory, DATASET_CATEGORY_FALLBACK } from "./categories";
+import { CLIM_MIN_CRUISES } from "./anomaly";
 import {
   fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LENS_DESC, LENS_ICON, RES_KM, INTERPS, INTERP_LABEL, INTERP_WORD, INTERP_HOW, SURFACES, SURFACE_LABEL, GRAIN_LABEL, GRAIN_HOW, type Surface, type Grain, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, DEN_HOW, SHF_NOTE, STAT_LABEL, YEAR_OPEN, MAP_HOME,
   type Sel, type Lens, type Den, type Stat, type PickerRow, type PanelId,
@@ -87,7 +88,7 @@ By default every tow such a dataset sampled counts as 0 for this taxon (a "zero-
 positive-only turns that off: mean, median and se run over the tows with a catch, as the raw records do. Datasets that record their own zeros (CUFES, ZooScan, ZooDB, phyllosoma) read the same either way.`;
 // an env variable's source: the union of its member objects, each stamped with its measurement_type (the hive key)
 const envSrc = (key: string) => `(${members(key).map((m) => `SELECT *, '${m}' AS measurement_type FROM '${envReg(m)}'`).join(" UNION ALL ")})`;
-// the variable's member types that have a baseline object (a type with no cell >= 3 cruises has no partition)
+// the variable's member types that have a baseline object (a type with no cell >= CLIM_MIN_CRUISES cruises has no partition)
 const climMembers = (cat: Catalog, key: string) => { const parts = sources(cat, "climatology").partitions; return members(key).filter((m) => parts.has(m)); };
 const climSrc = (ms: string[]) => `(${ms.map((m) => `SELECT *, '${m}' AS measurement_type FROM '${climReg(m)}'`).join(" UNION ALL ")})`;
 const q = (name: string) => `'${name}'`;
@@ -1016,7 +1017,7 @@ export function App() {
           ? <Picker id="section-cruise" label="cruise" hint="newest first" value={sel.cruise ?? ""} items={sectionCruiseItems} onChange={(k) => setSel({ cruise: k })} sorts={["recent", "n"]} countLabel="stations" placeholder="search YYYY-MM-NODC…" loading={sectionCruises.length ? null : "…"} native={native} sheet={phone} />
           : <span className="hint">all cruises · the tows are depth-integrated, so the y-axis is the year</span>}
       </div>
-      {sel.realm === "env" && <label className="row" style={{ fontSize: 12 }} title={hasClim(catalog) ? `a departure from the release's climatology: this station, the cast's calendar month, this 10 m depth bin, ${climWindow ? `${climWindow[0]}–${climWindow[1]}` : "1993–2013"}, at least 3 cruises — the same table ctd-transects subtracts` : "this release carries no climatology table (releases from v2026.09 do)"}><input type="checkbox" checked={sel.anom && hasClim(catalog)} disabled={!hasClim(catalog)} onChange={(e) => setSel({ anom: e.target.checked })} /> difference from the {climWindow ? `${climWindow[0]}–${climWindow[1]}` : "1993–2013"} normal</label>}
+      {sel.realm === "env" && <label className="row" style={{ fontSize: 12 }} title={hasClim(catalog) ? `a departure from the release's climatology: this station, the cruise's month, this 10 m depth bin, ${climWindow ? `${climWindow[0]}–${climWindow[1]}` : "1993–2013"}, at least ${CLIM_MIN_CRUISES} cruises — the same table ctd-transects subtracts` : "this release carries no climatology table (releases from v2026.09 do)"}><input type="checkbox" checked={sel.anom && hasClim(catalog)} disabled={!hasClim(catalog)} onChange={(e) => setSel({ anom: e.target.checked })} /> difference from the {climWindow ? `${climWindow[0]}–${climWindow[1]}` : "1993–2013"} normal</label>}
     </div>}
     {sel.lens === "cruise" && <div className="opt">
       <Picker id="cruise" label="cruise" hint="newest first" value={sel.cruise ?? ""} items={cruiseItems} onChange={(k) => setSel({ cruise: k })} sorts={["recent", "n"]} placeholder="search YYYY-MM-NODC…" loading={cruiseRows.length ? null : "…"} native={native} sheet={phone} />

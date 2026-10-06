@@ -1,6 +1,6 @@
 -- the baseline the anomaly subtracts: the release's `climatology` table (calcofi4db::build_climatology()) — a plain mean
--- per dataset x station (site_key, since calcofi4db 4.8.0; grid_key rides along) x calendar month x 10 m depth_bin x
--- measurement type over 1993-2013, kept where >= 3 cruises
+-- per dataset x station (site_key, since calcofi4db 4.8.0; grid_key rides along) x month (the cruise's designated month from calcofi4db's next release, the calendar month before) x 10 m depth_bin x
+-- measurement type over 1993-2013, kept where >= 5 cruises (min_cruises = 5L at release)
 -- contribute; the SAME table ctd-transects subtracts, so the two products cannot disagree. {{clim_src}} unions the
 -- variable's member types' objects (one hive object per type, like obs_env). The datasets in view are pooled weighted
 -- by n, which is exactly the mean over their observations. The year / season / depth filters deliberately do NOT

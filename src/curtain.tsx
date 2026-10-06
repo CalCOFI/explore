@@ -22,6 +22,7 @@ import { PMTiles } from "pmtiles";
 import { BATHY_URL, BATHY_RAMP } from "./basemap";
 import { colorScale } from "./map";
 import { type SectionCell } from "./charts";
+import { anomalyOf, climLookup, CLIM_MIN_CRUISES } from "./anomaly";
 import type { GridCell } from "./map";
 import { roundCam, sameCam, type Cam } from "./state";
 import { IconButton } from "./ui";
@@ -129,8 +130,8 @@ function curtainTexture(cells: SectionCell[], clim: SectionCell[] | null, anom: 
   const cv = document.createElement("canvas"); cv.width = Math.max(1, stations.length * K); cv.height = rows;
   const ctx = cv.getContext("2d")!;
   let painted = 0;
-  const climMap = new Map((clim ?? []).map((c) => [`${c.station}|${c.month}|${c.y}`, c.v]));
-  const val = (c: SectionCell) => !anom ? c.v : (climMap.has(`${c.station}|${c.month}|${c.y}`) ? c.v - climMap.get(`${c.station}|${c.month}|${c.y}`)! : null);
+  const climMap = climLookup(clim);   // matched on the cruise's month (anomaly.ts)
+  const val = (c: SectionCell) => !anom ? c.v : anomalyOf(c, climMap);
   const vals = cells.map(val).filter((v): v is number => v != null);
   if (!vals.length) return { cv, painted: 0 };
   const amax = Math.max(0.1, ...vals.map(Math.abs));
@@ -301,11 +302,11 @@ export function Curtain3D(p: { cells: SectionCell[]; clim: SectionCell[] | null;
           getSize: (d: any) => (d.own ? 15 : 13), fontWeight: 700, getPixelOffset: [0, 14], getAlignmentBaseline: "top",
           getColor: (d: any) => (d.own ? [255, 214, 10, 240] : ink(190)) as any }),
       ] });
-      // the anomaly is month-matched, always (the climatology's own rule): a cruise whose calendar month never
-      // cleared the >= 3-cruise floor (September, mostly) has NO baseline — the panel goes blank by design, and
+      // the anomaly is matched on the cruise's month, always (anomaly.ts): a cruise whose month never cleared the
+      // release's cruise floor (CLIM_MIN_CRUISES; September, mostly) has NO baseline — the panel goes blank by design, and
       // in 3-D the frame still shows the curtain's extent; say why it is empty
       setStatus(p.anom && painted === 0 && p.cells.length > 0
-        ? "no month-matched climatology for this cruise's month (needs ≥ 3 cruises in 1993–2013) — the anomaly curtain is blank"
+        ? `no climatology for this cruise's month (needs ≥ ${CLIM_MIN_CRUISES} cruises in 1993–2013) — the anomaly curtain is blank`
         : "");
     })().catch((e) => setStatus(`3-D scene failed: ${e.message}`));
     return () => { dead = true; };
