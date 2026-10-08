@@ -323,6 +323,17 @@ page reads `{prefix}/latest.txt` → `{prefix}/{version}/catalog.json` (plus the
 `coverage_stations.json`, `grid.geojson` and `spatial.geojson` sidecars) and every object by its catalog
 path — never a hand-built `releases/{v}/parquet/` path.
 
+### The layers registry (where it lives)
+
+The boundary/reference rows are NOT built in this repo. `~/Github/CalCOFI/workflows/metadata/spatial_layers.csv` →
+`calcofi4db::build_spatial_layers()` → the release's `spatial_layers.json` sidecar; `scripts/dev_spatial_layers.R`
+writes the dev-catalog copy and the bundled `src/spatial_layers.fallback.ts` from the same function. Rows backed by the
+oceanmetrics gazetteer carry three optional fields the app honours (`src/spatial_registry.ts`): `source_url` (absolute
+PMTiles URL), `source_layer` (vector layer name) and `popup_fields` (JSON list). Until the CSV has the columns and
+`build_spatial_layers()` passes them through (and treats a row with a `source_url` like a reference row for counts, not a
+`spatial` row), the six gazetteer rows are hand-merged into the fallback and `mergeRegistry()` overlays them on the
+release sidecar; regenerating the fallback without that step drops them.
+
 ### The feedback endpoint (once)
 
 The dialog posts to a Google Apps Script that `calcofi4r::cc_feedback_script()` generates. Setup: a
