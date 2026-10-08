@@ -7,6 +7,7 @@
 import * as maplibregl from "maplibre-gl";
 import { Protocol } from "pmtiles";
 import { BATHY_PARTS, type BathyPart, type LayerStyle } from "./state";
+import { pmtilesSource, sourceLayerOf } from "./spatial_registry";
 
 maplibregl.addProtocol("pmtiles", new Protocol().tile as any); // once, at module load (range requests against GCS)
 
@@ -174,7 +175,9 @@ function sinkOcean(style: any) {
 export interface SpatialLayerDef {
   id: string; group: string; name: string; source: string; geom: "polygon" | "line" | "point" | "label" | "raster";
   role?: "boundary" | "reference" | null;          // D52: a reference layer (the mask, the gazetteer labels, Esri's raster) — not a region
-  source_type?: "pmtiles" | "raster" | null; source_url?: string | null; // raster: an XYZ template instead of an archive
+  source_type?: "pmtiles" | "raster" | null; source_url?: string | null; // raster: an XYZ template; pmtiles: an absolute archive URL instead of `${pmtiles_base}${source}.pmtiles` (the oceanmetrics gazetteer)
+  source_layer?: string | null;                    // the vector layer inside the archive when it is not `source` (gazetteer archives name theirs after the slug)
+  popup_fields?: string[] | null;                  // feature properties the hover popup lists under the name (`status`, `status_date`)
   filter: any | null; line_color: string | null; fill_color: string | null;
   line_width: number | null; fill_opacity: number | null; default_visible: boolean;
   name_field: string | null; description: string | null; attribution: string | null;
@@ -270,15 +273,16 @@ function labelLayers(st: LayerStyle, theme: "dark" | "light", common: any, d: Sp
 
 /** the MapLibre layers one visible entry owns, its source added to the style as a side effect */
 function entryLayers(style: any, d: SpatialLayerDef, st: LayerStyle, theme: "dark" | "light", base: string, b: BoundaryState): any[] {
-  const srcId = `sp-${d.source}`;
   const attribution = d.attribution ? { attribution: d.attribution } : {};
   if (d.geom === "raster" || d.source_type === "raster") {
     if (!d.source_url) return [];
+    const srcId = `sp-${d.source}`;
     style.sources[srcId] ??= { type: "raster", tiles: [d.source_url], tileSize: 256, ...attribution };
     return [{ id: `sp-${st.id}-raster`, type: "raster", source: srcId, paint: { "raster-opacity": st.fillOpacity ?? d.fill_opacity ?? 1 } }];
   }
-  style.sources[srcId] ??= { type: "vector", url: `pmtiles://${base}${d.source}.pmtiles`, ...attribution };
-  const common: any = { __id: `sp-${st.id}`, source: srcId, "source-layer": d.source, ...(d.filter ? { filter: d.filter } : {}) };
+  const { srcId, url } = pmtilesSource(d, base);
+  style.sources[srcId] ??= { type: "vector", url, ...attribution };
+  const common: any = { __id: `sp-${st.id}`, source: srcId, "source-layer": sourceLayerOf(d), ...(d.filter ? { filter: d.filter } : {}) };
   if (d.geom === "label") return labelLayers(st, theme, common, d);
   delete common.__id;
   const color = boundaryColor(d, st, theme);

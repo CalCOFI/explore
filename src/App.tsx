@@ -26,6 +26,7 @@ import { LayersCard } from "./layers";
 import { Curtain3D, Nav3D, cam3d } from "./curtain";
 import { bathyFromSel, bathyOn, boundaryLayerIds, effectiveLayers, isPalette, LAND_LAYER, PALETTES, type BoundaryState, type SpatialLayerDef, type SpatialLayers } from "./basemap";
 import spatialFallback from "./spatial_layers.fallback";
+import { boundaryTooltip, mergeRegistry } from "./spatial_registry";
 import type { IconName } from "./icons";
 import { Welcome, About, seenWelcome, markWelcome, markCiteAck } from "./help";
 import { fromUrl as selFromUrl } from "./state";
@@ -344,7 +345,9 @@ export function App() {
       // the reference layers (role = reference, plan 2026-09-09 D52) are artefacts outside releases, like the sea floor:
       // a release whose sidecar predates them takes them from the bundled snapshot, so the mask and the labels do not
       // wait for the next release
-      .then((j: SpatialLayers) => setSpatialLayers({ ...j, layers: [...j.layers, ...(spatialFallback as unknown as SpatialLayers).layers.filter((d) => d.role === "reference" && !j.layers.some((x) => x.id === d.id))] }))
+      // and the same snapshot owns the gazetteer-backed rows (own source_url): they replace a sidecar row of the same id
+      // that has none (boem_wind_planning), so an old link's slug draws the gazetteer tiles (mergeRegistry)
+      .then((j: SpatialLayers) => setSpatialLayers(mergeRegistry(j, spatialFallback as unknown as SpatialLayers)))
       .catch(() => console.log("spatial_layers.json: not in this release — using the bundled registry"));
   }, [version]);
   // the polygon layers are heavy (all layers, simplified): only the Regions lens needs them
@@ -925,8 +928,7 @@ export function App() {
         const fs = ids.length ? m.queryRenderedFeatures([info.x, info.y], { layers: ids }) : [];
         if (fs.length) {
           const d = spatialLayers.layers.find((dd) => String(fs[0].layer.id).startsWith(`sp-${dd.id}-`));
-          const nm = fs[0].properties?.name;
-          return { text: nm && d ? `${nm} · ${d.name}` : (nm ?? d?.name ?? "") };
+          return { text: boundaryTooltip(fs[0].properties, d) };
         }
       }
       return null;

@@ -273,7 +273,14 @@ export function MapView(props: {
     m.on("click", (e) => { const i = o.pickObject({ x: e.point.x, y: e.point.y, radius: 4 }); if (i) cb.current.onClick?.(i); });
     map.current = m; overlay.current = o; props.onOverlay?.(o);
     (window as any).__map = m; (window as any).__overlay = o; // spike: reachable from the console
-    m.on("error", (e: any) => console.error("maplibre error", e?.error ?? e));
+    // a registry archive that is unreachable (the gazetteer tiles before they are published: 403/404) is a warning, once
+    // per source — the layer stays empty, the map and every other layer carry on
+    const warned = new Set<string>();
+    m.on("error", (e: any) => {
+      const sid = String(e?.sourceId ?? "");
+      if (sid.startsWith("sp-")) { if (!warned.has(sid)) { warned.add(sid); console.warn(`layer source ${sid} unavailable:`, e?.error?.message ?? e?.error ?? e); } return; }
+      console.error("maplibre error", e?.error ?? e);
+    });
     m.once("load", () => requestAnimationFrame(() => cb.current.onFirstFrame?.()));
     // D22: the map BOOTS from CARTO's plain style URL (first_paint owes the DEM nothing); the composed style —
     // CARTO ⊕ sea floor, one object — lands as a diff right after load, and again on every theme / bathy change.

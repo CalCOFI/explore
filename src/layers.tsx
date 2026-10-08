@@ -208,7 +208,7 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
                     <span className="hint">{(st.lineWidth ?? d.line_width ?? 1).toFixed(1)} px</span></label>
                   <div className="layers-row">
                     <button type="button" className="linkish" onClick={() => upd(i, { color: null, fillOpacity: null, lineWidth: null })}>reset to the registry</button>
-                    <span className="spacer" /><span className="hint">{d.n_features.toLocaleString()} features</span>
+                    <span className="spacer" /><span className="hint">{d.n_features > 0 ? `${d.n_features.toLocaleString()} features` : ""}</span>
                   </div>
                 </div>)}
             </div>);
@@ -225,7 +225,7 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
             <label key={d.id} className="layers-row layers-sub">
               <input type="checkbox" checked={entries.some((e) => e.id === d.id)}
                 onChange={(e) => (e.target.checked ? addLayer(d.id) : setLayers(entries.filter((x) => x.id !== d.id)))} />
-              <span title={d.description ?? ""}>{d.name}</span> <span className="hint">{d.geom === "raster" ? "raster" : d.n_features.toLocaleString()}</span>
+              <span title={d.description ?? ""}>{d.name}</span> <span className="hint">{d.geom === "raster" ? "raster" : d.n_features > 0 ? d.n_features.toLocaleString() : ""}</span>
             </label>))}
         </div>))}
     </div>
