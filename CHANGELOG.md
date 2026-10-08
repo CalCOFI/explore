@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **spatial-layer rows may point at the oceanmetrics gazetteer** (`src/spatial_registry.ts`, `tests/spatial_registry.test.ts`).
+  A `source_type = pmtiles` registry row now honours an optional absolute `source_url` (instead of
+  `${pmtiles_base}${source}.pmtiles`), a `source_layer` (the vector layer inside the archive, when it is not `source`)
+  and `popup_fields` (feature properties the hover popup lists under the name); with none of them the row draws as before.
+  `boem_wind_planning` keeps its slug but is now "BOEM Wind Leases" from
+  `https://storage.oceanmetrics.io/gazetteer/boem_wind_leases/places.pmtiles` (popup: lease name, status, status date);
+  new boundary rows `boem_wind_planning_rescinded`, `boem_ocs_planning`, `boem_program_11_draft`,
+  `boem_pacific_og_leases`, `noaa_aoa_socal` read `gazetteer/<slug>/places.pmtiles`. The bundled snapshot's gazetteer rows
+  replace a release sidecar row of the same id that has no `source_url` (`mergeRegistry`), so old links keep drawing a
+  wind layer. An unreachable archive logs one warning and leaves the layer empty. The Regions lens no longer offers
+  the wind layer (the gazetteer rows carry no sample memberships). External step: the CSV + `build_spatial_layers()`
+  must learn the three columns (README § Deploy).
+
 - **the anomaly is matched on the cruise's month, never the cast's calendar month** (fix). `sql/section.sql` now
   emits `month = TRY_CAST(substr(cruise_key, 6, 2) AS INTEGER)` — the month SWFSC designates in the `YYYY-MM-NODC`
   key — and the 2-D section and the 3-D curtain key the baseline through one rule (`src/anomaly.ts`). A cruise that
