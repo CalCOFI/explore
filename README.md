@@ -326,13 +326,14 @@ path — never a hand-built `releases/{v}/parquet/` path.
 ### The layers registry (where it lives)
 
 The boundary/reference rows are NOT built in this repo. `~/Github/CalCOFI/workflows/metadata/spatial_layers.csv` →
-`calcofi4db::build_spatial_layers()` → the release's `spatial_layers.json` sidecar; `scripts/dev_spatial_layers.R`
-writes the dev-catalog copy and the bundled `src/spatial_layers.fallback.ts` from the same function. Rows backed by the
-oceanmetrics gazetteer carry three optional fields the app honours (`src/spatial_registry.ts`): `source_url` (absolute
-PMTiles URL), `source_layer` (vector layer name) and `popup_fields` (JSON list). Until the CSV has the columns and
-`build_spatial_layers()` passes them through (and treats a row with a `source_url` like a reference row for counts, not a
-`spatial` row), the six gazetteer rows are hand-merged into the fallback and `mergeRegistry()` overlays them on the
-release sidecar; regenerating the fallback without that step drops them.
+`calcofi4db::build_spatial_layers()` → the release's `spatial_layers.json` sidecar. `scripts/dev_spatial_layers.R` builds
+the bundled `src/spatial_layers.fallback.ts` with the same function, from the `spatial` and `sample_spatial` tables of
+the release `latest.txt` names (or the version given as its argument), read over HTTPS by their catalog paths; the
+`workflows` checkout must be on `main`. Rows backed by the oceanmetrics gazetteer carry three optional fields the app
+honours (`src/spatial_registry.ts`): `source_url` (absolute PMTiles URL), `source_layer` (vector layer name) and
+`popup_fields` (JSON list). The CSV has these columns and `build_spatial_layers()` passes them through (calcofi4db
+>= 4.23.0, workflows#163). A release built before then lacks them, so `mergeRegistry()` overlays the fallback's
+gazetteer rows on its sidecar.
 
 ### The feedback endpoint (once)
 

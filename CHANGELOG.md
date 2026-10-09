@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **the bundled layers fallback is generated again, from the latest release** (`scripts/dev_spatial_layers.R`,
+  `src/spatial_layers.fallback.ts`). The script hard-coded v2026.08.25 and the retired explore-dev cut, and failed once
+  that local copy was gone. It now reads `spatial` and `sample_spatial` from the release `latest.txt` names (or a
+  version argument) by their catalog paths, and no longer uploads to `explore-dev-root/`. The fallback is v2026.10.08:
+  the six gazetteer rows come from the CSV (calcofi4db 4.23.0, workflows#163) instead of a hand merge, and now carry
+  feature counts and bboxes (wind leases 52, rescinded 3,325, OCS planning 27, Program 11 draft 20, O&G leases 34,
+  SoCal AOAs 10); membership counts follow v2026.10.08.
+
 - **spatial-layer rows may point at the oceanmetrics gazetteer** (`src/spatial_registry.ts`, `tests/spatial_registry.test.ts`).
   A `source_type = pmtiles` registry row now honours an optional absolute `source_url` (instead of
   `${pmtiles_base}${source}.pmtiles`), a `source_layer` (the vector layer inside the archive, when it is not `source`)
@@ -12,8 +20,7 @@
   `boem_pacific_og_leases`, `noaa_aoa_socal` read `gazetteer/<slug>/places.pmtiles`. The bundled snapshot's gazetteer rows
   replace a release sidecar row of the same id that has no `source_url` (`mergeRegistry`), so old links keep drawing a
   wind layer. An unreachable archive logs one warning and leaves the layer empty. The Regions lens no longer offers
-  the wind layer (the gazetteer rows carry no sample memberships). External step: the CSV + `build_spatial_layers()`
-  must learn the three columns (README § Deploy).
+  the wind layer (the gazetteer rows carry no sample memberships).
 
 - **the anomaly is matched on the cruise's month, never the cast's calendar month** (fix). `sql/section.sql` now
   emits `month = TRY_CAST(substr(cruise_key, 6, 2) AS INTEGER)` — the month SWFSC designates in the `YYYY-MM-NODC`
