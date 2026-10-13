@@ -37,3 +37,14 @@ describe("cruise_seasons.sql — every cruise season, from the cruise_key", () =
   it("year and quarter from YYYY-MM, a malformed key skipped", () => expect(db.exec(render("cruise_seasons", { src: "cruise" }))).toEqual([
     { year: 1998, quarter: 1, cruises: "1998-01-RL" }, { year: 1998, quarter: 3, cruises: "1998-07-RL" }, { year: 1998, quarter: 4, cruises: "1998-11-NH" }, { year: 2022, quarter: 2, cruises: "2022-04-3322" }]));
 });
+
+// "N observations in view" (sql/count.sql): the legend counted the whole pick whatever the filters; it now counts what
+// the map summarizes — every filter in force
+describe("count.sql — the observations in view, under every filter", () => {
+  const count = (over: Record<string, any> = {}) => db.exec(render("count", { ...P, ...over }))[0];
+  it("the whole slice with no filter", () => expect(count()).toEqual({ n: 6, n_samples: 4 }));
+  it("a year range", () => expect(count({ ym0: 199801, ym1: 199806 }).n).toBe(4));
+  it("a season", () => expect(count({ quarter_filter: "quarter IN (3)" }).n).toBe(2));
+  it("a depth band that excludes every bin", () => expect(count({ d0: 100, d1: 500 }).n).toBe(0));
+  it("an Area", () => expect(count({ area_filter: "grid_key IN ('b')" })).toEqual({ n: 1, n_samples: 1 }));
+});

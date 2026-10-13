@@ -171,6 +171,9 @@ export function App() {
   const [track, setTrack] = useState<{ path: [number, number][]; ts: number[]; events: number } | null>(null);
   const [cruiseSamples, setCruiseSamples] = useState<Row[]>([]);
   const [sectionCells, setSectionCells] = useState<SectionCell[]>([]);
+  // "N observations in view" under every filter (sql/count.sql), keyed by the slice it was counted on; the picker's
+  // whole-pick total stands in only until the first count of a new pick lands
+  const [viewCount, setViewCount] = useState<{ slice: string | null; n: number } | null>(null);
   const [climCells, setClimCells] = useState<SectionCell[] | null>(null);
   const [climWindow, setClimWindow] = useState<[number, number] | null>(null);   // the table's clim_yr_min–clim_yr_max
   const [sectionCruises, setSectionCruises] = useState<Row[]>([]);
@@ -568,8 +571,9 @@ export function App() {
       }
       const dr = (await engine.query("depth_strip", params)) as DepthRow[];
       const yr = (await engine.query("years", params)) as YearRow[];
+      const ct = (await engine.query("count", params))[0];
       if (stale()) return;
-      setDepthRows(dr); setYearRows(yr);
+      setDepthRows(dr); setYearRows(yr); setViewCount({ slice: sliceKey, n: Number(ct?.n ?? 0) });
       setLastSql(engine.lastSql);
       const ms = performance.now() - t;
       if (lensClickAt.current != null) { timing.add(`grain_switch:${lens}`, performance.now() - lensClickAt.current, `${LENS_SHORT[lens]} data ready (transition ${duration} ms on top)`); lensClickAt.current = null; }
@@ -726,7 +730,13 @@ export function App() {
     }
     return { ok: [...ok], off: [...all].filter((d) => !ok.has(d)), excluded, rows };
   };
-  const inView = stageRows.reduce((a, r) => a + (sel.realm === "env" ? r.n : sel.den === "per_10m2" ? r.n_10m2 : sel.den === "per_1000m3" ? r.n_1000m3 : r.n), 0);
+  const pickTotal = stageRows.reduce((a, r) => a + (sel.realm === "env" ? r.n : sel.den === "per_10m2" ? r.n_10m2 : sel.den === "per_1000m3" ? r.n_1000m3 : r.n), 0);
+  // "N observations in view" counts what the map summarizes under every filter (sql/count.sql); the Sections and
+  // Cruises lenses draw a subset (one line, one cruise), so there it is what they draw
+  const sumN = (r: { n?: number }[]) => r.reduce((a, x) => a + Number(x.n ?? 0), 0);
+  const inView = displayLens === "section" && sectionCells.length ? sumN(sectionCells)
+    : displayLens === "cruise" && sel.cruise && cruiseSamples.length ? sumN(cruiseSamples)
+    : viewCount && viewCount.slice === sliceKey ? viewCount.n : pickTotal;
   // ── attribution (WS-A3): the datasets this view POOLS ──────────────────────
   // the statistic averages across the datasets that share the chosen life stage and denominator (bio) or the
   // chosen variable (env) — so these are exactly the datasets the number on the screen rests on, and exactly
@@ -1037,14 +1047,20 @@ export function App() {
     : sel.lens === "hex" && castHex === false ? "Hexagons are not drawn for a per-cast variable in this release (its sample_root carries no H3 cell on a cast). See it at"
     : null;
   // why a pick has no depth axis: a net tow is depth-integrated; a per-cast variable is one value for the whole cast
-  const noDepthWhy = isCast ? "it is one value for the whole cast" : "its net tows are depth-integrated";
-  const depthEmpty = isCast ? "one value per cast —<br>a per-cast variable has<br>no water-column profile" : "depth-integrated net tows —<br>no water-column profile for this selection;<br>the tow span will draw here<br>once the release carries it";
+  // why the Depth panel has no profile, from what the pick IS and what the filters left — never "net tows" for a CTD
+  // variable: an env variable per depth bin with nothing under the filters (spice in 2025 Q3) is empty, not depth-integrated
+  const noneLeft = !!sliceKey && viewCount?.slice === sliceKey && viewCount.n === 0;
+  const noDepthWhy = noneLeft ? "nothing in the selection is left under these filters" : isCast ? "it is one value for the whole cast" : sel.realm === "bio" ? "its net tows are depth-integrated" : "its values carry no depth (surface or weather measurements)";
   const seriesToggle = <span className="seg" role="group" aria-label="year strip mode" data-tour="strip-mode"><button className={seriesMode === "n" ? "on" : ""} onClick={() => setSeriesMode("n")}>{countWord}</button><button className={seriesMode === "mean" ? "on" : ""} onClick={() => setSeriesMode("mean")}>mean ± se</button><button className={seriesMode === "cruises" ? "on" : ""} onClick={() => setSeriesMode("cruises")} title="a year × month calendar, one cell per cruise coloured by the summary stat; zoom in for the dates and codes; click a cell to pick the cruise"><Icon name="ui-gantt" />cruises</button></span>;
   const logChip = seriesMode === "mean" ? <button type="button" className={`chip${ylog ? " on" : ""}`} aria-pressed={ylog} title="log scale — the axis keeps the original values; the minor gridlines sit at one even step, so they bunch toward the top. A zero mean sits on the axis floor (log 0 does not exist); the hover always carries the true value" onClick={() => setYlog(!ylog)}>log</button> : null;
   const Q_LABEL = ["Jan–Mar", "Apr–Jun", "Jul–Sep", "Oct–Dec"];
   const seasonLabel = sel.q?.length && sel.q.length < 4 ? sel.q.map((x) => `Q${x}`).join(" ") : "all";
   // the filters in force, in words — an empty result's note says them
-  const filterWords = [yearsSet && (sel.months ? `${years[0]}-${String(sel.months[0]).padStart(2, "0")} → ${years[1]}-${String(sel.months[1]).padStart(2, "0")}` : `${years[0]}–${years[1]}`), sel.q && seasonLabel, depthSet && `${sel.depth[0]}–${sel.depth[1]} m`, sel.datasets && sel.datasets.map(short).join(", ")].filter(Boolean) as string[];
+  const filterWords = [yearsSet && (sel.months ? `${years[0]}-${String(sel.months[0]).padStart(2, "0")} → ${years[1]}-${String(sel.months[1]).padStart(2, "0")}` : `${years[0]}–${years[1]}`), sel.q && seasonLabel, depthSet && `${sel.depth[0]}–${sel.depth[1]} m`, sel.datasets && sel.datasets.map(short).join(", "), area && areaWord(area)].filter(Boolean) as string[];
+  const depthEmpty = noneLeft ? `no observations<br>under these filters${filterWords.length ? ":<br>" + filterWords.join(" · ") : ""}`
+    : isCast ? "one value per cast —<br>a per-cast variable has<br>no water-column profile"
+    : sel.realm === "bio" ? "depth-integrated net tows —<br>no water-column profile for this selection;<br>the tow span will draw here<br>once the release carries it"
+    : "no depth on these values —<br>surface or weather measurements<br>have no water-column profile";
   const toggleQ = (x: number) => { const cur = sel.q ?? [1, 2, 3, 4]; const next = cur.includes(x) ? cur.filter((y) => y !== x) : [...cur, x].sort(); setSel({ q: next.length === 0 || next.length === 4 ? null : next }); };
   const datasetsInSlice = useMemo(() => [...new Set(picker.map((r) => r.dataset_key))], [picker]);
   const layerNames = useMemo(() => spatialLayers.layers.filter((d) => d.n_memberships > 0).map((d) => d.name).sort(), [spatialLayers]);
@@ -1209,7 +1225,7 @@ export function App() {
         : `${areaWord(area)} · exact per sample (the release's sample_spatial)`}{areaPending && sel.area ? " · applying…" : ""}</div>
     </Group>
     <Group title="Depth band" icon="ui-tune">
-      {depthAvail || !sliceKey ? <>
+      {depthAvail || !sliceKey || noneLeft ? <>
         <div className="row"><NumInput value={sel.depth[0]} min={0} max={sel.depth[1] - 10} step={10} label="top of the depth band (m)" onCommit={(v) => setSel({ depth: [v, sel.depth[1]] })} />–<NumInput value={sel.depth[1]} min={sel.depth[0] + 10} max={6500} step={10} label="bottom of the depth band (m)" onCommit={(v) => setSel({ depth: [sel.depth[0], v] })} /> m<button type="button" className="pill act" disabled={!depthSet} onClick={() => setSel({ depth: [0, 500] })}>0–500 m</button></div>
         <div className="hint">or drag on the Depth panel — <button type="button" className="linkish" onClick={() => { if (phone) setSheet({ panel: "depth", detent: "half" }); else if (folded("depth")) toggleFold("depth"); }}>open it</button></div>
       </> : <div className="hint">this pick has no depth axis — {noDepthWhy}, so the band does not apply</div>}
@@ -1412,7 +1428,7 @@ export function App() {
   const statusToast = status !== "ready" && status !== "grid (static)" ? <div className={`status-toast${busy ? " busy" : ""}${/error|failed/.test(status) ? " err" : ""}`} role="status" aria-live="polite">{busy && <span className="spin" />}{status}</div> : null;
   const sentence = !phone && <Sentence sel={sel} setSel={setSel} onLens={onLens} organismItems={organismItems} organismGroups={organismGroups} variableItems={variableItems} variableGroups={variableGroups}
     sectionCruiseItems={sectionCruiseItems} cruiseItems={cruiseItems} lines={lines} layerNames={layerNames} regionName={regionName} areaText={area ? areaWord(area) : null} stages={stages} denRows={(d) => denInfo(d).rows} defaultDen={(s) => defaultDen(picker, s)}
-    years={years} yearMax={yearMax} hasDepthAxis={depthAvail} hasClim={hasClim(catalog)} climWindow={climWindow} datasetsInSlice={datasetsInSlice} dsOn={dsOn} toggleDataset={toggleDataset} dsColor={dsColor} short={short}
+    years={years} yearMax={yearMax} hasDepthAxis={depthAvail || noneLeft} hasClim={hasClim(catalog)} climWindow={climWindow} datasetsInSlice={datasetsInSlice} dsOn={dsOn} toggleDataset={toggleDataset} dsColor={dsColor} short={short}
     subject={subject} derived={derivedNote} countWord={countWord} unit={preSlice ? "root samples" : (legendUnit ?? unitLabel)} domain={[(legendUnit === "year" ? fmtYear : fmt)(legendDomain[0]), (legendUnit === "year" ? fmtYear : fmt)(legendDomain[1])]} bar={rampCss(rampId)} count={inView} status={status} ready={!!sliceKey} seaFloor={seaFloorOn}
     native={native} phone={phone} loading={status} open={sentenceOpen} onToggle={toggleSentence} extra={legendExtra}
     band={{ left: selectOpen ? 340 : 48, right: Math.max(displayLens === "section" && sel.realm === "env" ? 200 : 160, rightBand + (stationUp ? 350 : 0) + (cardOpen.timing && !minCards.timing ? 430 : cardOpen.layers && !minCards.layers ? 280 : 0)) }} />;
