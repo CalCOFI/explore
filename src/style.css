@@ -705,3 +705,8 @@ a.lic:hover { color: var(--accent); border-color: var(--accent); }
 /* the year window with its step arrows (explore#27) */
 .year-range { display: inline-flex; align-items: center; gap: 4px; }
 .year-range .pill.step { font-size: 15px; line-height: 1; padding: 2px 8px; }
+/* the Area filter's four choices (explore#20): one row, each label on one line */
+.seg.area-seg { display: inline-flex; flex-wrap: wrap; }
+.seg.area-seg button { white-space: nowrap; }
+.area-ext { margin-top: 4px; }
+.seg.area-seg button { padding-inline: 7px; }
