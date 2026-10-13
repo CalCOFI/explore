@@ -40,7 +40,7 @@ export function quantileDomain(vals: number[], stat: Stat): [number, number] {
 export const viridisCss = rampCss("viridis");
 
 // ── layer inputs ──────────────────────────────────────────────────────────────
-export interface GridCell { grid_key: string; line: number; station: number; home: [number, number] }
+export interface GridCell { grid_key: string; line: number; station: number; home: [number, number]; pattern?: string } // pattern: standard | extended | historical (the Area filter, explore#20)
 export interface StatRow { n: number; n_samples?: number; mean: number | null; med: number | null; [k: string]: any }
 export interface LayerInputs {
   lens: Lens;
@@ -60,6 +60,7 @@ export interface LayerInputs {
   dataOpacity: number;        // the data layer's opacity 0–1 (`datao=`)
   beforeId?: string;          // D36: the MapLibre layer the data layer draws UNDER (the boundary above it in the Layers card); undefined = on top
   selectedStation?: string | null;
+  area?: any[] | null;        // the Area filter's outline (explore#20): a box or a region's polygons, drawn over the data
 }
 
 function statOf(r: StatRow | undefined, stat: Stat): number | null {
@@ -222,6 +223,11 @@ export function buildLayers(inp: LayerInputs): Layer[] {
     getLineWidth: (c: GridCell) => (c.grid_key === inp.selectedStation ? 3 : 1), lineWidthUnits: "pixels",
     updateTriggers: { getPosition: [lens, inp.res, inp.region.stationTo], getFillColor: [lens, inp.res, stat, inp.domain, inp.ramp, inp.station, inp.hex, inp.region.stats, inp.section, inp.contour?.inputs, !!inp.contour?.casts], getRadius: [lens, inp.station, inp.section, inp.contour?.inputs, !!inp.contour?.casts], getLineColor: [inp.selectedStation], getLineWidth: [inp.selectedStation] },
     transitions: trans(),
+  }));
+  // the Area filter's edge (explore#20): what is outside it is not in any statistic, so the line says where the data stop
+  if (inp.area?.length) layers.push(new GeoJsonLayer({
+    id: "area-outline", data: { type: "FeatureCollection", features: inp.area } as any, stroked: true, filled: false,
+    getLineColor: [255, 214, 10, 230], getLineWidth: 2, lineWidthUnits: "pixels", pickable: false,
   }));
   // interleaved (D36): deck draws inside MapLibre's own layer stack; beforeId puts the whole data layer under one boundary
   return inp.beforeId ? layers.map((l) => l.clone({ beforeId: inp.beforeId } as any)) : layers;

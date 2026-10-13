@@ -5,6 +5,8 @@
 -- ({{val}} = density_per_10m2 | density_per_1000m3 | value).
 -- {{zeros}} is TRUE (a sampled tow with no catch counts as 0, the default) or FALSE (positive tows only).
 -- {{dataset_filter}} is TRUE or dataset_key IN (...) — the dataset pills (rule 4: the picker filters to datasets).
+-- {{area_filter}} is TRUE or the Area predicate (src/area.ts, explore#20): a station pattern, a lon/lat box or a region's
+-- sample_spatial membership — on grid_key, latitude/longitude or root_id, never on a joined table's columns.
 -- a NULL {{val}} is a row the chosen denominator cannot be derived for (e.g. manta tows per 10 m2):
 -- it is excluded here and COUNTED per dataset by picker.sql for the pills (D8 rule 4).
 qual_ok
@@ -15,3 +17,4 @@ qual_ok
   AND ({{stage}} IS NULL OR life_stage = {{stage}})
   AND {{val}} IS NOT NULL
   AND {{dataset_filter}}
+  AND {{area_filter}}

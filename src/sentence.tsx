@@ -18,6 +18,7 @@ export interface SentenceCtx {
   organismItems: PickerItem[]; organismGroups: GroupOpt[]; variableItems: PickerItem[]; variableGroups: GroupOpt[];
   sectionCruiseItems: PickerItem[]; cruiseItems: PickerItem[]; lines: number[]; layerNames: string[]; regionName: string | null;
   stages: [string | null, number][]; denRows: (d: Den) => number; defaultDen: (stage: string | null) => Den;
+  areaText: string | null; // the Area filter's clause (src/area.ts areaWord), null = everywhere (explore#20)
   years: [number, number]; yearMax: number; hasDepthAxis: boolean; hasClim: boolean; climWindow: [number, number] | null;
   datasetsInSlice: string[]; dsOn: (dk: string) => boolean; toggleDataset: (dk: string) => void; dsColor: (dk: string) => string; short: (dk: string) => string;
   subject: string; unit: string;
@@ -151,6 +152,7 @@ export function Sentence(c: SentenceCtx) {
   }
   w(", "); chip("years", yearsWord, yearsPop); w(" · "); chip("season", seasonWord, seasonPop);
   if (c.hasDepthAxis) { w(" · "); chip("depth", depthWord, depthPop); }
+  if (c.areaText) { w(" · "); chip("area", c.areaText, () => <ChipMenu label={c.areaText!} title="the Area filter — set in Refine" items={[{ label: "everywhere (clear the area)", selected: false, onSelect: () => setSel({ area: null }) }]} />, false, "only samples inside this area count — Refine › Area"); }
   if (sel.datasets || c.open) { w(" · "); chip("datasets", nOn === nDs ? `all ${nDs} datasets` : `${nOn} of ${nDs} datasets`, datasetsPop); }
   w(".");
 
