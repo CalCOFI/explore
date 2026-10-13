@@ -11,7 +11,23 @@ export interface Params { [k: string]: Param }
 // tokens substituted VERBATIM (table expressions, column names, predicates); every other token is a quoted literal.
 // sm_src / mt_src / qual_ok belong to the per-cast slice (sql/slice_cast.sql): sample_measurement, the measurement_type
 // registry and the quality predicate (src/qual.ts qualOkSQL()); root_hex7 is `r.hex7` or `NULL::UBIGINT` (App.tsx castTokens)
-const RAW = new Set(["val", "hex", "where", "where_nodepth", "where_noyear", "src", "taxon_src", "root_src", "spatial_src", "clim_src", "dataset_filter", "quarter_filter", "bin", "sm_src", "mt_src", "qual_ok", "root_hex7"]);
+// tbl is the table a map lens summarizes: `slice`, or `slice_anom` (sql/anom_slice.sql) when it draws an anomaly;
+// clim_loc is the slice column a baseline cell is found by (anomaly.ts anomLoc()), clim_period the slice's cruise month or
+// quarter ({{cruise_month}} / {{cruise_quarter}}, anomaly.ts anomTokens())
+const RAW = new Set(["val", "hex", "where", "where_nodepth", "where_noyear", "src", "taxon_src", "root_src", "spatial_src", "clim_src", "dataset_filter", "quarter_filter", "bin", "sm_src", "mt_src", "qual_ok", "root_hex7", "tbl", "clim_loc", "clim_period",
+  "cruise_month", "cruise_quarter", "cruise_year"]);
+
+// the CRUISE's month / quarter / year from its `YYYY-MM-NODC` cruise_key — the month SWFSC designates, never the calendar
+// date a station was worked (a July cruise works its first stations on 30 June: explore#17). NULL for a missing or
+// malformed key, where the caller falls back to the calendar. Built-in tokens: every template may name {{cruise_month}},
+// {{cruise_quarter}}, {{cruise_year}} without the caller passing them; they read the unqualified column `cruise_key`.
+// The same rule as anomaly.ts cruiseMonth() / cruiseQuarter(), and as calcofi4db's build_obs_slim() at release.
+const CRUISE_KEY_OK = "regexp_matches(cruise_key, '^[0-9]{4}-(0[1-9]|1[0-2])-')";
+export const CRUISE_MONTH_SQL = `(CASE WHEN ${CRUISE_KEY_OK} THEN CAST(substr(cruise_key, 6, 2) AS INTEGER) END)`;
+export const CRUISE_QUARTER_SQL = `((${CRUISE_MONTH_SQL} - 1) // 3 + 1)`;
+export const CRUISE_YEAR_SQL = `(CASE WHEN ${CRUISE_KEY_OK} THEN CAST(substr(cruise_key, 1, 4) AS INTEGER) END)`;
+// {{tbl}} defaults to the slice itself; a map lens drawing an anomaly passes slice_anom
+const BUILTIN: Params = { cruise_month: CRUISE_MONTH_SQL, cruise_quarter: CRUISE_QUARTER_SQL, cruise_year: CRUISE_YEAR_SQL, tbl: "slice" };
 export const datasetFilterSql = (ds: string[] | null | undefined) => ds?.length ? `dataset_key IN (${ds.map((d) => lit(d)).join(", ")})` : "TRUE";
 
 // an H3 parent as plain bit arithmetic (calcofi4db::h3_parent_sql): resolution in bits 52–55, one
@@ -33,7 +49,7 @@ function filterFragment(drop: RegExp | null): string {
     .join("\n  ");
 }
 export function render(name: string, params: Params): string {
-  const p: Params = { ...params };
+  const p: Params = { ...BUILTIN, ...params };
   const sub = (s: string) => s.replace(/\{\{(\w+)\}\}/g, (_, k) => {
     if (!(k in p)) throw new Error(`template ${name}: missing param ${k}`);
     return RAW.has(k) ? String(p[k]) : lit(p[k]);

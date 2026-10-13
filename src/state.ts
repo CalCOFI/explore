@@ -1,5 +1,6 @@
 // selection model = the URL (plan § Architecture). every lens is a pure function of the slice + this.
 import type { IconName } from "./icons";
+import type { ClimBase } from "./anomaly";
 export type Lens = "station" | "hex" | "contour" | "cruise" | "region" | "section";
 export type Interp = "idw" | "ok" | "tps";
 export type Surface = "value" | "se" | "n" | "y0" | "y1" | "p05" | "p95" | "spread";
@@ -32,7 +33,8 @@ export interface Sel {
   line: number;                // section lens: CalCOFI line
   cruise: string | null;       // cruise + section lens
   stat: Stat;
-  anom: boolean;               // section: anomaly vs climatology
+  anom: boolean;               // env, on ANOM_LENSES (section · hex · contour): the difference from the climatology (`anom=1`)
+  base: ClimBase;              // the normal it subtracts: the cruise's month (default) or its quarter (`base=season`; anomaly.ts)
   tour: boolean;               // ?tour=off suppresses the opening morph, the welcome card and the tour
   tourOn: boolean;             // ?tour=on forces the welcome card (demos)
   modal: "sources" | null;     // a modal the URL asks for: `?modal=sources` opens Data Sources & Attribution (WS-A3).
@@ -130,6 +132,9 @@ export function hideFromUrl(p: URLSearchParams): PanelId[] {
 }
 
 export const LENSES: Lens[] = ["station", "hex", "contour", "cruise", "region", "section"];
+/** the lenses that can draw an env variable as the difference from its climatology (`anom=1`): the depth section, and
+ *  the two map lenses that pool departures per cell (sql/anom_slice.sql) */
+export const ANOM_LENSES: Lens[] = ["section", "hex", "contour"];
 export const LENS_TITLE: Record<Lens, string> = {
   station: "Stations — what has been collected where",
   hex: "Hexagons — larval fish and oceanography by area",
@@ -203,7 +208,7 @@ export const YEAR_OPEN = 9999; // "through the latest year in the release" until
 export const DEFAULTS: Sel = {
   lens: "station", res: 5, interp: "ok", surface: "value", grain: "site", inputs: null, labels: true, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature",
   stage: null, den: null, zeros: true, years: [1949, YEAR_OPEN], months: null, q: null, yview: null, depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
-  line: 90, cruise: null, stat: "mean", anom: false, tour: true, tourOn: false, modal: null, theme: null, release: null, station: null, datasets: null,
+  line: 90, cruise: null, stat: "mean", anom: false, base: "month", tour: true, tourOn: false, modal: null, theme: null, release: null, station: null, datasets: null,
   hide: DEFAULT_HIDE, max: null, map: null, bathy: null, bathyo: null, land: true, baseLabels: true, basemapo: null, layers: null, view3d: false, exag: null, cam: null, strip: null, ramp: null, data: true, datao: null,
 };
 
@@ -266,6 +271,7 @@ export function fromUrl(): Sel {
     cruise: p.get("cruise"),
     stat: stat && (stat in STAT_LABEL) ? (stat as Stat) : DEFAULTS.stat,
     anom: p.get("anom") === "1",
+    base: p.get("base") === "season" ? "season" : "month",
     tour: p.get("tour") !== "off",
     tourOn: p.get("tour") === "on",
     modal: p.get("modal") === "sources" ? "sources" : null,
@@ -309,7 +315,9 @@ export function toUrl(s: Sel) {
   if (s.yview && s.yview[1] > s.yview[0]) p.set("yview", `${+s.yview[0].toFixed(2)}-${+s.yview[1].toFixed(2)}`);
   if (s.depth[0] !== DEFAULTS.depth[0] || s.depth[1] !== DEFAULTS.depth[1]) p.set("depth", `${s.depth[0]}-${s.depth[1]}`);
   if (s.lens === "region") { p.set("layer", s.layer); if (s.region) p.set("region", s.region); }
-  if (s.lens === "section") { p.set("line", String(s.line)); if (s.anom) p.set("anom", "1"); }
+  if (s.lens === "section") p.set("line", String(s.line));
+  // the anomaly and its baseline: the lenses that draw one (an env section, Hexagons, Contours — ANOM_LENSES)
+  if (s.realm === "env" && ANOM_LENSES.includes(s.lens) && s.anom) { p.set("anom", "1"); if (s.base !== "month") p.set("base", s.base); }
   if ((s.lens === "section" || s.lens === "cruise") && s.cruise) p.set("cruise", s.cruise);
   if (s.stat !== DEFAULTS.stat) p.set("stat", s.stat);
   if (!s.tour) p.set("tour", "off"); else if (s.tourOn) p.set("tour", "on");

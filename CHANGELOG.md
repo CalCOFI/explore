@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- **the season is the cruise's quarter** (fix, explore#17). The season filter used each cast's calendar date
+  (`quarter(datetime)` in `sql/slice_cast.sql`; the release's calendar `quarter` on obs_env / obs_bio through
+  v2026.10.08), so with `q=3` the inshore line 93.3 stations of 2026-07-3322, worked on 30 June, vanished. Every slice
+  now takes `year` / `quarter` from the cruise_key (`{{cruise_year}}` / `{{cruise_quarter}}`, built-in tokens of
+  `src/sqltpl.ts`; the calendar only for a missing or malformed key), and the month-resolved year filter and the year
+  strip's month bins read the cruise's month — the same rule calcofi4db 4.24.0 applies at release, so this is a no-op on
+  the next release and the fix on older ones (`tests/season.test.ts`).
+- **a monthly or a seasonal normal** (Rasmus Swalethorp, 2026-10-06). Beside *difference from the 1993–2013 normal*, a
+  *month · season* toggle (`base=season`) subtracts the cruise's quarter (`season_mean`, pooled by `season_n`) instead of
+  its month (`clim_mean` by `clim_n`); captions say which ("the 1993–2013 July normal" / "Jul–Sep normal"). A NULL
+  `clim_mean` (the month under the 5-cruise floor while its quarter passes) is "no monthly baseline", exactly like an
+  absent row (`anomaly.ts climBaseSql()`, `sql/section_clim.sql`). The season needs the release's `season_*` columns
+  (calcofi4db 4.24.0+), found by a column probe; on v2026.10.08 the toggle is disabled and says why.
+- **anomalies in Hexagons and Contours, per-cast derived products included** (Rasmus Swalethorp, 2026-10-07). An env
+  variable's anomaly is no longer Sections-only: `sql/anom_slice.sql` subtracts each observation's own cell (dataset,
+  station, cruise month or quarter, depth bin — NULL-safe for a per-cast value — and type) before anything is pooled,
+  into `slice_anom`, which `hex.sql`, `station.sql` and `contour_cast.sql` read (`{{tbl}}`). An observation with no
+  baseline drops out, never 0; the lens options and the legend say what share had one (`sql/anom_share.sql`). The ramp
+  is cmocean *balance* on a window symmetric about 0 (`ramps.ts drawsAnomaly()`), for the value and percentile surfaces
+  and the hexagon mean / median, never for a count, an error or a year. A per-cast value is matched on its cast's
+  grid_key (sample_root has no site_key; the climatology's grid_key is its station's modal cell, 81 stations in 81
+  cells for calcofi_ctd-derived in v2026.10.08); on a release without per-cast climatology cells the checkbox is
+  disabled and says why. The title sentence carries the same choice as a chip.
+
 - **the bundled layers fallback is generated again, from the latest release** (`scripts/dev_spatial_layers.R`,
   `src/spatial_layers.fallback.ts`). The script hard-coded v2026.08.25 and the retired explore-dev cut, and failed once
   that local copy was gone. It now reads `spatial` and `sample_spatial` from the release `latest.txt` names (or a

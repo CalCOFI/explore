@@ -2,6 +2,6 @@
 SELECT grid_key, count(obs_id) AS n, count(DISTINCT root_id) AS n_samples,
        avg({{val}}) AS mean, median({{val}}) AS med, min(year) AS y0, max(year) AS y1,
        quantile_cont({{val}}, 0.05) AS p05, quantile_cont({{val}}, 0.95) AS p95
-FROM slice
+FROM {{tbl}}
 WHERE grid_key IS NOT NULL AND {{where}}
 GROUP BY grid_key

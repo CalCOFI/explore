@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Icon } from "./icons";
 import { colorScale, quantileDomain } from "./map";
 import { rampPlotly } from "./ramps";
-import { anomalyOf, climLookup } from "./anomaly";
+import { anomalyOf, climLookup, type ClimBase } from "./anomaly";
 // Plotly is ~3.5 MB of the bundle and no panel needs it before the slice answers: load it lazily
 let PlotlyMod: any = null;
 const plotly = () => PlotlyMod ? Promise.resolve(PlotlyMod) : import("plotly.js-dist-min").then((m) => (PlotlyMod = m.default ?? m));
@@ -308,8 +308,8 @@ export interface SectionCell { station: number; y: number; v: number; n: number;
  * real distortion, and hanging a distance ruler off it would have printed uneven distances at even pixel spacing. */
 export const KM_PER_STATION = 7.386;
 
-export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | null; anom: boolean; yLabel: string; theme: string; unit: string; title: string; ramp: string; empty?: string | null }) {
-  const ref = usePlot([p.cells, p.clim, p.anom, p.theme, p.yLabel, p.unit, p.title, p.ramp, p.empty], (div, Plotly) => {
+export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | null; anom: boolean; base?: ClimBase; yLabel: string; theme: string; unit: string; title: string; ramp: string; empty?: string | null }) {
+  const ref = usePlot([p.cells, p.clim, p.anom, p.base, p.theme, p.yLabel, p.unit, p.title, p.ramp, p.empty], (div, Plotly) => {
     const b = base(p.theme);
     // stations run OFFSHORE -> NEARSHORE, i.e. station number DESCENDING, so the section reads like the map it was
     // cut from: a CalCOFI line runs west-south-west off the coast, so the high station numbers are the western
@@ -321,14 +321,14 @@ export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | nul
     const km = (sta: number) => (sta - sta0) * KM_PER_STATION;
     const kmToSta = (v: number) => sta0 + v / KM_PER_STATION;   // exact: the map is affine
     const xs = stas.map(km);
-    // the baseline is month-matched on the CRUISE's month (anomaly.ts): a cast's value minus the climatology of the
-    // month its cruise is designated, never the calendar month the station was occupied in
+    // the baseline is matched on the CRUISE's month — or its quarter under the seasonal baseline (anomaly.ts): a cast's
+    // value minus the climatology of the month its cruise is designated, never the calendar month the station was worked
     const climMap = climLookup(p.clim);
     const z = ys.map((y) => stas.map((x) => {
       const c = p.cells.find((d) => d.station === x && d.y === y);
       if (!c) return null;
       if (!p.anom) return c.v;
-      return anomalyOf(c, climMap);   // no baseline = blank, never 0
+      return anomalyOf(c, climMap, p.base);   // no baseline = blank, never 0
     }));
     const isDepth = p.yLabel.startsWith("depth");
     // a symmetric range about zero, from the data: the colorbar's two ends mean the same magnitude either way

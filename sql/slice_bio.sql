@@ -9,11 +9,13 @@
 -- counts shown stay the records and only the statistics (mean, se, median) see the zeros.
 -- site_key rides along (same column set as slice_env.sql) so a template shared by both realms can name it; it is
 -- NULL for datasets with no station (cufes, bird-mammal, phytoplankton). line / station stay the grid cell's here.
+-- year / quarter are the CRUISE's where the cruise_key is a YYYY-MM-NODC key, as in slice_env.sql (explore#17).
 CREATE OR REPLACE TABLE slice AS
 WITH pos AS (
   SELECT obs_id, dataset_key, root_id, grid_key, site_key,
          regexp_extract(grid_key, 'ln([0-9.]+)', 1)::DOUBLE AS line, regexp_extract(grid_key, 'st(-?[0-9.]+)', 1)::DOUBLE AS station,
-         cruise_key, latitude, longitude, datetime, year, quarter, depth_min_m, depth_max_m, depth_bin,
+         cruise_key, latitude, longitude, datetime, COALESCE({{cruise_year}}, year)::SMALLINT AS year, COALESCE({{cruise_quarter}}, quarter)::TINYINT AS quarter,
+         depth_min_m, depth_max_m, depth_bin,
          taxon_key, life_stage, measurement_type, units, value, measurement_qual, qual_ok,
          tow_type, std_haul_factor, prop_sorted, volume_sampled_m3, density_per_10m2, density_per_1000m3, effort_class, hex7
   FROM {{src}}
@@ -25,7 +27,7 @@ positive_only AS (
 tow AS (
   SELECT dataset_key, root_id, any_value(grid_key) AS grid_key, any_value(site_key) AS site_key, any_value(cruise_key) AS cruise_key,
          any_value(latitude) AS latitude, any_value(longitude) AS longitude, any_value(datetime) AS datetime,
-         any_value(year) AS year, any_value(quarter) AS quarter, any_value(depth_min_m) AS depth_min_m,
+         any_value(COALESCE({{cruise_year}}, year))::SMALLINT AS year, any_value(COALESCE({{cruise_quarter}}, quarter))::TINYINT AS quarter, any_value(depth_min_m) AS depth_min_m,
          any_value(depth_max_m) AS depth_max_m, any_value(depth_bin) AS depth_bin, any_value(tow_type) AS tow_type,
          any_value(effort_class) AS effort_class, any_value(hex7) AS hex7,
          bool_or(density_per_10m2 IS NOT NULL) AS has_10m2, bool_or(density_per_1000m3 IS NOT NULL) AS has_1000m3

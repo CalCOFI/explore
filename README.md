@@ -123,16 +123,24 @@ says what the app does and how to work on it without needing them.
   a key that is gone opens the new cell holding the largest share of the old one, a key that was redrawn below 90 % of
   its old area stays, and a key nobody knows stays selected with an empty card — each with a line on the card saying
   which. It never shows a different area without saying so.
-- **A section's anomaly is a departure from one fixed baseline.** In the *Sections* lens, *anomaly vs
-  1993–2013 monthly climatology* subtracts the release's own `climatology` table
-  (`calcofi4db::build_climatology()`): the mean for that station, the cast's **own calendar month** and
-  its 10 m depth bin over 1993–2013, kept only where at least 3 cruises contribute — the same table
-  [ctd-transects](https://calcofi.io/ctd-transects/) subtracts, so the two products cannot disagree. The
-  year, season and depth filters do not touch the baseline (that is what makes anomalies comparable
-  across cruises); the datasets in view are pooled weighted by their observation counts. Red is above
-  normal, blue below, the scale symmetric about zero; a cell with no baseline is blank, never zero.
+- **An anomaly is a departure from one fixed baseline.** In the *Sections*, *Hexagons* and *Contours* lenses,
+  *difference from the 1993–2013 normal* (`anom=1`) subtracts the release's own `climatology` table
+  (`calcofi4db::build_climatology()`): the mean for that station, the **cruise's month** (the MM of its
+  `YYYY-MM-NODC` key, never the calendar day a station was worked) and its 10 m depth bin over 1993–2013, kept only
+  where at least 5 cruises contribute — the same table [ctd-transects](https://calcofi.io/ctd-transects/) subtracts,
+  so the two products cannot disagree. The *month · season* toggle beside it (`base=season`) subtracts the cruise's
+  **quarter** instead (Jul–Sep for a July cruise; the release's `season_*` columns, calcofi4db 4.24.0+; on an older
+  release the toggle is disabled and says why). The map lenses subtract **each observation's own cell before pooling**
+  (`sql/anom_slice.sql`): a hexagon or a contour site is a mean of departures, an observation with no baseline drops out
+  (never 0), and the options say what share had one. A per-cast derived variable (a mixed-layer depth) is matched by its
+  cast's grid cell, with no depth bin, once the release carries per-cast climatology cells. The year, season and depth
+  filters do not touch the baseline (that is what makes anomalies comparable across cruises); the datasets in view are
+  pooled weighted by their observation counts. Red is above normal, blue below (cmocean *balance*), the scale symmetric
+  about zero; a cell with no baseline is blank, never zero.
+- **The season is the cruise's quarter.** The season filter (`q=`) and the year range's month edges read the cruise's
+  designated month, so a July cruise's stations worked on 30 June are in Q3 (explore#17).
 - **The URL is the whole view.** Lens, organism or variable, stage, denominator, years, season, depth,
-  dataset filter, region, line, cruise, summary statistic, the contour method and surface (`interp=`, `surface=`), the data layer (`data=`, `datao=`, `ramp=`), theme, the sea floor (`bathy=`, `bathyo=`), which panels are folded or maximized (`hide=` · `show=` · `max=`), the years strip's mode (`strip=`),
+  dataset filter, region, line, cruise, summary statistic, the anomaly and its baseline (`anom=1`, `base=season`), the contour method and surface (`interp=`, `surface=`), the data layer (`data=`, `datao=`, `ramp=`), theme, the sea floor (`bathy=`, `bathyo=`), which panels are folded or maximized (`hide=` · `show=` · `max=`), the years strip's mode (`strip=`),
   the **map extent** (`map=lon,lat,zoom`) and, in the 3-D section, the **camera** (`cam=lon,lat,zoom,pitch,bearing`,
   written once you move it) are all in it — so *Share → Copy link*, a bookmark and a
   feedback report all reopen at exactly the same place. `?tour=off` suppresses the welcome card and tour

@@ -79,12 +79,25 @@ export function defaultRamp(realm: "bio" | "env", variable: string, anomaly = fa
   if (/wind|speed|current/.test(v) && !/dir/.test(v)) return "speed";
   return DEFAULT_RAMP;
 }
+/** the contour surfaces that are a value of the variable (and so, under `anom=1`, a signed departure); the error, the
+ * density, the first / last year and the spread are not, and keep a sequential ramp */
+export const SIGNED_SURFACES: readonly string[] = ["value", "p05", "p95"];
+/** does this selection DRAW a difference from the climatology? An env variable with `anom=1` on the depth section, on
+ * Hexagons, or on Contours showing a signed surface; never the observation count (`stat=n`) of a map lens. The caller
+ * passes `anom` already false where the release has no baseline for the variable (App.tsx anomAvail). */
+export function drawsAnomaly(sel: { realm: "bio" | "env"; anom: boolean; lens: string; surface?: string; stat?: string }): boolean {
+  if (!sel.anom || sel.realm !== "env") return false;
+  if (sel.lens === "section") return true;
+  if (sel.lens !== "hex" && sel.lens !== "contour") return false;
+  if (sel.stat === "n") return false;
+  return sel.lens === "hex" || SIGNED_SURFACES.includes(sel.surface ?? "value");
+}
 /** the ONE ramp-selection rule every lens shares: the map, the contour surface, the section heatmap and the
  * section's 3-D curtain all draw the SAME id for a given selection — a manual `ramp=` first, else the variable's
- * cmocean convention, `balance` only when the section lens is drawing an env anomaly (`anom=1`). No lens computes
+ * cmocean convention, `balance` whenever the lens draws an env anomaly ({@link drawsAnomaly}). No lens computes
  * its own version of this expression; each passes it this selection and gets back the id to draw with. */
-export function lensRamp(sel: { ramp: string | null; realm: "bio" | "env"; var: string; anom: boolean; lens: string }, hint?: RampHint | null): string {
-  return sel.ramp ?? defaultRamp(sel.realm, sel.var, sel.anom && sel.lens === "section" && sel.realm === "env", hint);
+export function lensRamp(sel: { ramp: string | null; realm: "bio" | "env"; var: string; anom: boolean; lens: string; surface?: string; stat?: string }, hint?: RampHint | null): string {
+  return sel.ramp ?? defaultRamp(sel.realm, sel.var, drawsAnomaly(sel), hint);
 }
 /** the year strip's cruise calendar: one cell per cruise, coloured by that cruise's own summary stat — it never
  * draws a difference from climatology, so it always gets the variable's OWN ramp, even while the section lens
