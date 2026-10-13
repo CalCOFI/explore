@@ -115,11 +115,11 @@ const STATES = [
   { name: "u0_organism_most", url: "?tour=off", steps: async () => { await click("#organism-btn"); await clickText(".picker-tabs [role=tab]", "Search"); await click(".picker-tools .seg button:nth-child(2)"); await sleep(400); } },
   { name: "u0_variable_open", url: "?var=temperature&tour=off", steps: async () => { await click("#variable-btn"); await sleep(400); } },
   { name: "u0_hex", url: "?lens=hex&res=5&tour=off", steps: async () => {} },
-  // the Contours lens (plan 2026-09-07): kriging at the site grain (the default), the error surface, the spline (station grid), IDW, and the station grid
-  { name: "c_contour_ok", url: "?lens=contour&var=temperature&tour=off", steps: async () => { await waitMark(/^contour:/, 60000); await sleep(600); } },
-  { name: "c_contour_se", url: "?lens=contour&var=temperature&surface=se&tour=off", steps: async () => { await waitMark(/^contour:/, 60000); await sleep(3500); } },
-  { name: "c_contour_tps", url: "?lens=contour&interp=tps&surface=y1&tour=off", steps: async () => { await waitMark(/^contour:/, 60000); await sleep(600); } },
-  { name: "c_contour_station", url: "?lens=contour&var=temperature&grain=station&tour=off", steps: async () => { await waitMark(/^contour:/, 120000); await sleep(800); } },
+  // the Contours lens (plan 2026-09-07): the spline on the station grid (the default since explore#24), kriging at the site grain and its error surface, IDW, and kriging on the station grid
+  { name: "c_contour_ok", url: "?lens=contour&interp=ok&var=temperature&tour=off", steps: async () => { await waitMark(/^contour:/, 60000); await sleep(600); } },
+  { name: "c_contour_se", url: "?lens=contour&interp=ok&var=temperature&surface=se&tour=off", steps: async () => { await waitMark(/^contour:/, 60000); await sleep(3500); } },
+  { name: "c_contour_tps", url: "?lens=contour&surface=y1&tour=off", steps: async () => { await waitMark(/^contour:/, 60000); await sleep(600); } },
+  { name: "c_contour_station", url: "?lens=contour&interp=ok&var=temperature&grain=station&tour=off", steps: async () => { await waitMark(/^contour:/, 120000); await sleep(800); } },
   { name: "c_data_under_sanctuaries", url: "?lens=hex&var=temperature&layers=noaa_onms_sanctuaries,data&tour=off", steps: async () => { await sleep(1500); } },
   { name: "c_contour_idw_bio", url: "?lens=contour&interp=idw&tour=off", steps: async () => { await waitMark(/^contour:/, 60000); await sleep(600); } },
   { name: "c_layers_data_row", url: "?lens=hex&var=oxygen_ml_l&ramp=thermal_r&datao=0.6&tour=off", steps: async () => { await click(".map-layers-btn"); await sleep(500); } },

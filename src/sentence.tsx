@@ -5,7 +5,7 @@
 // so the two surfaces cannot disagree. One control surface at a time: opening the sentence folds the panel.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "./icons";
-import { IconButton, Menu, useAnchor, type MenuItem } from "./ui";
+import { IconButton, Menu, NumInput, YearRange, useAnchor, type MenuItem } from "./ui";
 import { Picker, type PickerItem, type GroupOpt } from "./picker";
 import { CLIM_MIN_CRUISES, baselineWord, cruiseMonth, type ClimBase } from "./anomaly";
 import { DEN_LABEL, DEN_HOW, LENSES, LENS_SHORT, LENS_DESC, LENS_ICON, RES_KM, STAT_WORD, STAT_LABEL, YEAR_OPEN, INTERPS, INTERP_LABEL, INTERP_WORD, INTERP_HOW, SURFACES, SURFACE_LABEL, SURFACE_WORD, GRAIN_LABEL, GRAIN_HOW, type Sel, type Den, type Stat, type Lens, type Grain } from "./state";
@@ -18,6 +18,7 @@ export interface SentenceCtx {
   organismItems: PickerItem[]; organismGroups: GroupOpt[]; variableItems: PickerItem[]; variableGroups: GroupOpt[];
   sectionCruiseItems: PickerItem[]; cruiseItems: PickerItem[]; lines: number[]; layerNames: string[]; regionName: string | null;
   stages: [string | null, number][]; denRows: (d: Den) => number; defaultDen: (stage: string | null) => Den;
+  areaText: string | null; // the Area filter's clause (src/area.ts areaWord), null = everywhere (explore#20)
   years: [number, number]; yearMax: number; hasDepthAxis: boolean; hasClim: boolean; climWindow: [number, number] | null;
   // the anomaly (anomaly.ts): a baseline exists for this variable; the one in force; whether the release carries the season
   anomAvail?: boolean; climBase?: ClimBase; seasonOk?: boolean | null;
@@ -115,7 +116,7 @@ export function Sentence(c: SentenceCtx) {
     { label: `the difference from the ${normalWord("month")}`, hint: "red above normal, blue below; no baseline is blank, never 0", selected: sel.anom && base === "month", onSelect: () => setSel({ anom: true, base: "month" }) },
     { label: `the difference from the ${normalWord("season")}`, hint: c.seasonOk === false ? "this release's climatology has no seasonal baseline (calcofi4db 4.24.0+)" : "the cruise's quarter: Jan–Mar, Apr–Jun, Jul–Sep, Oct–Dec", disabled: c.seasonOk === false, selected: sel.anom && base === "season", onSelect: () => setSel({ anom: true, base: "season" }) }]} />;
   const yearsPop = () => <ChipPop label={yearsWord} icon="ui-years" title="the year range · or drag on the Years panel">
-    <div className="row"><input type="number" style={{ width: 62 }} value={c.years[0]} min={1949} max={c.yearMax} onChange={(e) => setSel({ years: [+e.target.value, c.years[1]] })} />–<input type="number" style={{ width: 62 }} value={c.years[1]} min={1949} max={c.yearMax} onChange={(e) => setSel({ years: [c.years[0], +e.target.value] })} /></div>
+    <div className="row"><YearRange years={c.years} first={1949} last={c.yearMax} width={62} onChange={(y) => setSel({ years: [y[0], y[1] >= c.yearMax ? YEAR_OPEN : y[1]], months: null })} /></div>
     <div className="row"><button type="button" className="pill act" onClick={() => setSel({ years: [1949, YEAR_OPEN], months: null })}>all years</button><span className="hint">or drag on the Years panel{sel.months ? " · month edges from the brush" : ""}</span></div>
   </ChipPop>;
   const seasonPop = () => <ChipPop label={seasonWord} icon="ui-calendar" title="season: keep only these quarters" width={240}>
@@ -123,7 +124,7 @@ export function Sentence(c: SentenceCtx) {
     <div className="hint">{sel.q ? sel.q.map((x) => Q_LABEL[x - 1]).join(", ") : "every quarter"}</div>
   </ChipPop>;
   const depthPop = () => <ChipPop label={depthWord} icon="ui-tune" title="the depth band · or drag on the Depth panel">
-    <div className="row"><input type="number" style={{ width: 62 }} value={sel.depth[0]} min={0} max={sel.depth[1] - 10} step={10} onChange={(e) => setSel({ depth: [+e.target.value, sel.depth[1]] })} />–<input type="number" style={{ width: 62 }} value={sel.depth[1]} min={sel.depth[0] + 10} max={6500} step={10} onChange={(e) => setSel({ depth: [sel.depth[0], +e.target.value] })} /> m</div>
+    <div className="row"><NumInput value={sel.depth[0]} min={0} max={sel.depth[1] - 10} step={10} width={62} label="top of the depth band (m)" onCommit={(v) => setSel({ depth: [v, sel.depth[1]] })} />–<NumInput value={sel.depth[1]} min={sel.depth[0] + 10} max={6500} step={10} width={62} label="bottom of the depth band (m)" onCommit={(v) => setSel({ depth: [sel.depth[0], v] })} /> m</div>
     <div className="row"><button type="button" className="pill act" onClick={() => setSel({ depth: [0, 500] })}>0–500 m</button><span className="hint">or drag on the Depth panel</span></div>
   </ChipPop>;
   const datasetsPop = () => <ChipPop label={nOn === nDs ? `${nDs} datasets` : `${nOn} of ${nDs} datasets`} icon="ui-data" title="the datasets this view pools — click one to leave it out" width={300}>
@@ -161,6 +162,7 @@ export function Sentence(c: SentenceCtx) {
   if ((sel.lens === "hex" || sel.lens === "contour") && sel.realm === "env" && c.anomAvail && (sel.anom || c.open)) { w(", "); chip("anom", anomWord, anomMenu); }
   w(", "); chip("years", yearsWord, yearsPop); w(" · "); chip("season", seasonWord, seasonPop);
   if (c.hasDepthAxis) { w(" · "); chip("depth", depthWord, depthPop); }
+  if (c.areaText) { w(" · "); chip("area", c.areaText, () => <ChipMenu label={c.areaText!} title="the Area filter — set in Refine" items={[{ label: "everywhere (clear the area)", selected: false, onSelect: () => setSel({ area: null }) }]} />, false, "only samples inside this area count — Refine › Area"); }
   if (sel.datasets || c.open) { w(" · "); chip("datasets", nOn === nDs ? `all ${nDs} datasets` : `${nOn} of ${nDs} datasets`, datasetsPop); }
   w(".");
 
@@ -168,8 +170,9 @@ export function Sentence(c: SentenceCtx) {
   // a newcomer waiting on "engine warming…" will see it. The title stands above the legend, never beside it: a mouthful of a
   // sentence squeezed into a column beside an unwrapping legend was the 2026-09-07 bug.
   const legend = <span className="ts-legend" data-tour="legend">
-    <span>{c.domain[0]}</span><span className="bar" style={{ background: c.bar }} /><span>{c.domain[1]} {c.unit}</span>
-    <span className="hint">· 5–95 %{c.ready ? ` · ${fmtN(c.count)} ${c.countWord ?? "observations"}` : ""}</span>
+    {c.sel.data ? <><span>{c.domain[0]}</span><span className="bar" style={{ background: c.bar }} /><span>{c.domain[1]} {c.unit}</span></> : <span className="hint">data off</span>}
+    {c.sel.obs && <span className="hint" title="the Observations layer (Layers card): every site in the selection as a dot"> · <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: 4, background: `#${c.sel.obs}`, boxShadow: "0 0 0 1px rgba(127,127,127,.6)", verticalAlign: "middle" }} /> every site sampled</span>}
+    <span className="hint">{c.sel.data ? " · 5–95 %" : ""}{c.ready ? ` · ${fmtN(c.count)} ${c.countWord ?? "observations"}` : ""}</span>
   </span>;
   return (
     <div className={`sentence${c.open ? " open" : ""}`} data-tour="sentence" style={c.band}>

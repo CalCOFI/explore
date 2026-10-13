@@ -14,7 +14,7 @@ export interface Params { [k: string]: Param }
 // tbl is the table a map lens summarizes: `slice`, or `slice_anom` (sql/anom_slice.sql) when it draws an anomaly;
 // clim_loc is the slice column a baseline cell is found by (anomaly.ts anomLoc()), clim_period the slice's cruise month or
 // quarter ({{cruise_month}} / {{cruise_quarter}}, anomaly.ts anomTokens())
-const RAW = new Set(["val", "hex", "where", "where_nodepth", "where_noyear", "src", "taxon_src", "root_src", "spatial_src", "clim_src", "dataset_filter", "quarter_filter", "bin", "sm_src", "mt_src", "qual_ok", "root_hex7", "tbl", "clim_loc", "clim_period",
+const RAW = new Set(["val", "hex", "where", "where_nodepth", "where_noyear", "src", "taxon_src", "root_src", "spatial_src", "clim_src", "dataset_filter", "quarter_filter", "bin", "sm_src", "mt_src", "qual_ok", "root_hex7", "tbl", "clim_loc", "clim_period", "area_filter",
   "cruise_month", "cruise_quarter", "cruise_year"]);
 
 // the CRUISE's month / quarter / year from its `YYYY-MM-NODC` cruise_key — the month SWFSC designates, never the calendar
@@ -27,7 +27,7 @@ export const CRUISE_MONTH_SQL = `(CASE WHEN ${CRUISE_KEY_OK} THEN CAST(substr(cr
 export const CRUISE_QUARTER_SQL = `((${CRUISE_MONTH_SQL} - 1) // 3 + 1)`;
 export const CRUISE_YEAR_SQL = `(CASE WHEN ${CRUISE_KEY_OK} THEN CAST(substr(cruise_key, 1, 4) AS INTEGER) END)`;
 // {{tbl}} defaults to the slice itself; a map lens drawing an anomaly passes slice_anom
-const BUILTIN: Params = { cruise_month: CRUISE_MONTH_SQL, cruise_quarter: CRUISE_QUARTER_SQL, cruise_year: CRUISE_YEAR_SQL, tbl: "slice" };
+const BUILTIN: Params = { cruise_month: CRUISE_MONTH_SQL, cruise_quarter: CRUISE_QUARTER_SQL, cruise_year: CRUISE_YEAR_SQL, tbl: "slice", area_filter: "TRUE" }; // and the Area filter (src/area.ts) is everywhere unless a caller says
 export const datasetFilterSql = (ds: string[] | null | undefined) => ds?.length ? `dataset_key IN (${ds.map((d) => lit(d)).join(", ")})` : "TRUE";
 
 // an H3 parent as plain bit arithmetic (calcofi4db::h3_parent_sql): resolution in bits 52–55, one

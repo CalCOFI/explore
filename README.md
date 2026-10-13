@@ -63,12 +63,12 @@ says what the app does and how to work on it without needing them.
   (`src/castgrain.ts`), so a type renamed or redefined in the next release needs no edit here.
   [`docs/cast-grain.md`](docs/cast-grain.md) is the design.
 - **A contour is computed in the browser, and it shows its own error.** The *Contours* lens interpolates a point
-  summary under the same filters as every other lens — by default **every site** (each cast, tow or site at its own
+  summary under the same filters as every other lens — **every site** (each cast, tow or site at its own
   position to 0.01°, repeat occupations pooled; `sql/contour_cast.sql`), or the **station grid** (one point per
-  `grid_key` cell; `grain=station`) — into a surface in a Web Worker (`src/contour.worker.ts`, plain typed arrays, no library): **IDW** (power 1.3, what the
-  superseded Contour Explorer drew with `terra::interpIDW`), **ordinary kriging** (an exponential variogram fitted by
-  weighted least squares) or a **thin-plate spline** (mgcv's `s(lon, lat)` basis, the smoothing picked by GCV — the
-  GAM `calcofi4r::pts_to_contours_gam()` fits; station grid only). At the site grain kriging and IDW take the **24
+  `grid_key` cell; `grain=station`) — into a surface in a Web Worker (`src/contour.worker.ts`, plain typed arrays, no library): a **thin-plate spline**, the
+  default (mgcv's `s(lon, lat)` basis, the smoothing picked by GCV — the GAM `calcofi4r::pts_to_contours_gam()` fits;
+  station grid only), **ordinary kriging** (an exponential variogram fitted by weighted least squares; `interp=ok`) or
+  **IDW** (power 1.3, what the superseded Contour Explorer drew with `terra::interpIDW`; `interp=idw`). At the site grain kriging and IDW take the **24
   nearest points within 180 km per cell** (one small solve each, so the error comes free; ≈ 1 s for 12,000 sites);
   at the station grid every point is in one system (≈ 0.3 s, the error surface ≈ 3 s more). The *surface* menu draws the statistic itself, **its error** (the
   kriging standard deviation, or the spline's standard error — IDW has none, it is a weighted average, not a model),
@@ -87,6 +87,13 @@ says what the app does and how to work on it without needing them.
   `calcofi4py.interpolate()` are the same code by hand, pinned by `scripts/parity/contour_fixture.json` — written by
   the worker itself (`node scripts/parity/contour_fixture.mjs`) and copied byte-for-byte into both packages'
   test fixtures — so a surface made in R or Python matches the map cell for cell.
+- **Lines is a layer of its own** (`lines=on`): each CalCOFI line threaded through its official stations in station
+  order and named at both ends (`lineThreads()` in `src/gridkey.ts`, the rule the 3-D curtain draws at the surface),
+  independent of the *Data* row. Historical cells (`_hist`) and a station on a line of its own are not threaded.
+- **Observations is a layer of its own** (`obs=on`, or `obs=<hex>` for another colour): every cast, tow or site in the
+  selection at its own position (to 0.01°, `sql/contour_cast.sql`) as a dot, in any lens and on top of everything.
+  It is independent of the *Data* row, so `data=off&obs=on` draws the sampling over the sea floor and the boundaries
+  with no summary colour.
 - **The data layer has its own rows in the Layers card**: on/off (`data=off` leaves the sea floor and boundaries
   alone), opacity (`datao=`), the **colour ramp** (`ramp=thermal`, `_r` reverses): cmocean's 22 ramps (Thyng et
   al. 2016), viridis and oce's GEBCO ramp, in `src/ramps.ts`; with no `ramp=` the variable picks its cmocean

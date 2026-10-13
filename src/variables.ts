@@ -8,7 +8,7 @@
 // bottle samples and would double-count the bottle dataset, so they stay separate variables.
 export interface VariableDef { key: string; label: string; members: string[] }
 export const UNIFIED: VariableDef[] = [
-  { key: "temperature",    label: "Temperature (°C)",                 members: ["temperature", "temperature_ave"] },
+  { key: "temperature",    label: "Sea temperature (°C)",             members: ["temperature", "temperature_ave"] },
   { key: "salinity",       label: "Salinity (PSS-78 / PSU)",          members: ["salinity", "salinity_ave_corr"] },
   { key: "oxygen_ml_l",    label: "Dissolved oxygen (ml/L)",          members: ["oxygen_ml_l", "oxygen_ml_l_ave_sta_corr"] },
   { key: "oxygen_umol_kg", label: "Dissolved oxygen (µmol/kg)",       members: ["oxygen_umol_kg", "oxygen_umol_kg_ave_sta_corr"] },
