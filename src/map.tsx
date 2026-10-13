@@ -9,6 +9,7 @@ import { H3HexagonLayer, TripsLayer } from "@deck.gl/geo-layers";
 import type { Layer, PickingInfo } from "@deck.gl/core";
 import { latLngToCell, cellToLatLng } from "h3-js";
 import type { Lens, Stat } from "./state";
+import type { LineThread } from "./gridkey";
 import { baseStyle, composeStyle, warmBaseStyles, type BathyState, type BoundaryState } from "./basemap";
 import { rampColors, rampCss } from "./ramps";
 
@@ -58,6 +59,7 @@ export interface LayerInputs {
   ramp: string | null;        // the colour ramp id (ramps.ts); null = viridis
   dataOn: boolean;            // the Layers card's "Data" switch (`data=off`): every deck data layer off, the basemap and boundaries stay
   dataOpacity: number;        // the data layer's opacity 0–1 (`datao=`)
+  lines?: LineThread[] | null; // the Lines layer (`lines=on`): each line threaded through its stations, named at both ends; drawn even with Data off
   obs?: { rows: { longitude: number; latitude: number; n: number }[]; color: string } | null; // the Observations layer (`obs=`): every site, drawn even with Data off
   beforeId?: string;          // D36: the MapLibre layer the data layer draws UNDER (the boundary above it in the Layers card); undefined = on top
   selectedStation?: string | null;
@@ -83,7 +85,20 @@ export function buildLayers(inp: LayerInputs): Layer[] {
     getLineColor: luminance(inp.obs.color) < 0.5 ? [255, 255, 255, 140] : [0, 0, 0, 140], pickable: false,
     updateTriggers: { getFillColor: [inp.obs.color], getLineColor: [inp.obs.color] },
   })] : [];
-  if (!inp.dataOn) return obs;
+  // the Lines layer (Erin, 2026-10-02: "stations (and lines, if possible)"): a hairline through each line's stations and its
+  // name at both ends, independent of the Data row, above the data and under the Observations. White on a dark halo, the
+  // contour labels' style, so it reads over the sea floor, a surface or the basemap in either theme
+  const lines: Layer[] = inp.lines?.length ? [
+    new PathLayer({ id: "lines-halo", data: inp.lines, getPath: (d: any) => d.path, getColor: [20, 20, 30, 70], widthUnits: "pixels", getWidth: 3, widthMinPixels: 3, pickable: false }),
+    new PathLayer({ id: "lines", data: inp.lines, getPath: (d: any) => d.path, getColor: [255, 255, 255, 150], widthUnits: "pixels", getWidth: 1, widthMinPixels: 1, pickable: false }),
+    new TextLayer({
+      id: "line-labels", data: inp.lines.flatMap((t) => t.labels), getPosition: (d: any) => d.position, getText: (d: any) => d.text,
+      getSize: 12, getColor: [255, 255, 255, 240], fontFamily: "Helvetica Neue, Helvetica, Arial, sans-serif", fontWeight: 600, // a system face: a web font not yet loaded leaves deck's atlas empty
+      fontSettings: { sdf: true, fontSize: 48, buffer: 6, radius: 8 }, outlineWidth: 3, outlineColor: [20, 20, 30, 220],
+      getTextAnchor: "middle", getAlignmentBaseline: "center", billboard: true, pickable: false,
+    }),
+  ] : [];
+  if (!inp.dataOn) return [...lines, ...obs];
   // D37 (2026-09-07): the dots TRAVEL only between Stations and Hexagons — the one morph that explains something (pooling);
   // every other lens change is a short cross-fade in place, so nothing flies to a centroid or flickers through a 700 ms tween
   const travel = lens === "station" || lens === "hex";
@@ -236,7 +251,7 @@ export function buildLayers(inp: LayerInputs): Layer[] {
     transitions: trans(),
   }));
   // interleaved (D36): deck draws inside MapLibre's own layer stack; beforeId puts the whole data layer under one boundary
-  return [...(inp.beforeId ? layers.map((l) => l.clone({ beforeId: inp.beforeId } as any)) : layers), ...obs];
+  return [...(inp.beforeId ? layers.map((l) => l.clone({ beforeId: inp.beforeId } as any)) : layers), ...lines, ...obs];
 }
 
 // ── the map component ─────────────────────────────────────────────────────────

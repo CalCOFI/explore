@@ -65,3 +65,29 @@ export function resolveStation(key: string, gridKeys: ReadonlySet<string>, cross
     note: `${key} is not a cell of ${version}'s grid — showing ${best.grid_key}, which holds ${pct(best.prev_frac)} of its area` };
   return { kind: "missing", key, note: `${key} is not a cell of ${version}'s grid${crosswalk ? " (nor of its crosswalk from the previous grid)" : ""}` };
 }
+
+/** a station cell with its position (lon, lat), as the map holds it */
+export interface GridHome extends GridLine { home: [number, number]; grid_key?: string }
+export interface LineThread { line: number; path: [number, number][]; labels: { position: [number, number]; text: string }[] }
+/** a line's name as the map and the 3-D curtain write it: `line 90`, `line 93.3` */
+export const lineName = (line: number) => `line ${Number.isInteger(line) ? String(line) : line.toFixed(1)}`;
+/** how far past its end station a line's label sits, as a share of the last station spacing */
+export const LINE_LABEL_NUDGE = 0.7;
+
+/** the CalCOFI lines for the 2-D map's Lines layer (`lines=on`; Erin Satterthwaite, 2026-10-02: "stations (and lines,
+ *  if possible)"): every line with at least SECTION_MIN_STATIONS cells, threaded through its stations in station
+ *  order, its name at BOTH ends (the offshore end is out of frame as often as not), each label nudged past the end
+ *  station along the line so it never sits on a station dot. A station on a line of its own (SCCOOS 93.4 26.4) is
+ *  neither threaded nor named here — on the 2-D map its station dot says enough. Only the official stations are
+ *  threaded: a historical cell (`…_hist`) is a position the program once worked, and threading those drew lines across
+ *  Baja California into the Gulf. Ascending by line. */
+export function lineThreads(grid: readonly GridHome[]): LineThread[] {
+  const by = new Map<number, GridHome[]>();
+  for (const c of grid) if (!c.grid_key?.endsWith("_hist")) (by.get(c.line) ?? by.set(c.line, []).get(c.line)!).push(c);
+  const past = (a: [number, number], b: [number, number]): [number, number] => [a[0] + (a[0] - b[0]) * LINE_LABEL_NUDGE, a[1] + (a[1] - b[1]) * LINE_LABEL_NUDGE];
+  return [...by.entries()].filter(([, cs]) => cs.length >= SECTION_MIN_STATIONS).sort(([a], [b]) => a - b).map(([line, cs]) => {
+    const path = cs.slice().sort((a, b) => a.station - b.station).map((c) => c.home);
+    const n = path.length, text = lineName(line);
+    return { line, path, labels: [{ position: past(path[0], path[1]), text }, { position: past(path[n - 1], path[n - 2]), text }] };
+  });
+}

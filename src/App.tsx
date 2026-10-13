@@ -7,7 +7,7 @@ import { engine, timing, hexExpr, datasetFilterSql, type Mark, type Row } from "
 import { UNIFIED, members, setUnified, unifiedDefs } from "./variables";
 import { castVariables, derivedFamily, derivedTip, grainCount, grainWord, variableGrain, DERIVED_FAMILY, type CastCensusRow, type RegistryRow, type VarGrain } from "./castgrain";
 import { qualOkSQL } from "./qual";
-import { nearestSectionLine, resolveStation, sectionLines, type CrosswalkRow } from "./gridkey";
+import { lineThreads, nearestSectionLine, resolveStation, sectionLines, type CrosswalkRow } from "./gridkey";
 import { lit } from "./sqltpl";
 import { buildLayers, MapView, quantileDomain, colorScale, type GridCell, type StatRow, type LayerInputs } from "./map";
 import { computeSurface, surfaceImage, isolines, niceLevels, joinSegments, labelPoints, thinLabels, cellToLonLat, cellValue, landMask, MASK_KM, type Surface as SurfaceResult } from "./contour";
@@ -647,14 +647,15 @@ export function App() {
     return { image, bounds: [g.lon0, g.latS, g.lon1, g.latN] as [number, number, number, number], lines, labels, casts: surf.fit.nmax > 0 ? (castRows as any[]) : null, inputs: showInputs };
   }, [displayLens, surf, surfVals, legendDomain, rampId, castRows, showInputs, sel.labels, sel.surface, sel.map?.[2]]);
 
+  const lineThreadsAll = useMemo(() => lineThreads(grid), [grid]); // the Lines layer (`lines=on`)
   const layerInputs = useMemo((): LayerInputs => ({
     lens: displayLens, res: sel.res, stat: preSlice ? "n" : stat, grid, station: stationMap, hex: hexRows as any,
     region: { features: layerFeatures, stats: regionStats, stationTo: regionStation, centroid: centroids, selected: sel.region },
     cruise: { track, samples: cruiseSamples as any, time: timeRef.current },
     section: { line: sel.line, cruiseStations },
     contour: contourInputs,
-    duration, domain, ramp: rampId, dataOn: sel.data, dataOpacity: sel.datao ?? 1, obs: sel.obs ? { rows: castRows as any[], color: sel.obs } : null, beforeId: dataBeforeId, selectedStation: sel.station,
-  }), [displayLens, sel.res, stat, preSlice, grid, stationMap, hexRows, layerFeatures, regionStats, regionStation, centroids, sel.region, track, cruiseSamples, sel.line, cruiseStations, domain, sel.station, contourInputs, rampId, sel.data, sel.datao, sel.obs, castRows, dataBeforeId]);
+    duration, domain, ramp: rampId, dataOn: sel.data, dataOpacity: sel.datao ?? 1, obs: sel.obs ? { rows: castRows as any[], color: sel.obs } : null, lines: sel.lines ? lineThreadsAll : null, beforeId: dataBeforeId, selectedStation: sel.station,
+  }), [displayLens, sel.res, stat, preSlice, grid, stationMap, hexRows, layerFeatures, regionStats, regionStation, centroids, sel.region, track, cruiseSamples, sel.line, cruiseStations, domain, sel.station, contourInputs, rampId, sel.data, sel.datao, sel.obs, castRows, sel.lines, lineThreadsAll, dataBeforeId]);
   inputsRef.current = layerInputs;
   const layers = useMemo(() => buildLayers(layerInputs), [layerInputs]);
 
