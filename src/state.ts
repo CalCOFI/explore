@@ -154,7 +154,7 @@ export const LENS_DESC: Record<Lens, string> = {
 /** the statistic as the title sentence says it */
 export const STAT_WORD: Record<Stat, string> = { mean: "mean", med: "median", n: "count of observations" };
 export const LAYERS = ["Marine Protected Areas", "National Marine Sanctuaries", "CDFW Regions", "CA Counties"];
-export const ENV_VARS_FALLBACK: Record<string, string> = { temperature: "Temperature (°C)", oxygen_ml_l: "Oxygen (ml/L)" };
+export const ENV_VARS_FALLBACK: Record<string, string> = { temperature: "Sea temperature (°C)", oxygen_ml_l: "Oxygen (ml/L)" };
 export const VAL_COL: Record<Den, string> = { per_10m2: "density_per_10m2", per_1000m3: "density_per_1000m3", raw: "value" };
 export const DEN_LABEL: Record<Den, string> = {
   per_10m2: "per 10 m² of sea surface",
@@ -171,7 +171,7 @@ export const DEN_HOW: Record<Den, string> = {
 export const SHF_NOTE = "standard haul factor = 10 × tow depth (m) ÷ volume strained (m³): SWFSC's per-tow multiplier, carried per tow in the release (obs_bio.std_haul_factor) and kept in the download bundle's observations";
 export const STAT_LABEL: Record<Stat, string> = { mean: "mean", med: "median", n: "observations" }; // "rows" is database-speak (D12)
 // H3 mean edge length per resolution (km) — what "hexagon size" shows; `res` stays in the URL (D12)
-export const INTERPS: Interp[] = ["idw", "ok", "tps"];
+export const INTERPS: Interp[] = ["tps", "ok", "idw"]; // the spline first: the default since explore#24
 export const INTERP_LABEL: Record<Interp, string> = { idw: "IDW", ok: "kriging", tps: "spline" };
 export const INTERP_WORD: Record<Interp, string> = { idw: "inverse-distance weighting", ok: "ordinary kriging", tps: "a thin-plate spline" };
 export const INTERP_HOW: Record<Interp, string> = {
@@ -201,7 +201,7 @@ export const DEFAULT_TAXON = "worms:217452"; // Pacific sardine
 export const YEAR_OPEN = 9999; // "through the latest year in the release" until coverage.json says which
 
 export const DEFAULTS: Sel = {
-  lens: "station", res: 5, interp: "ok", surface: "value", grain: "site", inputs: null, labels: true, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature",
+  lens: "station", res: 5, interp: "tps", surface: "value", grain: "site", inputs: null, labels: true, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature",
   stage: null, den: null, zeros: true, years: [1949, YEAR_OPEN], months: null, q: null, yview: null, depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
   line: 90, cruise: null, stat: "mean", anom: false, tour: true, tourOn: false, modal: null, theme: null, release: null, station: null, datasets: null,
   hide: DEFAULT_HIDE, max: null, map: null, bathy: null, bathyo: null, land: true, baseLabels: true, basemapo: null, layers: null, view3d: false, exag: null, cam: null, strip: null, ramp: null, data: true, datao: null,

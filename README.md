@@ -63,12 +63,12 @@ says what the app does and how to work on it without needing them.
   (`src/castgrain.ts`), so a type renamed or redefined in the next release needs no edit here.
   [`docs/cast-grain.md`](docs/cast-grain.md) is the design.
 - **A contour is computed in the browser, and it shows its own error.** The *Contours* lens interpolates a point
-  summary under the same filters as every other lens — by default **every site** (each cast, tow or site at its own
+  summary under the same filters as every other lens — **every site** (each cast, tow or site at its own
   position to 0.01°, repeat occupations pooled; `sql/contour_cast.sql`), or the **station grid** (one point per
-  `grid_key` cell; `grain=station`) — into a surface in a Web Worker (`src/contour.worker.ts`, plain typed arrays, no library): **IDW** (power 1.3, what the
-  superseded Contour Explorer drew with `terra::interpIDW`), **ordinary kriging** (an exponential variogram fitted by
-  weighted least squares) or a **thin-plate spline** (mgcv's `s(lon, lat)` basis, the smoothing picked by GCV — the
-  GAM `calcofi4r::pts_to_contours_gam()` fits; station grid only). At the site grain kriging and IDW take the **24
+  `grid_key` cell; `grain=station`) — into a surface in a Web Worker (`src/contour.worker.ts`, plain typed arrays, no library): a **thin-plate spline**, the
+  default (mgcv's `s(lon, lat)` basis, the smoothing picked by GCV — the GAM `calcofi4r::pts_to_contours_gam()` fits;
+  station grid only), **ordinary kriging** (an exponential variogram fitted by weighted least squares; `interp=ok`) or
+  **IDW** (power 1.3, what the superseded Contour Explorer drew with `terra::interpIDW`; `interp=idw`). At the site grain kriging and IDW take the **24
   nearest points within 180 km per cell** (one small solve each, so the error comes free; ≈ 1 s for 12,000 sites);
   at the station grid every point is in one system (≈ 0.3 s, the error surface ≈ 3 s more). The *surface* menu draws the statistic itself, **its error** (the
   kriging standard deviation, or the spline's standard error — IDW has none, it is a weighted average, not a model),
