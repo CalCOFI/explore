@@ -461,7 +461,8 @@ export function App() {
       const need_station = !opened.current || lens === "station" || lens === "contour"; // the contour lens interpolates the station summary
       if (need_station) { const r = await engine.query("station", params); if (stale()) return; setStationRows(r); }
       if (lens === "hex") { const r = await engine.query("hex", { ...params, hex: hexExpr(sel.res) }); if (stale()) return; setHexRows(r); }
-      if (lens === "contour" && sel.grain === "site" && sel.interp !== "tps") { const r = await engine.query("contour_cast", params); if (stale()) return; setCastRows(r); }
+      // the sites: the Contours inputs at the site grain, and the Observations layer in any lens (`obs=`)
+      if ((lens === "contour" && sel.grain === "site" && sel.interp !== "tps") || sel.obs) { const r = await engine.query("contour_cast", params); if (stale()) return; setCastRows(r); }
       if (lens === "region") {
         await ensure(REG.sample_spatial); await ensure(REG.sample_root);
         const rr = await engine.query("region", { ...params, layer: sel.layer, spatial_src: q(REG.sample_spatial) });
@@ -538,7 +539,7 @@ export function App() {
       } else setDisplayLens(lens);
       setStatus("ready");
     })().catch((e) => { console.error(e); setStatus(`error: ${e.message}`); });
-  }, [sliceKey, sel.lens, sel.res, sel.layer, sel.line, sel.cruise, sel.grain, sel.interp === "tps", params]);
+  }, [sliceKey, sel.lens, sel.res, sel.layer, sel.line, sel.cruise, sel.grain, sel.interp === "tps", !!sel.obs, params]);
 
   // cruise playback (D37): the clock lives in a ref and the loop hands deck new layers itself — no App render per frame
   const timeRef = useRef(0);
@@ -652,8 +653,8 @@ export function App() {
     cruise: { track, samples: cruiseSamples as any, time: timeRef.current },
     section: { line: sel.line, cruiseStations },
     contour: contourInputs,
-    duration, domain, ramp: rampId, dataOn: sel.data, dataOpacity: sel.datao ?? 1, beforeId: dataBeforeId, selectedStation: sel.station,
-  }), [displayLens, sel.res, stat, preSlice, grid, stationMap, hexRows, layerFeatures, regionStats, regionStation, centroids, sel.region, track, cruiseSamples, sel.line, cruiseStations, domain, sel.station, contourInputs, rampId, sel.data, sel.datao, dataBeforeId]);
+    duration, domain, ramp: rampId, dataOn: sel.data, dataOpacity: sel.datao ?? 1, obs: sel.obs ? { rows: castRows as any[], color: sel.obs } : null, beforeId: dataBeforeId, selectedStation: sel.station,
+  }), [displayLens, sel.res, stat, preSlice, grid, stationMap, hexRows, layerFeatures, regionStats, regionStation, centroids, sel.region, track, cruiseSamples, sel.line, cruiseStations, domain, sel.station, contourInputs, rampId, sel.data, sel.datao, sel.obs, castRows, dataBeforeId]);
   inputsRef.current = layerInputs;
   const layers = useMemo(() => buildLayers(layerInputs), [layerInputs]);
 

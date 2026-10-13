@@ -5,7 +5,7 @@
 // (`layers=`) and nowhere else, so a share link, a bookmark and a feedback report reopen the same map (D26).
 import { useRef, useState } from "react";
 import { Icon } from "./icons";
-import { BATHY_PARTS, type BathyPart, type LayerStyle, type Sel } from "./state";
+import { BATHY_PARTS, OBS_COLOR, type BathyPart, type LayerStyle, type Sel } from "./state";
 import { LAND_ID, PALETTES, baseLabelDefaultOpacity, bathyDefaultOpacity, defaultLayers, effectiveLayers, isPalette, labelDefaultOpacity, sameLayers, type SpatialLayerDef } from "./basemap";
 import { RAMPS, RAMP_IDS, parseRamp, rampCss, defaultRamp, lensRamp, type RampHint } from "./ramps";
 
@@ -97,6 +97,15 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
         Contour labels
       </label>}
       <div className="hint layers-note">draws above the sea floor; its place among the boundary layers is the <b>Data</b> row under <i>On the map</i> — drag it below a boundary to draw under it{p.sel.land && <>; it and every row below it are clipped to the ocean by the coast</>}</div>
+
+      <label className="layers-row layers-main" title="every cast, tow or site in the selection at its own position (to 0.01°), as a dot — drawn whether or not Data is on (`obs=`)">
+        <input type="checkbox" checked={!!p.sel.obs} onChange={() => p.setSel({ obs: p.sel.obs ? null : OBS_COLOR })} />
+        <b>Observations</b> <span className="hint">every site sampled, as a dot, with or without Data</span>
+      </label>
+      <label className="layers-row layers-opacity">
+        <span className="hint">colour</span>
+        <input type="color" aria-label="observation dot colour" disabled={!p.sel.obs} value={`#${p.sel.obs ?? OBS_COLOR}`} onChange={(e) => p.setSel({ obs: e.target.value.slice(1).toLowerCase() })} />
+      </label>
 
       <label className="layers-row layers-main">
         <input type="checkbox" checked={on} onChange={() => setBathy(on ? [] : [...BATHY_PARTS])} />
