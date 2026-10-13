@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+- **"N observations in view" counts what the map summarizes** (fix; `sql/count.sql`, `tests/strip.sql.test.ts`). The
+  legend, the Select card's foot and the phone sheet showed the pick's whole-release total from the picker, whatever
+  the years, season, depth band, datasets or Area. They now count under every filter in force; the Sections and
+  Cruises lenses count what they draw (one line, one cruise). The default view reads lower than before because the
+  0–500 m band and the quality flags now count too. The dataset pills keep the picker's totals.
+- **the Depth panel says why it is empty** (fix). It said "depth-integrated net tows" for any pick without depth rows,
+  a CTD variable included. Now: "no observations under these filters: …" when the filters leave nothing (spice in
+  2025 Q3, explore#29), "one value per cast" for a per-cast variable, "depth-integrated net tows" for net tows only, and
+  "no depth on these values" for surface or weather measurements. The depth band stays editable when the selection is
+  merely empty, and the empty-result note names the Area too.
+
+- **an Area filter** (explore#20; `src/area.ts`, `sql/area_regions.sql`, `tests/area.test.ts`). Refine › Area confines every
+  lens, both strips and the download to one part of the ocean through a new `{{area_filter}}` in `sql/_filters.sql`:
+  *everywhere*, the **standard grid** (`area=std`, the grid's `pattern = standard` cells, lines 76.7–93.3, the same
+  footprint every cruise; `area=std,ext` adds the extended lines 60–73.3), the **map view** frozen as a lon/lat box
+  (`area=box:w,s,e,n`), or a **region** (`area=in:layer|name`) of any layer the release intersected with its samples,
+  grouped as the Layers card groups them, exact per sample through `sample_spatial`. A boundary layer the release has
+  not intersected (the US EEZ in v2026.10.08) is listed but cannot be picked. The title sentence gains "· within …", the
+  map outlines a box or region in yellow, and a link that names an area waits for it rather than draw everything first.
+  The Regions lens accepts any intersected layer in `layer=`, not only four.
+- **the Time strip's mean ± se is per season, across station means** (explore#21; `sql/years.sql`, `tests/strip.sql.test.ts`).
+  Four points a year, one per quarter (`tbin=year` and the *season · year* toggle keep one a year). The mean and its
+  standard error are now over each station's mean in the bin, so the band shows how the stations differ instead of
+  shrinking with every bottle. Hover names the season, the stations and the cruises. A season filter spaces the line
+  by the kept quarters, so Q1 alone draws one connected line.
+- **a season with no point says why** (explore#23; `sql/cruise_seasons.sql`). In mean ± se by season, a grey × marks a
+  season no cruise sailed (January 2022, spring 2020); an amber ring marks one where a cruise sailed but the view has
+  none of the pick (bottle data after May 2021, the preliminary 2025–26 CTD cruises without corrected oxygen), with the
+  cruises named in the hover.
+- **the Sections legend says what the section shows** (fix, explore#12; `src/anomaly.ts sectionRange()`). It read the
+  map's station rows, which this lens never refreshes, so the first pick's range (106.31) stayed under every later
+  variable's unit. It now takes the section's own range, symmetric about 0 as a difference from the normal.
+- **year and depth boxes keep what you type** (fix, explore#26; `src/ranges.ts`, `NumInput` in `src/ui.tsx`). A cleared
+  box stored 0 and then showed "01973"; a box now commits on Enter, on leaving it, on a spinner step or on a whole
+  four-digit year, and every half-typed year no longer runs a query. A `years=1973-1973` link now reopens as 1973, not
+  as all years.
+- **‹ › step the year window** (explore#27; `YearRange`). Beside the year boxes in Refine and the title sentence's year
+  chip: one year steps by one (1973 → 1974), a range by its own width (1974–1987 → 1988–2001), held inside the record.
+  The feedback box is labelled "Your feedback (what happened, what you expected, or an idea)".
+- **the spline is the default contour method** (explore#24). `interp=` defaults to `tps` (station grid); the buttons
+  read spline · kriging · IDW. A link with `interp=ok` or `interp=idw` draws what it did; one with no `interp=` now draws
+  the spline.
+- **"Sea temperature"** (explore#25): the unified bottle + CTD temperature's label; `var=temperature` is unchanged.
+
 - **a Lines layer on the 2-D map** (`lines=on`; `src/gridkey.ts` `lineThreads()`, `src/map.tsx`, `src/layers.tsx`,
   `tests/gridkey.test.ts`, `tests/obs.test.ts`; Erin Satterthwaite, 2026-10-02: "a map of the CalCOFI stations (and
   lines, if possible)"). A *Lines* row in the Layers card threads each line through its official stations in station

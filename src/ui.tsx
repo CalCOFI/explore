@@ -2,6 +2,7 @@
 // .cc-icon-button), a dropdown menu (Copy code ▾, Share ▾) and the group heading of the select rail.
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Icon, type IconName } from "./icons";
+import { commitNum, ordered, stepYears, yearComplete } from "./ranges";
 
 /** a popover's fixed-position box under (or, when the room is short, over) its anchor — so a rail's or a
  *  card's overflow never clips it; re-measured on resize and on any scroll */
@@ -76,4 +77,38 @@ export function Group(p: { title: string; icon?: IconName; children?: ReactNode;
       {open && p.children}
     </section>
   );
+}
+
+/** a number box that keeps the text being typed and commits a complete value (explore#26): on Enter, on blur, on
+ *  a spinner click or arrow key, and while typing only when `live(text)` says the text is already whole (a
+ *  four-digit year). A cleared box reverts to the committed value instead of storing 0; ranges.ts holds the rules */
+export function NumInput(p: { value: number; min: number; max: number; step?: number; width?: number; onCommit: (v: number) => void; live?: (text: string) => boolean; label: string; title?: string }) {
+  const [text, setText] = useState(String(p.value));
+  const focused = useRef(false);
+  useEffect(() => { if (!focused.current) setText(String(p.value)); }, [p.value]);
+  const commit = (t: string, revert = true) => {
+    const v = commitNum(t, p.min, p.max, p.step ?? 1);
+    if (v == null) { if (revert) setText(String(p.value)); return; }
+    if (revert) setText(String(v));
+    if (v !== p.value) p.onCommit(v);
+  };
+  return <input type="number" inputMode="numeric" style={{ width: p.width ?? 66 }} value={text} min={p.min} max={p.max} step={p.step ?? 1} aria-label={p.label} title={p.title}
+    onFocus={() => { focused.current = true; }}
+    onBlur={(e) => { focused.current = false; commit(e.currentTarget.value); }}
+    // typing arrives as an InputEvent; a spinner click or an arrow key steps the box with a plain Event — a whole value
+    onChange={(e) => { const t = e.currentTarget.value; setText(t); if (!(e.nativeEvent instanceof InputEvent) || p.live?.(t)) commit(t, false); }}
+    onKeyDown={(e) => { if (e.key === "Enter") commit(e.currentTarget.value); }} />;
+}
+
+/** the year window as two boxes with ‹ › either side that step it by its own width (explore#27: 1973 → 1974,
+ *  1974–1987 → 1988–2001), so the map can be flipped through the record; the Refine panel and the title sentence's
+ *  year chip both draw it */
+export function YearRange(p: { years: [number, number]; first: number; last: number; onChange: (y: [number, number]) => void; width?: number }) {
+  const [a, b] = p.years, back = stepYears(p.years, -1, p.first, p.last), fwd = stepYears(p.years, 1, p.first, p.last);
+  const span = b - a + 1, unit = span === 1 ? "year" : `${span} years`;
+  return <span className="year-range">
+    <button type="button" className="pill act step" disabled={!back} onClick={() => back && p.onChange(back)} title={back ? `back ${unit}: ${back[0] === back[1] ? back[0] : back.join("–")}` : "at the start of the record"} aria-label="earlier years">‹</button>
+    <NumInput value={a} min={p.first} max={p.last} width={p.width} label="first year" live={(t) => yearComplete(t, p.first, p.last)} onCommit={(v) => p.onChange(ordered(v, b))} />–<NumInput value={b} min={p.first} max={p.last} width={p.width} label="last year" live={(t) => yearComplete(t, p.first, p.last)} onCommit={(v) => p.onChange(ordered(a, v))} />
+    <button type="button" className="pill act step" disabled={!fwd} onClick={() => fwd && p.onChange(fwd)} title={fwd ? `forward ${unit}: ${fwd[0] === fwd[1] ? fwd[0] : fwd.join("–")}` : "at the end of the record"} aria-label="later years">›</button>
+  </span>;
 }

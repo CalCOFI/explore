@@ -83,7 +83,9 @@ export function DepthStrip(p: { rows: DepthRow[]; band: [number, number]; theme:
   return <div ref={ref} className="plot fill" />;
 }
 
-export interface YearRow { year: number; n: number; n_samples: number; mean: number | null; se?: number | null }
+export interface YearRow { year: number; n: number; n_samples: number; mean: number | null; se?: number | null; n_stations?: number; n_cruises?: number }
+/** a cruise season of the release, whatever it sampled (sql/cruise_seasons.sql): the strip marks the seasons with no point (explore#23) */
+export interface CruiseSeason { year: number; quarter: number; cruises: string }
 export interface GanttRow extends CruiseRow { ship: string }
 interface CalCell { key: string; x0: number; x1: number; y0: number; h: number; ym: number; rgba: [number, number, number, number]; lum: number }
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -101,6 +103,8 @@ const yearsToFy = (y: [number, number], m: [number, number] | null): [number, nu
 // click = pick; the ship is in the hover)
 export function YearStrip(p: {
   rows: YearRow[]; monthRows: YearRow[] | null; onNeedMonths?: (need: boolean) => void;
+  seasonRows?: YearRow[] | null;  // mean ± se by season (year + (quarter − 0.5) / 4), the default of that mode (explore#21); null = by year
+  cruiseSeasons?: CruiseSeason[] | null; quarters?: number[] | null; // the gap marks (explore#23): every season a cruise sailed, and the season filter
   years: [number, number]; months: [number, number] | null; yearMax: number; theme: string; mode: StripMode; unit: string; stat: "mean" | "med" | "n"; log?: boolean;
   view: [number, number] | null; onView: (v: [number, number] | null) => void;
   onYears: (y: [number, number] | null, months?: [number, number] | null) => void;
@@ -121,11 +125,17 @@ export function YearStrip(p: {
   const monthRes = monthly || (p.mode === "cruises" && span <= MONTH_LOD_YEARS); // the brush snaps to months
   const yearsSet = p.years[0] > 1949 || p.years[1] < p.yearMax || !!p.months;
   const fy = yearsToFy(p.years, p.months);
-  const ref = usePlot([p.rows, p.monthRows, p.years, p.months, p.yearMax, p.theme, p.mode, p.unit, p.stat, p.view, p.gantt, monthly, p.log, p.ramp, cw], (div, Plotly) => {
+  const seasonal = p.mode === "mean" && !monthly && !!p.seasonRows;
+  const ref = usePlot([p.rows, p.monthRows, p.seasonRows, p.cruiseSeasons, p.quarters, p.years, p.months, p.yearMax, p.theme, p.mode, p.unit, p.stat, p.view, p.gantt, monthly, seasonal, p.log, p.ramp, cw], (div, Plotly) => {
     const b = base(p.theme);
-    const r = monthly ? p.monthRows! : p.rows;
+    const r = monthly ? p.monthRows! : seasonal ? p.seasonRows! : p.rows;
     const bw = monthly ? 1 / 12 : 0.85;
-    const gap = monthly ? 1 / 12 + 1e-6 : 1;
+    // a season filter (q=1, q=1,3) spaces the points by the widest step between kept quarters: Q1 alone is a year apart
+    const qs = p.quarters?.length ? [...p.quarters].sort() : [1, 2, 3, 4];
+    const qStep = Math.max(...qs.map((q, i) => ((qs[(i + 1) % qs.length] - q + 4) % 4 || 4))) / 4;
+    const gap = monthly ? 1 / 12 + 1e-6 : seasonal ? qStep + 1e-6 : 1;
+    // a bin's name in the hover: 1998 · 1998 Q1 · 1998.46 (a month bin)
+    const binName = (x: number) => (seasonal ? `${Math.floor(x)} Q${Math.floor((x - Math.floor(x)) * 4) + 1}` : monthly ? x.toFixed(2) : String(x));
     let data: any[] = [];
     let layout: any = {};
     let cal: CalCell[] = [];
@@ -158,19 +168,40 @@ export function YearStrip(p: {
       };
       for (let i = 0; i < r.length; i++) {
         if (i > 0 && r[i].year - r[i - 1].year > gap) { xs.push(r[i].year - gap); ys.push(null); ns.push(null); flush(); }
-        xs.push(r[i].year); ys.push(r[i].mean == null ? null : cl(r[i].mean!)); ns.push([r[i].n, r[i].mean] as any);
+        xs.push(r[i].year); ys.push(r[i].mean == null ? null : cl(r[i].mean!)); ns.push([r[i].n, r[i].mean, binName(r[i].year), r[i].n_stations ?? "", r[i].n_cruises ?? ""] as any);
         if (r[i].mean != null) run.push(r[i]); else flush();
       }
       flush();
       data = [
         { x: bx, y: by, type: "scatter", mode: "lines", fill: "toself", fillcolor: "rgba(77,171,247,0.22)", line: { width: 0 }, hoverinfo: "skip", showlegend: false },
         { x: xs, y: ys, type: "scatter", mode: "lines+markers", line: { color: b.accent, width: 2 }, marker: { size: monthly ? 3 : 4 }, connectgaps: false,
-          customdata: ns, cliponaxis: !logY, hovertemplate: (monthly ? "%{x:.2f}" : "%{x}") + ": mean %{customdata[1]:.3g} ± se<br>n %{customdata[0]}<extra></extra>" },
+          customdata: ns, cliponaxis: !logY, hovertemplate: "%{customdata[2]}: mean %{customdata[1]:.3g} ± se across %{customdata[3]} stations<br>%{customdata[0]} " + cw + " · %{customdata[4]} cruises<extra></extra>" },
       ];
+      // the gap marks (explore#23): a season with no point says why — no cruise sailed that season (grey ×), or one
+      // did and nothing of this pick is in the release under these filters (an open ring, with the cruises named)
+      if (seasonal && p.cruiseSeasons) {
+        const have = new Set(r.map((d) => Math.round(d.year * 8)));
+        const first = r.length ? r[0].year : Infinity;
+        const sailed = new Map(p.cruiseSeasons.map((c) => [c.year * 4 + c.quarter - 1, c.cruises]));
+        const none: number[] = [], none_t: string[] = [], empty: number[] = [], empty_t: string[] = [];
+        for (let y = 1949; y <= p.yearMax; y++) for (let q = 1; q <= 4; q++) {
+          if (p.quarters?.length && !p.quarters.includes(q)) continue;
+          const x = y + (q - 0.5) / 4;
+          if (have.has(Math.round(x * 8))) continue;
+          const cr = sailed.get(y * 4 + q - 1);
+          if (cr && x < first) continue; // before the pick's record begins, a cruise without it is no gap
+          if (cr) { empty.push(x); empty_t.push(`${y} Q${q}: ${cr} sailed, but none of this pick is in the release under these filters`); }
+          else { none.push(x); none_t.push(`${y} Q${q}: no cruise this season`); }
+        }
+        const mark = (x: number[], t: string[], symbol: string, color: string) => ({ x, y: x.map(() => 0.06), yaxis: "y2", type: "scatter", mode: "markers", text: t, hovertemplate: "%{text}<extra></extra>",
+          marker: { symbol, size: 6, color, line: { width: 1.2, color } }, showlegend: false, cliponaxis: false });
+        data.push(mark(none, none_t, "x-thin", b.xaxis.color), mark(empty, empty_t, "circle-open", "rgba(240,179,80,0.9)"));
+        layout = { ...layout, yaxis2: { overlaying: "y", range: [0, 1], visible: false, fixedrange: true } };
+      }
       if (logY) {
         // one even step for the minor grid, ~8 lines to the max; labels stay on the decades (original values)
         const raw = maxHi / 8, mag = Math.pow(10, Math.floor(Math.log10(raw))), lstep = raw / mag < 1.5 ? mag : raw / mag < 3.5 ? 2 * mag : raw / mag < 7.5 ? 5 * mag : 10 * mag;
-        layout = { yaxis: { ...b.yaxis, type: "log", range: [Math.log10(floor), Math.log10(maxHi) + 0.08], dtick: 1, exponentformat: "none", fixedrange: true,
+        layout = { ...layout, yaxis: { ...b.yaxis, type: "log", range: [Math.log10(floor), Math.log10(maxHi) + 0.08], dtick: 1, exponentformat: "none", fixedrange: true,
           minor: { showgrid: true, dtick: "L" + lstep, gridcolor: b.yaxis.gridcolor }, title: { text: `mean ${p.unit} (log)`, standoff: 2 } } };
       }
     } else if (p.gantt) {
@@ -244,7 +275,8 @@ export function YearStrip(p: {
         const y0 = Math.floor(a), m0 = Math.min(12, Math.floor((a - y0) * 12) + 1), y1 = Math.floor(c), m1 = Math.min(12, Math.floor((c - y1) * 12) + 1);
         const whole = m0 === 1 && m1 === 12;
         p.onYears([y0, Math.max(y0, y1)], whole ? null : [m0, m1]);
-      } else { const a2 = Math.round(a), c2 = Math.round(c); p.onYears([a2, Math.max(a2, c2)], null); }
+      } else if (seasonal) { const a2 = Math.floor(a), c2 = Math.ceil(c) - 1; p.onYears([a2, Math.max(a2, c2)], null); } // season points sit inside [y, y + 1)
+      else { const a2 = Math.round(a), c2 = Math.round(c); p.onYears([a2, Math.max(a2, c2)], null); }
     });
     d.on("plotly_deselect", () => p.onYears(null, null));
     d.on("plotly_relayout", (ev: any) => {

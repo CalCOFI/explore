@@ -14,12 +14,13 @@ import { computeSurface, surfaceImage, isolines, niceLevels, joinSegments, label
 import { LensPicker } from "./lenspicker";
 import type { MapboxOverlay } from "@deck.gl/mapbox";
 import { lensRamp, rampCss, seriesRamp } from "./ramps";
-import { DepthStrip, YearStrip, SectionPlot, CruiseSeries, StationCard, MONTH_LOD_YEARS, type DepthRow, type YearRow, type SectionCell, type CruiseRow, type GanttRow, type StripMode } from "./charts";
+import { DepthStrip, YearStrip, SectionPlot, CruiseSeries, StationCard, MONTH_LOD_YEARS, type DepthRow, type YearRow, type CruiseSeason, type SectionCell, type CruiseRow, type GanttRow, type StripMode } from "./charts";
 import { resolveVersion, fetchCatalog, fetchVersions, sources, sidecarUrl, earlySidecar, type Catalog } from "./release";
 import { buildBundle, saveBlob, copyAs } from "./bundle";
 import { Icon } from "./icons";
 import { Picker, type PickerItem, type GroupOpt } from "./picker";
-import { Menu, Group } from "./ui";
+import { Menu, Group, NumInput, YearRange } from "./ui";
+import { parseArea, areaSql, areaToUrl, areaWord, boxFeature, PATTERN_WORD, type Area } from "./area";
 import { Panel, EdgePills, MaxPanel, Sheet, Sparkline, VSpark, SHEET_PEEK, type CardId, type CardBox, type Detent, type Dock, type EdgePill } from "./panels";
 import { Sentence, type DerivedNote } from "./sentence";
 import { LayersCard } from "./layers";
@@ -40,7 +41,7 @@ import { captureView, canvasBlob, luminanceStats, blobStats } from "./capture";
 import { track as trackEvent } from "./track";
 import { BRAND, LOGO, DEFAULT_THEME, fontEmbedCss } from "./brand";
 import { categoryRank, categoryIcon, envCategory, DATASET_CATEGORY_FALLBACK } from "./categories";
-import { CLIM_MIN_CRUISES } from "./anomaly";
+import { CLIM_MIN_CRUISES, sectionRange } from "./anomaly";
 import {
   fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LENS_DESC, LENS_ICON, RES_KM, INTERPS, INTERP_LABEL, INTERP_WORD, INTERP_HOW, SURFACES, SURFACE_LABEL, GRAIN_LABEL, GRAIN_HOW, type Surface, type Grain, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, DEN_HOW, SHF_NOTE, STAT_LABEL, YEAR_OPEN, MAP_HOME,
   type Sel, type Lens, type Den, type Stat, type PickerRow, type PanelId,
@@ -93,6 +94,8 @@ const envSrc = (key: string) => `(${members(key).map((m) => `SELECT *, '${m}' AS
 const climMembers = (cat: Catalog, key: string) => { const parts = sources(cat, "climatology").partitions; return members(key).filter((m) => parts.has(m)); };
 const climSrc = (ms: string[]) => `(${ms.map((m) => `SELECT *, '${m}' AS measurement_type FROM '${climReg(m)}'`).join(" UNION ALL ")})`;
 const q = (name: string) => `'${name}'`;
+// the Time strip's season bin (explore#21): the quarter's midpoint as a fractional year, beside the month bins' convention
+const SEASON_BIN = "year::INTEGER + (quarter - 0.5) / 4.0";
 
 export interface Coverage {
   version: string;
@@ -168,6 +171,9 @@ export function App() {
   const [track, setTrack] = useState<{ path: [number, number][]; ts: number[]; events: number } | null>(null);
   const [cruiseSamples, setCruiseSamples] = useState<Row[]>([]);
   const [sectionCells, setSectionCells] = useState<SectionCell[]>([]);
+  // "N observations in view" under every filter (sql/count.sql), keyed by the slice it was counted on; the picker's
+  // whole-pick total stands in only until the first count of a new pick lands
+  const [viewCount, setViewCount] = useState<{ slice: string | null; n: number } | null>(null);
   const [climCells, setClimCells] = useState<SectionCell[] | null>(null);
   const [climWindow, setClimWindow] = useState<[number, number] | null>(null);   // the table's clim_yr_min–clim_yr_max
   const [sectionCruises, setSectionCruises] = useState<Row[]>([]);
@@ -259,7 +265,7 @@ export function App() {
         (earlySidecar("coverage") ?? fetch(sidecarUrl(v, "coverage.json")).then((r) => r.json())) as Promise<Coverage>,
       ]);
       const cells: GridCell[] = gj.features.map((f: any) => ({
-        grid_key: f.properties.grid_key, line: f.properties.line, station: f.properties.station, home: [f.properties.lon_ctr, f.properties.lat_ctr],
+        grid_key: f.properties.grid_key, line: f.properties.line, station: f.properties.station, home: [f.properties.lon_ctr, f.properties.lat_ctr], pattern: f.properties.pattern ?? undefined,
       })).sort((a: GridCell, b: GridCell) => a.line - b.line || a.station - b.station);
       setGrid(cells); setCov(cv);
       // a saved `?station=` link names a cell of the grid it was made on. v2026.10.04 redrew the grid (one cell per
@@ -350,12 +356,13 @@ export function App() {
       .then((j: SpatialLayers) => setSpatialLayers(mergeRegistry(j, spatialFallback as unknown as SpatialLayers)))
       .catch(() => console.log("spatial_layers.json: not in this release — using the bundled registry"));
   }, [version]);
-  // the polygon layers are heavy (all layers, simplified): only the Regions lens needs them
+  const area = useMemo(() => parseArea(sel.area), [sel.area]); // the Area filter (src/area.ts, explore#20)
+  // the polygon layers are heavy (all layers, simplified): the Regions lens and a region Area need them
   useEffect(() => {
-    if (sel.lens !== "region" || !version || spatial.length) return;
+    if ((sel.lens !== "region" && area?.kind !== "region") || !version || spatial.length) return; // the Area filter outlines its region too
     const t = performance.now();
     fetch(sidecarUrl(version, "spatial.geojson")).then((r) => r.json()).then((gj) => { setSpatial(gj.features); timing.add("fetch:spatial.geojson", performance.now() - t, `${gj.features.length} polygons`); }).catch(console.error);
-  }, [sel.lens, version]);
+  }, [sel.lens, version, area?.kind]);
 
   // ── the slice: one taxon or one variable, materialized in the worker ───────
   useEffect(() => {
@@ -436,12 +443,52 @@ export function App() {
   // the release's last year (coverage.json) closes an open-ended year range; never a constant
   const yearMax = useMemo(() => Math.max(2023, ...(cov?.variables ?? []).map((v) => v.year_max ?? 0)), [cov]);
   const years: [number, number] = [sel.years[0], sel.years[1] === YEAR_OPEN ? yearMax : sel.years[1]];
+  // a typed or stepped year window (explore#26/#27): ending on the latest year keeps the open end, so the link
+  // still reads "through the latest" when the next release adds a year; month edges from a brush do not survive it
+  const setYearWindow = (y: [number, number]) => setSel({ years: [y[0], y[1] >= yearMax ? YEAR_OPEN : y[1]], months: null });
+  // the Area filter (src/area.ts, explore#20): the predicate every lens template reads as {{area_filter}}. A region needs
+  // sample_spatial registered first, and a station pattern needs the grid, so a link that names an area waits
+  // (areaPending) rather than draw the whole ocean for a moment
+  const gridKeys = useMemo(() => {
+    if (!grid.length) return null;
+    const m = new Map<string, string[]>();
+    for (const g of grid) if (g.pattern) (m.get(g.pattern) ?? m.set(g.pattern, []).get(g.pattern)!).push(g.grid_key);
+    return m;
+  }, [grid]);
+  const [areaFilter, setAreaFilter] = useState<{ key: string; sql: string } | null>(null);
+  useEffect(() => {
+    if (!sel.area) return;
+    const sql = areaSql(area, { gridKeys, spatialSrc: q(REG.sample_spatial) });
+    if (sql == null || (area?.kind === "region" && !catalog)) return;
+    let live = true;
+    (area?.kind === "region" ? ensure(REG.sample_spatial) : Promise.resolve()).then(() => { if (live) setAreaFilter({ key: sel.area!, sql }); }).catch(console.error);
+    return () => { live = false; };
+  }, [sel.area, area, gridKeys, catalog]);
+  const areaClause = !sel.area || !area ? "TRUE" : areaFilter?.key === sel.area ? areaFilter.sql : null;
+  const areaPending = areaClause == null;
+  // the region lists of the Area picker (sql/area_regions.sql), fetched the first time the picker asks for them
+  const [areaRegions, setAreaRegions] = useState<Map<string, { name: string; n: number }[]> | null>(null);
+  const [areaRegionMode, setAreaRegionMode] = useState(false);
+  const [areaLayerPick, setAreaLayerPick] = useState<string | null>(null);
+  const wantRegions = areaRegionMode || area?.kind === "region";
+  useEffect(() => {
+    if (!wantRegions || areaRegions || !catalog) return;
+    ensure(REG.sample_spatial).then(() => engine.query("area_regions", { spatial_src: q(REG.sample_spatial) })).then((r) => {
+      const m = new Map<string, { name: string; n: number }[]>();
+      for (const x of r) (m.get(x.layer) ?? m.set(x.layer, []).get(x.layer)!).push({ name: x.spatial_name, n: x.n });
+      setAreaRegions(m);
+    }).catch(console.error);
+  }, [wantRegions, areaRegions, catalog]);
+  const freezeView = () => {
+    const b = (window as any).__map?.getBounds?.(); if (!b) return;
+    setAreaRegionMode(false); setSel({ area: areaToUrl({ kind: "box", bbox: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()] }) });
+  };
   const params = useMemo(() => ({
     val, y0: years[0], y1: years[1], ym0: years[0] * 100 + (sel.months?.[0] ?? 1), ym1: years[1] * 100 + (sel.months?.[1] ?? 12),
     quarter_filter: sel.q?.length && sel.q.length < 4 ? `quarter IN (${sel.q.join(", ")})` : "TRUE", bin: "year",
     d0: sel.depth[0], d1: sel.depth[1], stage: sel.realm === "bio" ? sel.stage : null,
-    dataset_filter: datasetFilterSql(sel.datasets), zeros: sel.realm !== "bio" || sel.zeros,
-  }), [val, years[0], years[1], sel.months, sel.q, sel.depth, sel.stage, sel.realm, sel.datasets, sel.zeros]);
+    dataset_filter: datasetFilterSql(sel.datasets), zeros: sel.realm !== "bio" || sel.zeros, area_filter: areaClause ?? "TRUE",
+  }), [val, years[0], years[1], sel.months, sel.q, sel.depth, sel.stage, sel.realm, sel.datasets, sel.zeros, areaClause]);
   const dsOn = (dk: string) => !sel.datasets || sel.datasets.includes(dk);
   const toggleDataset = (dk: string) => {
     const all = [...new Set(picker.map((r) => r.dataset_key))];
@@ -451,7 +498,7 @@ export function App() {
   };
 
   useEffect(() => {
-    if (!sliceKey || (sel.realm === "bio" && !sel.den)) return;
+    if (!sliceKey || areaPending || (sel.realm === "bio" && !sel.den)) return;
     const g = gen.current;
     const lg = ++lensGen.current;
     const stale = () => g !== gen.current || lg !== lensGen.current;
@@ -525,8 +572,9 @@ export function App() {
       }
       const dr = (await engine.query("depth_strip", params)) as DepthRow[];
       const yr = (await engine.query("years", params)) as YearRow[];
+      const ct = (await engine.query("count", params))[0];
       if (stale()) return;
-      setDepthRows(dr); setYearRows(yr);
+      setDepthRows(dr); setYearRows(yr); setViewCount({ slice: sliceKey, n: Number(ct?.n ?? 0) });
       setLastSql(engine.lastSql);
       const ms = performance.now() - t;
       if (lensClickAt.current != null) { timing.add(`grain_switch:${lens}`, performance.now() - lensClickAt.current, `${LENS_SHORT[lens]} data ready (transition ${duration} ms on top)`); lensClickAt.current = null; }
@@ -621,11 +669,15 @@ export function App() {
     if (!surfValsRaw || !land || land.key !== gridKey) return surfValsRaw;
     const v = Float32Array.from(surfValsRaw); for (let i = 0; i < v.length; i++) if (land.mask[i]) v[i] = NaN; return v;
   }, [surfValsRaw, land, gridKey]);
+  // the Sections lens: the range the section draws, never the map's station rows (explore#12 — those are not
+  // refreshed in this lens, so the legend kept the first pick's numbers under every variable's unit)
+  const sectionDomain = useMemo(() => displayLens === "section" ? sectionRange(sectionCells, climCells, sel.anom && sel.realm === "env" && !!climCells) : null, [displayLens, sectionCells, climCells, sel.anom, sel.realm]);
   const legendDomain: [number, number] = useMemo(() => {
+    if (sectionDomain) return sectionDomain;
     if (displayLens !== "contour" || sel.surface === "value" || !surfVals) return domain;
     const v: number[] = []; for (let i = 0; i < surfVals.length; i++) if (Number.isFinite(surfVals[i])) v.push(surfVals[i]);
     return quantileDomain(v, sel.surface === "n" || sel.surface === "se" || sel.surface === "spread" ? "n" : "mean");
-  }, [displayLens, sel.surface, surfVals, domain]);
+  }, [displayLens, sel.surface, surfVals, domain, sectionDomain]);
   const contourInputs = useMemo(() => {
     if (displayLens !== "contour" || !surf || !surfVals) return null;
     const g = surf.grid, image = surfaceImage(surfVals, g.nx, g.ny, colorScale(legendDomain, 255, rampId), 235, surf.dist, MASK_KM);
@@ -647,6 +699,7 @@ export function App() {
     return { image, bounds: [g.lon0, g.latS, g.lon1, g.latN] as [number, number, number, number], lines, labels, casts: surf.fit.nmax > 0 ? (castRows as any[]) : null, inputs: showInputs };
   }, [displayLens, surf, surfVals, legendDomain, rampId, castRows, showInputs, sel.labels, sel.surface, sel.map?.[2]]);
 
+  const areaOutline = useMemo(() => area?.kind === "box" ? [boxFeature(area.bbox)] : area?.kind === "region" ? spatial.filter((f) => f.properties.layer === area.layer && f.properties.name === area.name) : null, [area, spatial]);
   const lineThreadsAll = useMemo(() => lineThreads(grid), [grid]); // the Lines layer (`lines=on`)
   const layerInputs = useMemo((): LayerInputs => ({
     lens: displayLens, res: sel.res, stat: preSlice ? "n" : stat, grid, station: stationMap, hex: hexRows as any,
@@ -654,8 +707,8 @@ export function App() {
     cruise: { track, samples: cruiseSamples as any, time: timeRef.current },
     section: { line: sel.line, cruiseStations },
     contour: contourInputs,
-    duration, domain, ramp: rampId, dataOn: sel.data, dataOpacity: sel.datao ?? 1, obs: sel.obs ? { rows: castRows as any[], color: sel.obs } : null, lines: sel.lines ? lineThreadsAll : null, beforeId: dataBeforeId, selectedStation: sel.station,
-  }), [displayLens, sel.res, stat, preSlice, grid, stationMap, hexRows, layerFeatures, regionStats, regionStation, centroids, sel.region, track, cruiseSamples, sel.line, cruiseStations, domain, sel.station, contourInputs, rampId, sel.data, sel.datao, sel.obs, castRows, sel.lines, lineThreadsAll, dataBeforeId]);
+    duration, domain, ramp: rampId, dataOn: sel.data, dataOpacity: sel.datao ?? 1, obs: sel.obs ? { rows: castRows as any[], color: sel.obs } : null, lines: sel.lines ? lineThreadsAll : null, beforeId: dataBeforeId, selectedStation: sel.station, area: areaOutline,
+  }), [displayLens, sel.res, stat, preSlice, grid, stationMap, hexRows, layerFeatures, regionStats, regionStation, centroids, sel.region, track, cruiseSamples, sel.line, cruiseStations, domain, sel.station, contourInputs, rampId, sel.data, sel.datao, sel.obs, castRows, sel.lines, lineThreadsAll, dataBeforeId, areaOutline]);
   inputsRef.current = layerInputs;
   const layers = useMemo(() => buildLayers(layerInputs), [layerInputs]);
 
@@ -679,7 +732,13 @@ export function App() {
     }
     return { ok: [...ok], off: [...all].filter((d) => !ok.has(d)), excluded, rows };
   };
-  const inView = stageRows.reduce((a, r) => a + (sel.realm === "env" ? r.n : sel.den === "per_10m2" ? r.n_10m2 : sel.den === "per_1000m3" ? r.n_1000m3 : r.n), 0);
+  const pickTotal = stageRows.reduce((a, r) => a + (sel.realm === "env" ? r.n : sel.den === "per_10m2" ? r.n_10m2 : sel.den === "per_1000m3" ? r.n_1000m3 : r.n), 0);
+  // "N observations in view" counts what the map summarizes under every filter (sql/count.sql); the Sections and
+  // Cruises lenses draw a subset (one line, one cruise), so there it is what they draw
+  const sumN = (r: { n?: number }[]) => r.reduce((a, x) => a + Number(x.n ?? 0), 0);
+  const inView = displayLens === "section" && sectionCells.length ? sumN(sectionCells)
+    : displayLens === "cruise" && sel.cruise && cruiseSamples.length ? sumN(cruiseSamples)
+    : viewCount && viewCount.slice === sliceKey ? viewCount.n : pickTotal;
   // ── attribution (WS-A3): the datasets this view POOLS ──────────────────────
   // the statistic averages across the datasets that share the chosen life stage and denominator (bio) or the
   // chosen variable (env) — so these are exactly the datasets the number on the screen rests on, and exactly
@@ -855,6 +914,21 @@ export function App() {
     engine.query("years", { ...params, bin: "year::INTEGER + (month(datetime) - 0.5) / 12.0" }).then((r) => { if (live) setMonthRows(r as YearRow[]); }).catch(console.error);
     return () => { live = false; };
   }, [needMonths, sliceKey, params]);
+  // explore#21: mean ± se by season (four points a year, one per quarterly cruise) — the mode's default; `tbin=year` keeps
+  // one a year. explore#23: the release's cruise seasons, so a season with no point says whether any cruise sailed
+  const [seasonRows, setSeasonRows] = useState<YearRow[] | null>(null);
+  const [cruiseSeasons, setCruiseSeasons] = useState<CruiseSeason[] | null>(null);
+  const bySeason = seriesMode === "mean" && sel.tbin === "season";
+  useEffect(() => {
+    if (!bySeason || !sliceKey || areaPending) { setSeasonRows(null); return; }
+    let live = true;
+    engine.query("years", { ...params, bin: SEASON_BIN }).then((r) => { if (live) setSeasonRows(r as YearRow[]); }).catch(console.error);
+    return () => { live = false; };
+  }, [bySeason, sliceKey, params, areaPending]);
+  useEffect(() => {
+    if (!bySeason || cruiseSeasons || !catalog) return;
+    ensure(REG.cruise).then(() => engine.query("cruise_seasons", { src: q(REG.cruise) })).then((r) => setCruiseSeasons(r as CruiseSeason[])).catch(console.error);
+  }, [bySeason, cruiseSeasons, catalog]);
   useEffect(() => {
     if (seriesMode !== "cruises" || !sliceKey) return;
     let live = true;
@@ -975,14 +1049,20 @@ export function App() {
     : sel.lens === "hex" && castHex === false ? "Hexagons are not drawn for a per-cast variable in this release (its sample_root carries no H3 cell on a cast). See it at"
     : null;
   // why a pick has no depth axis: a net tow is depth-integrated; a per-cast variable is one value for the whole cast
-  const noDepthWhy = isCast ? "it is one value for the whole cast" : "its net tows are depth-integrated";
-  const depthEmpty = isCast ? "one value per cast —<br>a per-cast variable has<br>no water-column profile" : "depth-integrated net tows —<br>no water-column profile for this selection;<br>the tow span will draw here<br>once the release carries it";
+  // why the Depth panel has no profile, from what the pick IS and what the filters left — never "net tows" for a CTD
+  // variable: an env variable per depth bin with nothing under the filters (spice in 2025 Q3) is empty, not depth-integrated
+  const noneLeft = !!sliceKey && viewCount?.slice === sliceKey && viewCount.n === 0;
+  const noDepthWhy = noneLeft ? "nothing in the selection is left under these filters" : isCast ? "it is one value for the whole cast" : sel.realm === "bio" ? "its net tows are depth-integrated" : "its values carry no depth (surface or weather measurements)";
   const seriesToggle = <span className="seg" role="group" aria-label="year strip mode" data-tour="strip-mode"><button className={seriesMode === "n" ? "on" : ""} onClick={() => setSeriesMode("n")}>{countWord}</button><button className={seriesMode === "mean" ? "on" : ""} onClick={() => setSeriesMode("mean")}>mean ± se</button><button className={seriesMode === "cruises" ? "on" : ""} onClick={() => setSeriesMode("cruises")} title="a year × month calendar, one cell per cruise coloured by the summary stat; zoom in for the dates and codes; click a cell to pick the cruise"><Icon name="ui-gantt" />cruises</button></span>;
   const logChip = seriesMode === "mean" ? <button type="button" className={`chip${ylog ? " on" : ""}`} aria-pressed={ylog} title="log scale — the axis keeps the original values; the minor gridlines sit at one even step, so they bunch toward the top. A zero mean sits on the axis floor (log 0 does not exist); the hover always carries the true value" onClick={() => setYlog(!ylog)}>log</button> : null;
   const Q_LABEL = ["Jan–Mar", "Apr–Jun", "Jul–Sep", "Oct–Dec"];
   const seasonLabel = sel.q?.length && sel.q.length < 4 ? sel.q.map((x) => `Q${x}`).join(" ") : "all";
   // the filters in force, in words — an empty result's note says them
-  const filterWords = [yearsSet && (sel.months ? `${years[0]}-${String(sel.months[0]).padStart(2, "0")} → ${years[1]}-${String(sel.months[1]).padStart(2, "0")}` : `${years[0]}–${years[1]}`), sel.q && seasonLabel, depthSet && `${sel.depth[0]}–${sel.depth[1]} m`, sel.datasets && sel.datasets.map(short).join(", ")].filter(Boolean) as string[];
+  const filterWords = [yearsSet && (sel.months ? `${years[0]}-${String(sel.months[0]).padStart(2, "0")} → ${years[1]}-${String(sel.months[1]).padStart(2, "0")}` : `${years[0]}–${years[1]}`), sel.q && seasonLabel, depthSet && `${sel.depth[0]}–${sel.depth[1]} m`, sel.datasets && sel.datasets.map(short).join(", "), area && areaWord(area)].filter(Boolean) as string[];
+  const depthEmpty = noneLeft ? `no observations<br>under these filters${filterWords.length ? ":<br>" + filterWords.join(" · ") : ""}`
+    : isCast ? "one value per cast —<br>a per-cast variable has<br>no water-column profile"
+    : sel.realm === "bio" ? "depth-integrated net tows —<br>no water-column profile for this selection;<br>the tow span will draw here<br>once the release carries it"
+    : "no depth on these values —<br>surface or weather measurements<br>have no water-column profile";
   const toggleQ = (x: number) => { const cur = sel.q ?? [1, 2, 3, 4]; const next = cur.includes(x) ? cur.filter((y) => y !== x) : [...cur, x].sort(); setSel({ q: next.length === 0 || next.length === 4 ? null : next }); };
   const datasetsInSlice = useMemo(() => [...new Set(picker.map((r) => r.dataset_key))], [picker]);
   const layerNames = useMemo(() => spatialLayers.layers.filter((d) => d.n_memberships > 0).map((d) => d.name).sort(), [spatialLayers]);
@@ -1107,15 +1187,48 @@ export function App() {
   // ③ Refine: the years, the season, the depth band (only where a pick has a depth axis) and the datasets
   const refineTab = <>
     <Group title="Years" icon="ui-years">
-      <div className="row"><input type="number" style={{ width: 66 }} value={years[0]} min={1949} max={yearMax} onChange={(e) => setSel({ years: [+e.target.value, years[1]] })} />–<input type="number" style={{ width: 66 }} value={years[1]} min={1949} max={yearMax} onChange={(e) => setSel({ years: [years[0], +e.target.value] })} /><button type="button" className="pill act" disabled={!yearsSet} onClick={() => setSel({ years: [1949, YEAR_OPEN], months: null })}>all years</button></div>
+      <div className="row"><YearRange years={years} first={1949} last={yearMax} onChange={setYearWindow} /><button type="button" className="pill act" disabled={!yearsSet} onClick={() => setSel({ years: [1949, YEAR_OPEN], months: null })}>all years</button></div>
       <div className="hint">or drag on the Years panel{sel.months ? " · month edges from the brush" : ""}</div>
     </Group>
     <Group title="Season" icon="ui-calendar">
       <div className="season-row"><span className="seg">{[1, 2, 3, 4].map((x) => <button key={x} className={!sel.q || sel.q.includes(x) ? "on" : ""} onClick={() => toggleQ(x)} title={Q_LABEL[x - 1]}>Q{x}</button>)}</span><span className="hint">{sel.q ? sel.q.map((x) => Q_LABEL[x - 1]).join(", ") : "every quarter"}</span></div>
     </Group>
+    <Group title="Area" icon="ui-filter" data-tour="area">
+      <span className="seg area-seg" role="group" aria-label="area">
+        <button type="button" className={!area && !areaRegionMode ? "on" : ""} onClick={() => { setAreaRegionMode(false); setSel({ area: null }); }} title="every sample, wherever it was taken">everywhere</button>
+        <button type="button" className={area?.kind === "pattern" ? "on" : ""} onClick={() => { setAreaRegionMode(false); setSel({ area: "std" }); }} title="only the standard station pattern, lines 76.7–93.3: the same footprint on every cruise, so years compare like with like">standard grid</button>
+        <button type="button" className={area?.kind === "box" ? "on" : ""} onClick={freezeView} title="only what the map shows now: the view's lon/lat box, frozen until you change it">map view</button>
+        <button type="button" className={area?.kind === "region" || (areaRegionMode && !area) ? "on" : ""} onClick={() => setAreaRegionMode(true)} title="only samples inside one region of a boundary layer (the release's own sample_spatial membership)">region</button>
+      </span>
+      {area?.kind === "pattern" && <label className="row hint area-ext"><input type="checkbox" checked={area.patterns.includes("extended")} onChange={(e) => setSel({ area: e.target.checked ? "std,ext" : "std" })} /> add the extended lines (60–73.3)</label>}
+      {(area?.kind === "region" || (areaRegionMode && !area)) && (() => {
+        const groupOf = new Map(spatialLayers.layers.map((d) => [d.name, d.group]));
+        const have = [...(areaRegions?.keys() ?? [])];
+        // the Layers card's own groups and names; a boundary layer the release has not intersected with its samples
+        // (the US EEZ in v2026.10.08) is listed but cannot be picked, so its absence explains itself
+        const missing = spatialLayers.layers.filter((d) => d.role !== "reference" && d.geom !== "raster" && d.geom !== "label" && !have.includes(d.name)).map((d) => d.name);
+        const groups = [...new Set([...have, ...missing].map((n) => groupOf.get(n) ?? "Other"))].sort();
+        const curLayer = area?.kind === "region" ? area.layer : areaLayerPick ?? have[0] ?? "";
+        const names = areaRegions?.get(curLayer) ?? [];
+        return <>
+          <label className="f">layer<select value={curLayer} onChange={(e) => { setAreaLayerPick(e.target.value); const first = areaRegions?.get(e.target.value)?.[0]; setSel({ area: first && areaRegions!.get(e.target.value)!.length === 1 ? areaToUrl({ kind: "region", layer: e.target.value, name: first.name }) : null }); }}>
+            {!areaRegions && <option>loading…</option>}
+            {areaRegions && groups.map((g) => <optgroup key={g} label={g}>{[...have, ...missing].filter((n) => (groupOf.get(n) ?? "Other") === g).sort().map((n) => <option key={n} value={n} disabled={!have.includes(n)}>{n}{have.includes(n) ? "" : " — not in this release's sample index"}</option>)}</optgroup>)}
+          </select></label>
+          <label className="f">region<select value={area?.kind === "region" ? area.name : ""} onChange={(e) => setSel({ area: e.target.value ? areaToUrl({ kind: "region", layer: curLayer, name: e.target.value }) : null })}>
+            <option value="">choose a region…</option>
+            {names.map((r) => <option key={r.name} value={r.name}>{r.name} ({fmtN(r.n)} samples)</option>)}
+          </select></label>
+        </>;
+      })()}
+      <div className="hint">{!area ? (areaRegionMode ? "pick a layer and a region; only the samples inside it count" : "every sample, wherever it was taken")
+        : area.kind === "pattern" ? `${fmtN(area.patterns.reduce((k, p) => k + (gridKeys?.get(p)?.length ?? 0), 0))} grid stations ${areaWord(area)} — the same footprint every cruise, so the years compare like with like`
+        : area.kind === "box" ? <>{areaWord(area)} · <button type="button" className="linkish" onClick={freezeView}>use the current view</button></>
+        : `${areaWord(area)} · exact per sample (the release's sample_spatial)`}{areaPending && sel.area ? " · applying…" : ""}</div>
+    </Group>
     <Group title="Depth band" icon="ui-tune">
-      {depthAvail || !sliceKey ? <>
-        <div className="row"><input type="number" style={{ width: 66 }} value={sel.depth[0]} min={0} max={sel.depth[1] - 10} step={10} onChange={(e) => setSel({ depth: [+e.target.value, sel.depth[1]] })} />–<input type="number" style={{ width: 66 }} value={sel.depth[1]} min={sel.depth[0] + 10} max={6500} step={10} onChange={(e) => setSel({ depth: [sel.depth[0], +e.target.value] })} /> m<button type="button" className="pill act" disabled={!depthSet} onClick={() => setSel({ depth: [0, 500] })}>0–500 m</button></div>
+      {depthAvail || !sliceKey || noneLeft ? <>
+        <div className="row"><NumInput value={sel.depth[0]} min={0} max={sel.depth[1] - 10} step={10} label="top of the depth band (m)" onCommit={(v) => setSel({ depth: [v, sel.depth[1]] })} />–<NumInput value={sel.depth[1]} min={sel.depth[0] + 10} max={6500} step={10} label="bottom of the depth band (m)" onCommit={(v) => setSel({ depth: [sel.depth[0], v] })} /> m<button type="button" className="pill act" disabled={!depthSet} onClick={() => setSel({ depth: [0, 500] })}>0–500 m</button></div>
         <div className="hint">or drag on the Depth panel — <button type="button" className="linkish" onClick={() => { if (phone) setSheet({ panel: "depth", detent: "half" }); else if (folded("depth")) toggleFold("depth"); }}>open it</button></div>
       </> : <div className="hint">this pick has no depth axis — {noDepthWhy}, so the band does not apply</div>}
     </Group>
@@ -1150,7 +1263,7 @@ export function App() {
     <div className={`tab-body tab-${tab}`} data-tour={tab === "refine" ? "filters" : undefined}>{tab === "select" ? selectTab : tab === "refine" ? refineTab : shareTab}</div>
   </>;
   const depthBody = (wide: boolean) => <DepthStrip rows={depthRows} band={sel.depth} theme={theme} unit={unitLabel} empty={depthEmpty} onBand={(b) => setSel({ depth: b ?? [0, 500] })} byDataset={wide && depthDs.length ? { rows: depthDs, color: dsColor, short } : null} />;
-  const yearsBody = <YearStrip rows={yearRows} monthRows={monthRows} onNeedMonths={setNeedMonths} years={years} months={sel.months} yearMax={yearMax} theme={theme} mode={seriesMode} unit={unitLabel} stat={stat} log={ylog} ramp={seriesRampId} countWord={countWord}
+  const yearsBody = <YearStrip rows={yearRows} monthRows={monthRows} seasonRows={seasonRows} cruiseSeasons={cruiseSeasons} quarters={sel.q} onNeedMonths={setNeedMonths} years={years} months={sel.months} yearMax={yearMax} theme={theme} mode={seriesMode} unit={unitLabel} stat={stat} log={ylog} ramp={seriesRampId} countWord={countWord}
     view={sel.yview} onView={(v) => setSel({ yview: v })} onYears={(y, m) => setSel({ years: y ?? [1949, YEAR_OPEN], months: y ? m ?? null : null })} gantt={gantt} />;
   const sectionBody = <SectionPlot cells={sectionCells} clim={climCells} anom={sel.anom && sel.realm === "env" && !!climCells} yLabel={sel.realm === "env" ? "depth (m)" : "year"} theme={theme} unit={unitLabel} ramp={rampId}
     empty={isCast ? "a section cuts the water column —<br>a per-cast variable is one value for the whole cast" : null}
@@ -1195,7 +1308,8 @@ export function App() {
   const titleText: Record<PanelId, string> = { select: "Controls", depth: "Depth", years: "Time", section: `Section ${sectionSub}`, cruise: "Cruise series", layers: "Layers", station: stationCard ? `${stationCard.grid_key} · line ${stationCard.cell?.line} station ${stationCard.cell?.station}` : "Station", timing: "SQL & timing" };
   const icons: Record<PanelId, IconName> = { select: "ui-tune", depth: "ui-tune", years: "ui-years", section: "lens-sections", cruise: "lens-cruises", station: "lens-stations", timing: "ui-sql", layers: "ui-map-layers" };
   const body = (id: PanelId, wide = false) => id === "select" ? selectBody : id === "depth" ? depthBody(wide) : id === "years" ? yearsBody : id === "section" ? sectionBody : id === "cruise" ? cruiseBody : id === "station" ? stationBody : id === "layers" ? layersBody : timingBody;
-  const actions = (id: PanelId) => (id === "years" ? <>{sel.yview && <IconButton icon="ui-zoom-out" label="Reset zoom (double-click the strip)" className="sm" onClick={() => setSel({ yview: null })} data-tour="zoom-reset" />}{seriesToggle}{logChip}</> : null);
+  const tbinToggle = seriesMode === "mean" ? <span className="seg" role="group" aria-label="mean ± se by"><button className={sel.tbin === "season" ? "on" : ""} onClick={() => setSel({ tbin: "season" })} title="one point per season (cruise quarter): four a year">season</button><button className={sel.tbin === "year" ? "on" : ""} onClick={() => setSel({ tbin: "year" })} title="one point per year">year</button></span> : null;
+  const actions = (id: PanelId) => (id === "years" ? <>{sel.yview && <IconButton icon="ui-zoom-out" label="Reset zoom (double-click the strip)" className="sm" onClick={() => setSel({ yview: null })} data-tour="zoom-reset" />}{seriesToggle}{tbinToggle}{logChip}</> : null);
   // ── figures (D19) and the whole-view share (D17): every panel exports PNG · SVG · CSV from its header with the shared footer
   // the stamp's third line is the datasets the figure pools (WS-A3): a figure travels further than any other
   // download and used to leave the app with no way back to whom to cite
@@ -1204,7 +1318,7 @@ export function App() {
   const panelElOf = (id: PanelId) => document.querySelector<HTMLElement>(`.max-panel.panel-${id}, .sheet .panel-body-${id}, .card-${id}`);
   // the map's table is what it draws: the lens summary per station / hexagon / region, the samples along a cruise track
   const mapRows = (): Row[] => sel.lens === "hex" ? hexRows : sel.lens === "region" ? regionRows : sel.lens === "cruise" ? cruiseSamples : stationRows;
-  const rowsOf = (id: FigureId): Row[] => id === "map" ? mapRows() : id === "years" ? (seriesMode === "cruises" && gantt ? gantt.rows : (monthRows ?? yearRows)) : id === "depth" ? (depthDs.length ? depthDs : depthRows)
+  const rowsOf = (id: FigureId): Row[] => id === "map" ? mapRows() : id === "years" ? (seriesMode === "cruises" && gantt ? gantt.rows : (monthRows ?? (bySeason ? seasonRows : null) ?? yearRows)) : id === "depth" ? (depthDs.length ? depthDs : depthRows)
     : id === "section" ? sectionCells : id === "cruise" ? cruiseRows : id === "timing" ? marks : id === "station" ? (stationCard?.detail?.datasets ?? stationCard?.summary?.datasets ?? []).flatMap((d: any) => (d.years?.length ? d.years.map((y: [number, number]) => ({ grid_key: stationCard!.grid_key, dataset_key: d.dataset_key, year: y[0], n_obs: y[1] })) : [{ grid_key: stationCard!.grid_key, dataset_key: d.dataset_key, n_obs: d.n_obs, year_min: d.year_min, year_max: d.year_max }])) : [];
   // the figure as a blob (no download): what the export items and window.__figure share
   const figure = async (id: FigureId, kind: "png" | "svg" | "csv"): Promise<{ blob: Blob; name: string }> => {
@@ -1315,8 +1429,8 @@ export function App() {
   }, [status, busy]);
   const statusToast = status !== "ready" && status !== "grid (static)" ? <div className={`status-toast${busy ? " busy" : ""}${/error|failed/.test(status) ? " err" : ""}`} role="status" aria-live="polite">{busy && <span className="spin" />}{status}</div> : null;
   const sentence = !phone && <Sentence sel={sel} setSel={setSel} onLens={onLens} organismItems={organismItems} organismGroups={organismGroups} variableItems={variableItems} variableGroups={variableGroups}
-    sectionCruiseItems={sectionCruiseItems} cruiseItems={cruiseItems} lines={lines} layerNames={layerNames} regionName={regionName} stages={stages} denRows={(d) => denInfo(d).rows} defaultDen={(s) => defaultDen(picker, s)}
-    years={years} yearMax={yearMax} hasDepthAxis={depthAvail} hasClim={hasClim(catalog)} climWindow={climWindow} datasetsInSlice={datasetsInSlice} dsOn={dsOn} toggleDataset={toggleDataset} dsColor={dsColor} short={short}
+    sectionCruiseItems={sectionCruiseItems} cruiseItems={cruiseItems} lines={lines} layerNames={layerNames} regionName={regionName} areaText={area ? areaWord(area) : null} stages={stages} denRows={(d) => denInfo(d).rows} defaultDen={(s) => defaultDen(picker, s)}
+    years={years} yearMax={yearMax} hasDepthAxis={depthAvail || noneLeft} hasClim={hasClim(catalog)} climWindow={climWindow} datasetsInSlice={datasetsInSlice} dsOn={dsOn} toggleDataset={toggleDataset} dsColor={dsColor} short={short}
     subject={subject} derived={derivedNote} countWord={countWord} unit={preSlice ? "root samples" : (legendUnit ?? unitLabel)} domain={[(legendUnit === "year" ? fmtYear : fmt)(legendDomain[0]), (legendUnit === "year" ? fmtYear : fmt)(legendDomain[1])]} bar={rampCss(rampId)} count={inView} status={status} ready={!!sliceKey} seaFloor={seaFloorOn}
     native={native} phone={phone} loading={status} open={sentenceOpen} onToggle={toggleSentence} extra={legendExtra}
     band={{ left: selectOpen ? 340 : 48, right: Math.max(displayLens === "section" && sel.realm === "env" ? 200 : 160, rightBand + (stationUp ? 350 : 0) + (cardOpen.timing && !minCards.timing ? 430 : cardOpen.layers && !minCards.layers ? 280 : 0)) }} />;

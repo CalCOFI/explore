@@ -100,7 +100,7 @@ export function FeedbackDialog(p: { url: string; release: string; kind?: Feedbac
           {datasets.length ? datasets.map((d) => <span key={d} className="chip tiny">{d}</span>) : <span className="hint">— none in view</span>}
         </div>
       </> : (
-        <label className="f">What happened / what did you expect?
+        <label className="f">Your feedback <span className="hint">(what happened, what you expected, or an idea)</span>
           <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="that spike at 1,144 m looks wrong — the station shows 2.2 ml/L in 1955 …" autoFocus data-tour="feedback-text" /></label>
       )}
       <div className="row feedback-row">
