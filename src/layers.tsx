@@ -98,6 +98,10 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
       </label>}
       <div className="hint layers-note">draws above the sea floor; its place among the boundary layers is the <b>Data</b> row under <i>On the map</i> — drag it below a boundary to draw under it{p.sel.land && <>; it and every row below it are clipped to the ocean by the coast</>}</div>
 
+      <label className="layers-row layers-main" title="each CalCOFI line threaded through its stations in station order and named at both ends — drawn whether or not Data is on (`lines=on`)">
+        <input type="checkbox" checked={p.sel.lines} onChange={() => p.setSel({ lines: !p.sel.lines })} />
+        <b>Lines</b> <span className="hint">the CalCOFI lines through their stations, named at both ends</span>
+      </label>
       <label className="layers-row layers-main" title="every cast, tow or site in the selection at its own position (to 0.01°), as a dot — drawn whether or not Data is on (`obs=`)">
         <input type="checkbox" checked={!!p.sel.obs} onChange={() => p.setSel({ obs: p.sel.obs ? null : OBS_COLOR })} />
         <b>Observations</b> <span className="hint">every site sampled, as a dot, with or without Data</span>

@@ -28,3 +28,18 @@ describe("obs= round-trips through the URL", () => {
     at("?lens=station&data=off&obs=on"); const s = fromUrl(); expect(s.data).toBe(false); expect(s.obs).toBe(OBS_COLOR);
   });
 });
+
+describe("lines= round-trips through the URL (the 2-D map's Lines layer)", () => {
+  let written = "";
+  const at = (search: string) => {
+    vi.stubGlobal("location", { pathname: "/explore/", search });
+    vi.stubGlobal("history", { replaceState: (_: unknown, __: string, url: string) => { written = url; } });
+  };
+  afterEach(() => { vi.unstubAllGlobals(); written = ""; });
+  it("off by default, and the link carries no lines=", () => { at(""); expect(fromUrl().lines).toBe(false); toUrl({ ...DEFAULTS }); expect(written).not.toContain("lines="); });
+  it("on is written `lines=on` and reads back on, with Data off", () => {
+    at(""); toUrl({ ...DEFAULTS, lines: true }); expect(written).toContain("lines=on");
+    at("?data=off&obs=on&lines=on"); const s = fromUrl(); expect(s.lines).toBe(true); expect(s.data).toBe(false);
+  });
+  it("anything but `on` is off", () => { at("?lines=1"); expect(fromUrl().lines).toBe(false); });
+});

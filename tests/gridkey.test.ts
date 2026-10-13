@@ -1,7 +1,7 @@
 // the station grid redrawn in v2026.10.04 (one Voronoi cell per official station, SCCOOS inshore stations each on a
 // "line" of its own, decimals in grid_key, a grid_crosswalk from the previous grid). One small fixture per rule.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { nearestSectionLine, parseGridKey, resolveStation, sectionLines, REDRAWN_FRAC, type CrosswalkRow } from "../src/gridkey";
+import { lineName, lineThreads, nearestSectionLine, parseGridKey, resolveStation, sectionLines, LINE_LABEL_NUDGE, REDRAWN_FRAC, type CrosswalkRow, type GridHome } from "../src/gridkey";
 import { render } from "../src/sqltpl";
 import { openDuck, type Duck } from "./helpers/duck";
 
@@ -97,4 +97,28 @@ describe("slice_bio.sql — line / station from a redrawn grid_key", () => {
     expect(db.exec(render("section_bio", { ...P, line: 90 })).map((r) => r.station)).toEqual([27.7, 30]);
     expect(db.exec(render("section_bio", { ...P, line: 93.4 })).map((r) => r.station)).toEqual([26.4]);
   });
+});
+
+describe("lineThreads — the 2-D map's Lines layer", () => {
+  // positions on a made-up plane: line 90 runs along x, its cells given out of station order; 93.4 is a lone SCCOOS cell
+  const HOMES: GridHome[] = [
+    { line: 90, station: 30, home: [2, 0] }, { line: 90, station: 27.7, home: [0, 0] }, { line: 90, station: 28, home: [1, 0] },
+    { line: 93.3, station: 26.7, home: [0, 1] }, { line: 93.3, station: 28, home: [1, 1] },
+    { line: 93.4, station: 26.4, home: [5, 5] },
+    { line: 130, station: -20, home: [9, 9], grid_key: "st-20-ln130_hist" }, { line: 130, station: 0, home: [9, 8], grid_key: "st0-ln130_hist" },
+    { line: 90, station: 120, home: [9, 0], grid_key: "st120-ln90_hist" },
+  ];
+  const t = lineThreads(HOMES);
+  it("threads every line with two cells or more, ascending; a lone cell is neither threaded nor named", () => expect(t.map((x) => x.line)).toEqual([90, 93.3]));
+  it("threads only the official stations: a historical cell joins no thread, and a line of them alone is not drawn", () => {
+    expect(t.map((x) => x.line)).not.toContain(130); expect(t[0].path).not.toContainEqual([9, 0]);
+  });
+  it("the thread runs in station order, not the order the cells came in", () => expect(t[0].path).toEqual([[0, 0], [1, 0], [2, 0]]));
+  it("names the line at both ends, past the end station by LINE_LABEL_NUDGE of the last spacing", () => {
+    expect(t[0].labels.map((l) => l.text)).toEqual(["line 90", "line 90"]);
+    expect(t[0].labels[0].position).toEqual([-LINE_LABEL_NUDGE, 0]);
+    expect(t[0].labels[1].position).toEqual([2 + LINE_LABEL_NUDGE, 0]);
+  });
+  it("writes a decimal line with one decimal", () => { expect(t[1].labels[0].text).toBe("line 93.3"); expect(lineName(80)).toBe("line 80"); });
+  it("an empty grid has no lines", () => expect(lineThreads([])).toEqual([]));
 });
