@@ -19,7 +19,7 @@ import { resolveVersion, fetchCatalog, fetchVersions, sources, sidecarUrl, early
 import { buildBundle, saveBlob, copyAs } from "./bundle";
 import { Icon } from "./icons";
 import { Picker, type PickerItem, type GroupOpt } from "./picker";
-import { Menu, Group } from "./ui";
+import { Menu, Group, NumInput, YearRange } from "./ui";
 import { Panel, EdgePills, MaxPanel, Sheet, Sparkline, VSpark, SHEET_PEEK, type CardId, type CardBox, type Detent, type Dock, type EdgePill } from "./panels";
 import { Sentence, type DerivedNote } from "./sentence";
 import { LayersCard } from "./layers";
@@ -436,6 +436,9 @@ export function App() {
   // the release's last year (coverage.json) closes an open-ended year range; never a constant
   const yearMax = useMemo(() => Math.max(2023, ...(cov?.variables ?? []).map((v) => v.year_max ?? 0)), [cov]);
   const years: [number, number] = [sel.years[0], sel.years[1] === YEAR_OPEN ? yearMax : sel.years[1]];
+  // a typed or stepped year window (explore#26/#27): ending on the latest year keeps the open end, so the link
+  // still reads "through the latest" when the next release adds a year; month edges from a brush do not survive it
+  const setYearWindow = (y: [number, number]) => setSel({ years: [y[0], y[1] >= yearMax ? YEAR_OPEN : y[1]], months: null });
   const params = useMemo(() => ({
     val, y0: years[0], y1: years[1], ym0: years[0] * 100 + (sel.months?.[0] ?? 1), ym1: years[1] * 100 + (sel.months?.[1] ?? 12),
     quarter_filter: sel.q?.length && sel.q.length < 4 ? `quarter IN (${sel.q.join(", ")})` : "TRUE", bin: "year",
@@ -1105,7 +1108,7 @@ export function App() {
   // ③ Refine: the years, the season, the depth band (only where a pick has a depth axis) and the datasets
   const refineTab = <>
     <Group title="Years" icon="ui-years">
-      <div className="row"><input type="number" style={{ width: 66 }} value={years[0]} min={1949} max={yearMax} onChange={(e) => setSel({ years: [+e.target.value, years[1]] })} />–<input type="number" style={{ width: 66 }} value={years[1]} min={1949} max={yearMax} onChange={(e) => setSel({ years: [years[0], +e.target.value] })} /><button type="button" className="pill act" disabled={!yearsSet} onClick={() => setSel({ years: [1949, YEAR_OPEN], months: null })}>all years</button></div>
+      <div className="row"><YearRange years={years} first={1949} last={yearMax} onChange={setYearWindow} /><button type="button" className="pill act" disabled={!yearsSet} onClick={() => setSel({ years: [1949, YEAR_OPEN], months: null })}>all years</button></div>
       <div className="hint">or drag on the Years panel{sel.months ? " · month edges from the brush" : ""}</div>
     </Group>
     <Group title="Season" icon="ui-calendar">
@@ -1113,7 +1116,7 @@ export function App() {
     </Group>
     <Group title="Depth band" icon="ui-tune">
       {depthAvail || !sliceKey ? <>
-        <div className="row"><input type="number" style={{ width: 66 }} value={sel.depth[0]} min={0} max={sel.depth[1] - 10} step={10} onChange={(e) => setSel({ depth: [+e.target.value, sel.depth[1]] })} />–<input type="number" style={{ width: 66 }} value={sel.depth[1]} min={sel.depth[0] + 10} max={6500} step={10} onChange={(e) => setSel({ depth: [sel.depth[0], +e.target.value] })} /> m<button type="button" className="pill act" disabled={!depthSet} onClick={() => setSel({ depth: [0, 500] })}>0–500 m</button></div>
+        <div className="row"><NumInput value={sel.depth[0]} min={0} max={sel.depth[1] - 10} step={10} label="top of the depth band (m)" onCommit={(v) => setSel({ depth: [v, sel.depth[1]] })} />–<NumInput value={sel.depth[1]} min={sel.depth[0] + 10} max={6500} step={10} label="bottom of the depth band (m)" onCommit={(v) => setSel({ depth: [sel.depth[0], v] })} /> m<button type="button" className="pill act" disabled={!depthSet} onClick={() => setSel({ depth: [0, 500] })}>0–500 m</button></div>
         <div className="hint">or drag on the Depth panel — <button type="button" className="linkish" onClick={() => { if (phone) setSheet({ panel: "depth", detent: "half" }); else if (folded("depth")) toggleFold("depth"); }}>open it</button></div>
       </> : <div className="hint">this pick has no depth axis — {noDepthWhy}, so the band does not apply</div>}
     </Group>

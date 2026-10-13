@@ -702,3 +702,6 @@ a.lic:hover { color: var(--accent); border-color: var(--accent); }
 /* the Controls tabs read as a sequence: a small step badge before each (Ben, 2026-09-07) — the active step fills */
 .tabs button .step { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 50%; font-size: 9.5px; font-weight: 700; line-height: 1; color: var(--muted); border: 1.5px solid currentColor; font-variant-numeric: tabular-nums; margin-right: 1px; }
 .tabs button.on .step { background: var(--accent); border-color: var(--accent); color: var(--on-accent, white); }
+/* the year window with its step arrows (explore#27) */
+.year-range { display: inline-flex; align-items: center; gap: 4px; }
+.year-range .pill.step { font-size: 15px; line-height: 1; padding: 2px 8px; }

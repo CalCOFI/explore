@@ -5,7 +5,7 @@
 // so the two surfaces cannot disagree. One control surface at a time: opening the sentence folds the panel.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "./icons";
-import { IconButton, Menu, useAnchor, type MenuItem } from "./ui";
+import { IconButton, Menu, NumInput, YearRange, useAnchor, type MenuItem } from "./ui";
 import { Picker, type PickerItem, type GroupOpt } from "./picker";
 import { CLIM_MIN_CRUISES } from "./anomaly";
 import { DEN_LABEL, DEN_HOW, LENSES, LENS_SHORT, LENS_DESC, LENS_ICON, RES_KM, STAT_WORD, STAT_LABEL, YEAR_OPEN, INTERPS, INTERP_LABEL, INTERP_WORD, INTERP_HOW, SURFACES, SURFACE_LABEL, SURFACE_WORD, GRAIN_LABEL, GRAIN_HOW, type Sel, type Den, type Stat, type Lens, type Grain } from "./state";
@@ -107,7 +107,7 @@ export function Sentence(c: SentenceCtx) {
     { label: "as measured", selected: !sel.anom, onSelect: () => setSel({ anom: false }) },
     { label: `the difference from the ${climWord} normal`, hint: "red above normal, blue below; a cell with no baseline is blank", selected: sel.anom, onSelect: () => setSel({ anom: true }) }]} />;
   const yearsPop = () => <ChipPop label={yearsWord} icon="ui-years" title="the year range · or drag on the Years panel">
-    <div className="row"><input type="number" style={{ width: 62 }} value={c.years[0]} min={1949} max={c.yearMax} onChange={(e) => setSel({ years: [+e.target.value, c.years[1]] })} />–<input type="number" style={{ width: 62 }} value={c.years[1]} min={1949} max={c.yearMax} onChange={(e) => setSel({ years: [c.years[0], +e.target.value] })} /></div>
+    <div className="row"><YearRange years={c.years} first={1949} last={c.yearMax} width={62} onChange={(y) => setSel({ years: [y[0], y[1] >= c.yearMax ? YEAR_OPEN : y[1]], months: null })} /></div>
     <div className="row"><button type="button" className="pill act" onClick={() => setSel({ years: [1949, YEAR_OPEN], months: null })}>all years</button><span className="hint">or drag on the Years panel{sel.months ? " · month edges from the brush" : ""}</span></div>
   </ChipPop>;
   const seasonPop = () => <ChipPop label={seasonWord} icon="ui-calendar" title="season: keep only these quarters" width={240}>
@@ -115,7 +115,7 @@ export function Sentence(c: SentenceCtx) {
     <div className="hint">{sel.q ? sel.q.map((x) => Q_LABEL[x - 1]).join(", ") : "every quarter"}</div>
   </ChipPop>;
   const depthPop = () => <ChipPop label={depthWord} icon="ui-tune" title="the depth band · or drag on the Depth panel">
-    <div className="row"><input type="number" style={{ width: 62 }} value={sel.depth[0]} min={0} max={sel.depth[1] - 10} step={10} onChange={(e) => setSel({ depth: [+e.target.value, sel.depth[1]] })} />–<input type="number" style={{ width: 62 }} value={sel.depth[1]} min={sel.depth[0] + 10} max={6500} step={10} onChange={(e) => setSel({ depth: [sel.depth[0], +e.target.value] })} /> m</div>
+    <div className="row"><NumInput value={sel.depth[0]} min={0} max={sel.depth[1] - 10} step={10} width={62} label="top of the depth band (m)" onCommit={(v) => setSel({ depth: [v, sel.depth[1]] })} />–<NumInput value={sel.depth[1]} min={sel.depth[0] + 10} max={6500} step={10} width={62} label="bottom of the depth band (m)" onCommit={(v) => setSel({ depth: [sel.depth[0], v] })} /> m</div>
     <div className="row"><button type="button" className="pill act" onClick={() => setSel({ depth: [0, 500] })}>0–500 m</button><span className="hint">or drag on the Depth panel</span></div>
   </ChipPop>;
   const datasetsPop = () => <ChipPop label={nOn === nDs ? `${nDs} datasets` : `${nOn} of ${nDs} datasets`} icon="ui-data" title="the datasets this view pools — click one to leave it out" width={300}>
