@@ -87,6 +87,13 @@ says what the app does and how to work on it without needing them.
   `calcofi4py.interpolate()` are the same code by hand, pinned by `scripts/parity/contour_fixture.json` — written by
   the worker itself (`node scripts/parity/contour_fixture.mjs`) and copied byte-for-byte into both packages'
   test fixtures — so a surface made in R or Python matches the map cell for cell.
+- **Lines is a layer of its own** (`lines=on`): each CalCOFI line threaded through its official stations in station
+  order and named at both ends (`lineThreads()` in `src/gridkey.ts`, the rule the 3-D curtain draws at the surface),
+  independent of the *Data* row. Historical cells (`_hist`) and a station on a line of its own are not threaded.
+- **Observations is a layer of its own** (`obs=on`, or `obs=<hex>` for another colour): every cast, tow or site in the
+  selection at its own position (to 0.01°, `sql/contour_cast.sql`) as a dot, in any lens and on top of everything.
+  It is independent of the *Data* row, so `data=off&obs=on` draws the sampling over the sea floor and the boundaries
+  with no summary colour.
 - **The data layer has its own rows in the Layers card**: on/off (`data=off` leaves the sea floor and boundaries
   alone), opacity (`datao=`), the **colour ramp** (`ramp=thermal`, `_r` reverses): cmocean's 22 ramps (Thyng et
   al. 2016), viridis and oce's GEBCO ramp, in `src/ramps.ts`; with no `ramp=` the variable picks its cmocean

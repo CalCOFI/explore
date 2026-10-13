@@ -46,6 +46,24 @@
   the spline.
 - **"Sea temperature"** (explore#25): the unified bottle + CTD temperature's label; `var=temperature` is unchanged.
 
+- **a Lines layer on the 2-D map** (`lines=on`; `src/gridkey.ts` `lineThreads()`, `src/map.tsx`, `src/layers.tsx`,
+  `tests/gridkey.test.ts`, `tests/obs.test.ts`; Erin Satterthwaite, 2026-10-02: "a map of the CalCOFI stations (and
+  lines, if possible)"). A *Lines* row in the Layers card threads each line through its official stations in station
+  order, a white hairline on a dark halo, and writes its name ("line 93.3") just past both ends. It draws in every
+  lens, above the data and under the Observations, and stays on with *Data* off, so `data=off&obs=on&lines=on` is
+  the sampling, the lines, the sea floor and the boundaries alone. Historical cells (`…_hist`) are not threaded
+  (they ran lines across Baja California into the Gulf), nor is a station on a line of its own. The labels use a
+  system sans-serif, because a web font that has not loaded yet leaves deck's glyph atlas empty.
+
+- **an Observations layer, independent of Data** (`src/layers.tsx`, `src/map.tsx`, `src/state.ts`,
+  `tests/obs.test.ts`; Erin Satterthwaite, 2026-10-05: "a black dot at the 'center' of these clusters and just have a
+  basemap that is the ocean floor (not temp)"). A new *Observations* row in the Layers card draws every site in the
+  selection (each cast, tow or site at its own position, the Contours lens's site grain) as a dot of a chosen colour,
+  black by default, in every lens and on top of the data and the boundaries. It stays on when *Data* is off, so
+  `data=off&obs=on` shows where the ship sampled over the sea floor, the wind, oil and gas and aquaculture layers, and
+  nothing else. The URL carries it as `obs=on` (black) or `obs=<hex>`. With *Data* off the legend says "data off"
+  instead of drawing a colour bar it no longer uses, and with *Observations* on it shows the dot.
+
 - **the bundled layers fallback is generated again, from the latest release** (`scripts/dev_spatial_layers.R`,
   `src/spatial_layers.fallback.ts`). The script hard-coded v2026.08.25 and the retired explore-dev cut, and failed once
   that local copy was gone. It now reads `spatial` and `sample_spatial` from the release `latest.txt` names (or a

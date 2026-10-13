@@ -7,7 +7,7 @@ import { engine, timing, hexExpr, datasetFilterSql, type Mark, type Row } from "
 import { UNIFIED, members, setUnified, unifiedDefs } from "./variables";
 import { castVariables, derivedFamily, derivedTip, grainCount, grainWord, variableGrain, DERIVED_FAMILY, type CastCensusRow, type RegistryRow, type VarGrain } from "./castgrain";
 import { qualOkSQL } from "./qual";
-import { nearestSectionLine, resolveStation, sectionLines, type CrosswalkRow } from "./gridkey";
+import { lineThreads, nearestSectionLine, resolveStation, sectionLines, type CrosswalkRow } from "./gridkey";
 import { lit } from "./sqltpl";
 import { buildLayers, MapView, quantileDomain, colorScale, type GridCell, type StatRow, type LayerInputs } from "./map";
 import { computeSurface, surfaceImage, isolines, niceLevels, joinSegments, labelPoints, thinLabels, cellToLonLat, cellValue, landMask, MASK_KM, type Surface as SurfaceResult } from "./contour";
@@ -508,7 +508,8 @@ export function App() {
       const need_station = !opened.current || lens === "station" || lens === "contour"; // the contour lens interpolates the station summary
       if (need_station) { const r = await engine.query("station", params); if (stale()) return; setStationRows(r); }
       if (lens === "hex") { const r = await engine.query("hex", { ...params, hex: hexExpr(sel.res) }); if (stale()) return; setHexRows(r); }
-      if (lens === "contour" && sel.grain === "site" && sel.interp !== "tps") { const r = await engine.query("contour_cast", params); if (stale()) return; setCastRows(r); }
+      // the sites: the Contours inputs at the site grain, and the Observations layer in any lens (`obs=`)
+      if ((lens === "contour" && sel.grain === "site" && sel.interp !== "tps") || sel.obs) { const r = await engine.query("contour_cast", params); if (stale()) return; setCastRows(r); }
       if (lens === "region") {
         await ensure(REG.sample_spatial); await ensure(REG.sample_root);
         const rr = await engine.query("region", { ...params, layer: sel.layer, spatial_src: q(REG.sample_spatial) });
@@ -586,7 +587,7 @@ export function App() {
       } else setDisplayLens(lens);
       setStatus("ready");
     })().catch((e) => { console.error(e); setStatus(`error: ${e.message}`); });
-  }, [sliceKey, sel.lens, sel.res, sel.layer, sel.line, sel.cruise, sel.grain, sel.interp === "tps", params]);
+  }, [sliceKey, sel.lens, sel.res, sel.layer, sel.line, sel.cruise, sel.grain, sel.interp === "tps", !!sel.obs, params]);
 
   // cruise playback (D37): the clock lives in a ref and the loop hands deck new layers itself — no App render per frame
   const timeRef = useRef(0);
@@ -699,14 +700,15 @@ export function App() {
   }, [displayLens, surf, surfVals, legendDomain, rampId, castRows, showInputs, sel.labels, sel.surface, sel.map?.[2]]);
 
   const areaOutline = useMemo(() => area?.kind === "box" ? [boxFeature(area.bbox)] : area?.kind === "region" ? spatial.filter((f) => f.properties.layer === area.layer && f.properties.name === area.name) : null, [area, spatial]);
+  const lineThreadsAll = useMemo(() => lineThreads(grid), [grid]); // the Lines layer (`lines=on`)
   const layerInputs = useMemo((): LayerInputs => ({
     lens: displayLens, res: sel.res, stat: preSlice ? "n" : stat, grid, station: stationMap, hex: hexRows as any,
     region: { features: layerFeatures, stats: regionStats, stationTo: regionStation, centroid: centroids, selected: sel.region },
     cruise: { track, samples: cruiseSamples as any, time: timeRef.current },
     section: { line: sel.line, cruiseStations },
     contour: contourInputs,
-    duration, domain, ramp: rampId, dataOn: sel.data, dataOpacity: sel.datao ?? 1, beforeId: dataBeforeId, selectedStation: sel.station, area: areaOutline,
-  }), [displayLens, sel.res, stat, preSlice, grid, stationMap, hexRows, layerFeatures, regionStats, regionStation, centroids, sel.region, track, cruiseSamples, sel.line, cruiseStations, domain, sel.station, contourInputs, rampId, sel.data, sel.datao, dataBeforeId, areaOutline]);
+    duration, domain, ramp: rampId, dataOn: sel.data, dataOpacity: sel.datao ?? 1, obs: sel.obs ? { rows: castRows as any[], color: sel.obs } : null, lines: sel.lines ? lineThreadsAll : null, beforeId: dataBeforeId, selectedStation: sel.station, area: areaOutline,
+  }), [displayLens, sel.res, stat, preSlice, grid, stationMap, hexRows, layerFeatures, regionStats, regionStation, centroids, sel.region, track, cruiseSamples, sel.line, cruiseStations, domain, sel.station, contourInputs, rampId, sel.data, sel.datao, sel.obs, castRows, sel.lines, lineThreadsAll, dataBeforeId, areaOutline]);
   inputsRef.current = layerInputs;
   const layers = useMemo(() => buildLayers(layerInputs), [layerInputs]);
 
