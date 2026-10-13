@@ -7,7 +7,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "./icons";
 import { IconButton, Menu, NumInput, YearRange, useAnchor, type MenuItem } from "./ui";
 import { Picker, type PickerItem, type GroupOpt } from "./picker";
-import { CLIM_MIN_CRUISES } from "./anomaly";
+import { CLIM_MIN_CRUISES, baselineWord, cruiseMonth, type ClimBase } from "./anomaly";
 import { DEN_LABEL, DEN_HOW, LENSES, LENS_SHORT, LENS_DESC, LENS_ICON, RES_KM, STAT_WORD, STAT_LABEL, YEAR_OPEN, INTERPS, INTERP_LABEL, INTERP_WORD, INTERP_HOW, SURFACES, SURFACE_LABEL, SURFACE_WORD, GRAIN_LABEL, GRAIN_HOW, type Sel, type Den, type Stat, type Lens, type Grain } from "./state";
 
 const fmtN = (v: number) => v.toLocaleString();
@@ -20,6 +20,8 @@ export interface SentenceCtx {
   stages: [string | null, number][]; denRows: (d: Den) => number; defaultDen: (stage: string | null) => Den;
   areaText: string | null; // the Area filter's clause (src/area.ts areaWord), null = everywhere (explore#20)
   years: [number, number]; yearMax: number; hasDepthAxis: boolean; hasClim: boolean; climWindow: [number, number] | null;
+  // the anomaly (anomaly.ts): a baseline exists for this variable; the one in force; whether the release carries the season
+  anomAvail?: boolean; climBase?: ClimBase; seasonOk?: boolean | null;
   datasetsInSlice: string[]; dsOn: (dk: string) => boolean; toggleDataset: (dk: string) => void; dsColor: (dk: string) => string; short: (dk: string) => string;
   subject: string; unit: string;
   // a derived variable says so right after its name (castgrain.ts): the word, its hover (the registry's definition) and
@@ -104,9 +106,15 @@ export function Sentence(c: SentenceCtx) {
   const regionMenu = () => <ChipMenu label={c.regionName ?? ""} title="the selected region — click a polygon on the map to pick another" items={[{ label: "every region", hint: "clear the selection", onSelect: () => setSel({ region: null }) }]} />;
   const lineMenu = () => <ChipMenu label={String(sel.line)} title="the CalCOFI line" items={c.lines.map((l) => ({ label: `line ${l}`, selected: l === sel.line, onSelect: () => setSel({ line: l, cruise: null }) }))} />;
   const cruiseChip = (items: PickerItem[], id: string) => <Picker variant="chip" id={id} label="cruise" hint="newest first" value={sel.cruise ?? ""} items={items} onChange={(k) => setSel({ cruise: k })} sorts={["recent", "n"]} countLabel={id === "ts-section-cruise" ? "stations" : undefined} placeholder="search YYYY-MM-NODC…" loading={items.length ? null : "…"} native={c.native} sheet={c.phone} />;
-  const anomMenu = () => <ChipMenu label={sel.anom ? `shown as the difference from the ${climWord} normal` : "shown as measured"} title={`a departure from the release's climatology: this station, the cruise's month, this 10 m bin, at least ${CLIM_MIN_CRUISES} cruises`} items={[
+  // the normal in words: on a section, the cruise's own month or quarter ("the 1993–2013 July normal"); on a map, each
+  // cruise's ("the 1993–2013 cruise-month normal")
+  const base: ClimBase = c.climBase ?? "month";
+  const normalWord = (b: ClimBase) => sel.lens === "section" && cruiseMonth(sel.cruise) != null ? `${climWord} ${baselineWord(b, cruiseMonth(sel.cruise))} normal` : `${climWord} cruise-${b === "season" ? "quarter" : "month"} normal`;
+  const anomWord = sel.anom ? `shown as the difference from the ${normalWord(base)}` : "shown as measured";
+  const anomMenu = () => <ChipMenu label={anomWord} title={`a departure from the release's climatology: the station, the cruise's month (or quarter), ${sel.lens === "section" ? "this 10 m bin" : "each observation's own cell, before it is pooled"}, at least ${CLIM_MIN_CRUISES} cruises`} items={[
     { label: "as measured", selected: !sel.anom, onSelect: () => setSel({ anom: false }) },
-    { label: `the difference from the ${climWord} normal`, hint: "red above normal, blue below; a cell with no baseline is blank", selected: sel.anom, onSelect: () => setSel({ anom: true }) }]} />;
+    { label: `the difference from the ${normalWord("month")}`, hint: "red above normal, blue below; no baseline is blank, never 0", selected: sel.anom && base === "month", onSelect: () => setSel({ anom: true, base: "month" }) },
+    { label: `the difference from the ${normalWord("season")}`, hint: c.seasonOk === false ? "this release's climatology has no seasonal baseline (calcofi4db 4.24.0+)" : "the cruise's quarter: Jan–Mar, Apr–Jun, Jul–Sep, Oct–Dec", disabled: c.seasonOk === false, selected: sel.anom && base === "season", onSelect: () => setSel({ anom: true, base: "season" }) }]} />;
   const yearsPop = () => <ChipPop label={yearsWord} icon="ui-years" title="the year range · or drag on the Years panel">
     <div className="row"><YearRange years={c.years} first={1949} last={c.yearMax} width={62} onChange={(y) => setSel({ years: [y[0], y[1] >= c.yearMax ? YEAR_OPEN : y[1]], months: null })} /></div>
     <div className="row"><button type="button" className="pill act" onClick={() => setSel({ years: [1949, YEAR_OPEN], months: null })}>all years</button><span className="hint">or drag on the Years panel{sel.months ? " · month edges from the brush" : ""}</span></div>
@@ -147,9 +155,11 @@ export function Sentence(c: SentenceCtx) {
     // depth-integrated) and cuts YEARS, so the sentence names the axis rather than saying "a section" twice over
     const sectionWord = sel.realm === "env" ? "as a depth section along line" : "as a station-by-year section along line";
     chip("lens", sectionWord, () => lensMenu(sectionWord)); w(" "); chip("line", String(sel.line), lineMenu);
-    if (sel.realm === "env") { w(" on cruise "); chip("cruise", cruiseLabel(c.sectionCruiseItems), () => cruiseChip(c.sectionCruiseItems, "ts-section-cruise")); if (c.hasClim) { w(", "); chip("anom", sel.anom ? `shown as the difference from the ${climWord} normal` : "shown as measured", anomMenu); } }
+    if (sel.realm === "env") { w(" on cruise "); chip("cruise", cruiseLabel(c.sectionCruiseItems), () => cruiseChip(c.sectionCruiseItems, "ts-section-cruise")); if (c.anomAvail ?? c.hasClim) { w(", "); chip("anom", anomWord, anomMenu); } }
     else w(" across all cruises");
   }
+  // the map lenses that pool departures (Hexagons, Contours) say so, for an env variable with a baseline
+  if ((sel.lens === "hex" || sel.lens === "contour") && sel.realm === "env" && c.anomAvail && (sel.anom || c.open)) { w(", "); chip("anom", anomWord, anomMenu); }
   w(", "); chip("years", yearsWord, yearsPop); w(" · "); chip("season", seasonWord, seasonPop);
   if (c.hasDepthAxis) { w(" · "); chip("depth", depthWord, depthPop); }
   if (c.areaText) { w(" · "); chip("area", c.areaText, () => <ChipMenu label={c.areaText!} title="the Area filter — set in Refine" items={[{ label: "everywhere (clear the area)", selected: false, onSelect: () => setSel({ area: null }) }]} />, false, "only samples inside this area count — Refine › Area"); }

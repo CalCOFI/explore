@@ -15,13 +15,16 @@
 --   · site_key / line / station are NULL: sample_root carries no site_key, so Sections do not draw a per-cast value
 --   · hex7 is the cast's own res-7 H3 cell, {{root_hex7}} = r.hex7 when sample_root carries it (v2026.10.04+), so
 --     Hexagons draw a per-cast value; NULL::UBIGINT for an older release, and the Hexagons lens says why it is empty
+--   · year / quarter are the CRUISE's (sqltpl.ts {{cruise_year}} / {{cruise_quarter}} on the cast's cruise_key), the
+--     calendar only for a missing or malformed key — never quarter(datetime) alone: a July cruise works its first
+--     stations on 30 June, and the season filter Q3 dropped them (explore#17). obs_env / obs_bio carry the same at release.
 --   · units is a scalar lookup in the registry, not a join: a repeated registry row cannot double a cast
 -- a value whose sample has no sample_root row has no position and is not in the slice; cast_list.sql counts those.
 CREATE OR REPLACE TABLE slice AS
 SELECT sm.sample_measurement_id AS obs_id, sm.dataset_key, r.root_id, r.grid_key, NULL::VARCHAR AS site_key,
        NULL::DOUBLE AS line, NULL::DOUBLE AS station,
        r.cruise_key, r.latitude, r.longitude, r.datetime,
-       year(r.datetime)::SMALLINT AS year, quarter(r.datetime)::TINYINT AS quarter,
+       r.c_year::SMALLINT AS year, r.c_quarter::TINYINT AS quarter,
        NULL::DOUBLE AS depth_min_m, NULL::DOUBLE AS depth_max_m, NULL::INTEGER AS depth_bin,
        NULL::VARCHAR AS taxon_key, NULL::VARCHAR AS life_stage, sm.measurement_type,
        (SELECT any_value(m.units) FROM {{mt_src}} m WHERE m.measurement_type = {{type}}) AS units,
@@ -30,5 +33,6 @@ SELECT sm.sample_measurement_id AS obs_id, sm.dataset_key, r.root_id, r.grid_key
        NULL::DOUBLE AS density_per_10m2, NULL::DOUBLE AS density_per_1000m3, NULL::VARCHAR AS effort_class, {{root_hex7}} AS hex7,
        sm.sample_key
 FROM {{sm_src}} sm
-JOIN {{root_src}} r ON r.root_sample_key = sm.sample_key
+JOIN (SELECT *, COALESCE({{cruise_year}}, year(datetime)) AS c_year, COALESCE({{cruise_quarter}}, quarter(datetime)) AS c_quarter
+      FROM {{root_src}}) r ON r.root_sample_key = sm.sample_key
 WHERE sm.measurement_type = {{type}}

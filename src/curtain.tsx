@@ -22,7 +22,7 @@ import { PMTiles } from "pmtiles";
 import { BATHY_URL, BATHY_RAMP } from "./basemap";
 import { colorScale } from "./map";
 import { type SectionCell } from "./charts";
-import { anomalyOf, climLookup, CLIM_MIN_CRUISES } from "./anomaly";
+import { anomalyOf, climLookup, CLIM_MIN_CRUISES, type ClimBase } from "./anomaly";
 import type { GridCell } from "./map";
 import { roundCam, sameCam, type Cam } from "./state";
 import { IconButton } from "./ui";
@@ -124,14 +124,14 @@ function rampTexture(theme: "dark" | "light"): HTMLCanvasElement {
 /** the curtain's texture: one column per station, one row per 10 m bin; no value = transparent. `ramp` is the
  * SAME id App.tsx resolves for the map/contour/section lenses (ramps.ts defaultRamp()) — already "balance" when
  * `anom` is set, so this function carries no ramp logic of its own */
-function curtainTexture(cells: SectionCell[], clim: SectionCell[] | null, anom: boolean, ramp: string,
+function curtainTexture(cells: SectionCell[], clim: SectionCell[] | null, anom: boolean, base: ClimBase, ramp: string,
                         stations: number[], maxY: number): { cv: HTMLCanvasElement; painted: number } {
   const K = 8, rows = Math.max(1, Math.round(maxY / 10) + 1);
   const cv = document.createElement("canvas"); cv.width = Math.max(1, stations.length * K); cv.height = rows;
   const ctx = cv.getContext("2d")!;
   let painted = 0;
   const climMap = climLookup(clim);   // matched on the cruise's month (anomaly.ts)
-  const val = (c: SectionCell) => !anom ? c.v : anomalyOf(c, climMap);
+  const val = (c: SectionCell) => !anom ? c.v : anomalyOf(c, climMap, base);
   const vals = cells.map(val).filter((v): v is number => v != null);
   if (!vals.length) return { cv, painted: 0 };
   const amax = Math.max(0.1, ...vals.map(Math.abs));
@@ -153,7 +153,7 @@ function curtainTexture(cells: SectionCell[], clim: SectionCell[] | null, anom: 
   return { cv, painted };
 }
 
-export function Curtain3D(p: { cells: SectionCell[]; clim: SectionCell[] | null; anom: boolean; theme: "dark" | "light";
+export function Curtain3D(p: { cells: SectionCell[]; clim: SectionCell[] | null; anom: boolean; base?: ClimBase; theme: "dark" | "light";
                                line: number; grid: GridCell[]; exag: number; ramp: string;
                                cam: Cam | null; onCam: (c: Cam | null) => void }) {
   const el = useRef<HTMLDivElement>(null);
@@ -251,7 +251,7 @@ export function Curtain3D(p: { cells: SectionCell[]; clim: SectionCell[] | null;
       });
       const cidx = new Uint32Array((cN - 1) * 6); q = 0;
       for (let i = 0; i < cN - 1; i++) { const a = i, b = i + 1, c = cN + i, dd = cN + i + 1; cidx[q++] = a; cidx[q++] = c; cidx[q++] = b; cidx[q++] = b; cidx[q++] = c; cidx[q++] = dd; }
-      const { cv: ctexture, painted } = curtainTexture(p.cells, p.clim, p.anom, p.ramp, stations, maxY);
+      const { cv: ctexture, painted } = curtainTexture(p.cells, p.clim, p.anom, p.base ?? "month", p.ramp, stations, maxY);
       // a hairline frame: the anomaly ramp's midpoint is deliberately the PANEL's background colour, which on
       // this stage is the terrain — a near-normal curtain would otherwise vanish into it (light theme, 1950)
       const surf = cs.map((t) => [...off(t.home[0], t.home[1]), 0] as [number, number, number]);
@@ -306,11 +306,11 @@ export function Curtain3D(p: { cells: SectionCell[]; clim: SectionCell[] | null;
       // release's cruise floor (CLIM_MIN_CRUISES; September, mostly) has NO baseline — the panel goes blank by design, and
       // in 3-D the frame still shows the curtain's extent; say why it is empty
       setStatus(p.anom && painted === 0 && p.cells.length > 0
-        ? `no climatology for this cruise's month (needs ≥ ${CLIM_MIN_CRUISES} cruises in 1993–2013) — the anomaly curtain is blank`
+        ? `no climatology for this cruise's ${p.base === "season" ? "quarter" : "month"} (needs ≥ ${CLIM_MIN_CRUISES} cruises in 1993–2013) — the anomaly curtain is blank`
         : "");
     })().catch((e) => setStatus(`3-D scene failed: ${e.message}`));
     return () => { dead = true; };
-  }, [p.cells, p.clim, p.anom, p.theme, p.line, p.grid.length, p.exag, p.ramp]);
+  }, [p.cells, p.clim, p.anom, p.base, p.theme, p.line, p.grid.length, p.exag, p.ramp]);
 
   // deck's canvas gets a child React never reconciles: as a sibling of the status line it vanished the moment
   // React removed that line (probe 2026-09-10: canvas.isConnected flipped false as status went blank)

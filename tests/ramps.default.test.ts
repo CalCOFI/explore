@@ -7,7 +7,7 @@
 // seriesRamp() below, which are the same functions App.tsx calls, so this file is the regression guard for the
 // wiring, not just the per-variable regex table.
 import { describe, expect, it } from "vitest";
-import { defaultRamp, lensRamp, RAMPS, rampPlotly, seriesRamp } from "../src/ramps";
+import { defaultRamp, drawsAnomaly, lensRamp, RAMPS, rampPlotly, seriesRamp } from "../src/ramps";
 
 // one representative variable per cmocean group (plan D4's list) + a bio variable (no per-taxon convention: the
 // bio realm always draws viridis) — this is the "before/after" table's row set in the WS-R6 hand-back
@@ -55,10 +55,25 @@ describe("lensRamp() — map · contour · section (2-D + 3-D)", () => {
       expect(lensRamp({ ramp: null, realm: "env", var: g.v, anom: true, lens: "section" })).toBe("balance");
     }
   });
-  it("anom has no effect off the section lens — the map and contour never draw an anomaly", () => {
-    for (const lens of ["station", "hex", "region", "cruise", "contour"]) {
+  it("anom has no effect on the lenses that draw no anomaly — stations, regions, cruises", () => {
+    for (const lens of ["station", "region", "cruise"]) {
       expect(lensRamp({ ramp: null, realm: "env", var: "temperature", anom: true, lens })).toBe("thermal");
     }
+  });
+  // explore#17 follow-up (Rasmus, 2026-10-07): Hexagons and Contours pool departures (sql/anom_slice.sql) and draw them on
+  // the SAME diverging ramp the section does — never Plotly's "RdBu" (blue -> red in its own default direction)
+  it("anom=1 on Hexagons and on Contours' value / percentile surfaces is balance", () => {
+    expect(lensRamp({ ramp: null, realm: "env", var: "temperature", anom: true, lens: "hex", stat: "mean" })).toBe("balance");
+    for (const surface of ["value", "p05", "p95"])
+      expect(lensRamp({ ramp: null, realm: "env", var: "temperature", anom: true, lens: "contour", surface, stat: "med" })).toBe("balance");
+  });
+  it("a count, an error, a density or a year is not a departure: those keep the variable's own ramp", () => {
+    expect(lensRamp({ ramp: null, realm: "env", var: "temperature", anom: true, lens: "hex", stat: "n" })).toBe("thermal");
+    for (const surface of ["se", "n", "y0", "y1", "spread"])
+      expect(drawsAnomaly({ realm: "env", anom: true, lens: "contour", surface, stat: "mean" })).toBe(false);
+  });
+  it("a per-cast variable's anomaly is balance too (its depth hint never overrides the anomaly)", () => {
+    expect(lensRamp({ ramp: null, realm: "env", var: "mld_x", anom: true, lens: "hex", stat: "mean" }, { grain: "cast", units: "m" })).toBe("balance");
   });
   it("anom on a bio section stays viridis — a bio section has no climatology to diff against", () => {
     expect(lensRamp({ ramp: null, realm: "bio", var: "worms:172759", anom: true, lens: "section" })).toBe("viridis");

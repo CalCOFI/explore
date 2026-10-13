@@ -1,7 +1,7 @@
 -- the year strip / time series (all years, so the brush has context): n records, n_samples tows (zero-filled ones
 -- included), n_cruises, and the mean ± se per bin. {{bin}} is `year` (one bar per year), a season
--- (`year + (quarter - 0.5) / 4.0`, four points a year — the default of mean ± se, explore#21) or a month
--- (`year + (month(datetime) - 0.5) / 12.0`, drawn when the strip is zoomed to <= 15 years — D20 level of detail).
+-- (`year + (quarter - 0.5) / 4.0`, the cruise's quarter, four points a year — the default of mean ± se, explore#21) or a month
+-- (`year + (the cruise's month - 0.5) / 12.0`, drawn when the strip is zoomed to <= 15 years — D20 level of detail).
 -- the mean and its se are taken over STATION means (explore#21): each station's mean in the bin, then the mean and
 -- the standard error across stations, so the band shows how the stations differ, not a se that shrinks with every
 -- bottle in the bin. a station is the grid cell (grid_key); a cast off the grid is its own 0.1° point.

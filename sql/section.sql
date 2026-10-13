@@ -5,7 +5,7 @@
 -- before (2026-07-3322 occupied line 93.3 26.4–45 on 2026-06-30). The anomaly subtracts the climatology of THAT month
 -- (section_clim.sql, src/anomaly.ts), never a mean over all months — that would be a map of the seasonal cycle
 SELECT site_key, mode(grid_key) AS grid_key, station, depth_bin,
-       avg({{val}}) AS v, count(*) AS n, mode(TRY_CAST(substr(cruise_key, 6, 2) AS INTEGER)) AS month
+       avg({{val}}) AS v, count(*) AS n, mode({{cruise_month}}) AS month
 FROM slice
 WHERE cruise_key = {{cruise}} AND depth_bin IS NOT NULL
   AND line = {{line}} AND {{where}}
