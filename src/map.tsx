@@ -58,6 +58,7 @@ export interface LayerInputs {
   ramp: string | null;        // the colour ramp id (ramps.ts); null = viridis
   dataOn: boolean;            // the Layers card's "Data" switch (`data=off`): every deck data layer off, the basemap and boundaries stay
   dataOpacity: number;        // the data layer's opacity 0–1 (`datao=`)
+  obs?: { rows: { longitude: number; latitude: number; n: number }[]; color: string } | null; // the Observations layer (`obs=`): every site, drawn even with Data off
   beforeId?: string;          // D36: the MapLibre layer the data layer draws UNDER (the boundary above it in the Layers card); undefined = on top
   selectedStation?: string | null;
 }
@@ -67,11 +68,22 @@ function statOf(r: StatRow | undefined, stat: Stat): number | null {
   return stat === "n" ? r.n : (r[stat] as number | null);
 }
 
+const hexRgb = (h: string): [number, number, number] => [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+const luminance = (h: string) => { const [r, g, b] = hexRgb(h); return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255; };
+
 export function buildLayers(inp: LayerInputs): Layer[] {
   const { lens, stat, duration } = inp;
   const color = colorScale(inp.domain, 220, inp.ramp);
   const opacity = inp.dataOpacity;
-  if (!inp.dataOn) return [];
+  // the Observations layer (Erin, 2026-10-05: the casts as dots over the sea floor, with no temperature): every site in the
+  // selection at its own position, independent of the Data row, always on top of the data and the boundaries
+  const obs: Layer[] = inp.obs && inp.obs.rows.length ? [new ScatterplotLayer({
+    id: "obs", data: inp.obs.rows, radiusUnits: "pixels", getRadius: 2, getPosition: (d: any) => [d.longitude, d.latitude],
+    getFillColor: [...hexRgb(inp.obs.color), 220] as [number, number, number, number], stroked: true, lineWidthUnits: "pixels", getLineWidth: 0.5,
+    getLineColor: luminance(inp.obs.color) < 0.5 ? [255, 255, 255, 140] : [0, 0, 0, 140], pickable: false,
+    updateTriggers: { getFillColor: [inp.obs.color], getLineColor: [inp.obs.color] },
+  })] : [];
+  if (!inp.dataOn) return obs;
   // D37 (2026-09-07): the dots TRAVEL only between Stations and Hexagons — the one morph that explains something (pooling);
   // every other lens change is a short cross-fade in place, so nothing flies to a centroid or flickers through a 700 ms tween
   const travel = lens === "station" || lens === "hex";
@@ -224,7 +236,7 @@ export function buildLayers(inp: LayerInputs): Layer[] {
     transitions: trans(),
   }));
   // interleaved (D36): deck draws inside MapLibre's own layer stack; beforeId puts the whole data layer under one boundary
-  return inp.beforeId ? layers.map((l) => l.clone({ beforeId: inp.beforeId } as any)) : layers;
+  return [...(inp.beforeId ? layers.map((l) => l.clone({ beforeId: inp.beforeId } as any)) : layers), ...obs];
 }
 
 // ── the map component ─────────────────────────────────────────────────────────
