@@ -32,3 +32,15 @@ export function anomalyOf(c: SectionCell, clim: Map<string, number>): number | n
   const k = clim.get(key(c.station, c.month, c.y));
   return k == null ? null : c.v - k;
 }
+
+/** the colour range a section draws (explore#12): the values' min–max, or, as a difference from the normal, a window
+ *  symmetric about 0 from the largest departure (at least ±0.1). The section panel's colourbar and the title sentence's
+ *  legend both read it, so the legend says what the section shows — not the map's station summary, which the Sections
+ *  lens does not refresh (106.31 "per 10 m²" and "degC" alike, whatever the pick). null = nothing drawn yet. */
+export function sectionRange(cells: SectionCell[], clim: SectionCell[] | null, anom: boolean): [number, number] | null {
+  const cm = anom ? climLookup(clim) : null;
+  const v = cells.map((c) => (cm ? anomalyOf(c, cm) : c.v)).filter((x): x is number => x != null && Number.isFinite(x));
+  if (!v.length) return null;
+  if (anom) { const a = Math.max(0.1, ...v.map(Math.abs)); return [-a, a]; }
+  return [Math.min(...v), Math.max(...v)];
+}

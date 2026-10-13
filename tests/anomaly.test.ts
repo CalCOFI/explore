@@ -5,7 +5,7 @@
 // browser ships, against a small fixture; src/anomaly.ts is the key both renderers use.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { render, datasetFilterSql, type Params } from "../src/sqltpl";
-import { anomalyOf, climLookup, cruiseMonth } from "../src/anomaly";
+import { anomalyOf, climLookup, cruiseMonth, sectionRange } from "../src/anomaly";
 import type { SectionCell } from "../src/charts";
 import { openDuck, type Duck } from "./helpers/duck";
 
@@ -53,4 +53,17 @@ describe("section.sql + anomalyOf() — the cruise's month, never the cast's cal
     const clim = climLookup([{ station: 30, y: 10, v: 12.0, n: 40, month: 6 }]);
     expect(anomalyOf(cells[0], clim)).toBeNull();
   });
+});
+
+// explore#12: the Sections legend read the map's station rows, which this lens never refreshes — "106.31 per 10 m²"
+// and "106.31 degC" alike. The legend now reads the range the section draws.
+describe("sectionRange — the legend of the Sections lens", () => {
+  const cells = [{ station: 30, y: 10, v: 14, n: 1, month: 7 }, { station: 40, y: 10, v: 18, n: 1, month: 7 }, { station: 50, y: 10, v: 11, n: 1, month: 7 }];
+  it("is the section's own min–max", () => expect(sectionRange(cells, null, false)).toEqual([11, 18]));
+  it("follows the pick: other values, another range", () => expect(sectionRange(cells.map((c) => ({ ...c, v: c.v * 100 })), null, false)).toEqual([1100, 1800]));
+  it("as a difference from the normal, symmetric about 0 from the largest departure; no baseline is left out", () => {
+    const clim = [{ station: 30, y: 10, v: 13, n: 9, month: 7 }, { station: 40, y: 10, v: 15, n: 9, month: 7 }];
+    expect(sectionRange(cells, clim, true)).toEqual([-3, 3]);
+  });
+  it("null when nothing is drawn", () => { expect(sectionRange([], null, false)).toBeNull(); expect(sectionRange(cells, [], true)).toBeNull(); });
 });
