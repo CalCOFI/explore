@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **a depth × time anomaly card** (explore#28 part 2, Rasmus Swalethorp: "an anomaly plot with depth on the y and time on
+  the x axis"). An *Anomaly · depth × time* pill above the Time panel opens a card (`show=depthtime`, so a permalink
+  reproduces it; `max=depthtime` fills the map with it): x is the cruise season (the cruise's year and quarter), y the
+  10 m depth bin increasing downward, the colour the mean departure from the 1993–2013 normal over the observations in
+  each cell, on the map lenses' diverging ramp (cmocean *balance*, a 5–95 % window symmetric about 0). It reads #22's
+  `slice_anom` (`sql/anom_depth_time.sql`), so each observation has its own station × cruise month × depth bin normal
+  subtracted before pooling, and no baseline is re-derived; a cell with no baseline is blank, never 0, and its hover says
+  so. It follows every filter in force — years, season, depth band, datasets and the Area (the standard grid or a
+  region) — and the *month · season* baseline toggle in its header (`base=season`, written whatever the lens while the
+  card is open). Hover: the season, the bin ("50–60 m"), the anomaly with its unit, n and the cruise. An organism, a
+  per-cast variable or a variable without a climatology gets the reason instead of a plot. Share › Copy code and the
+  download bundle add `05_anom_slice.sql` and `06_anom_depth_time.sql` while the card is open, reading the release's
+  climatology objects by URL. `src/depthtime.ts`, `tests/depthtime.test.ts`. The bottom-edge pills now sit above an open
+  Time panel (they were hidden under it).
+
 - **the season is the cruise's quarter** (fix, explore#17). The season filter used each cast's calendar date
   (`quarter(datetime)` in `sql/slice_cast.sql`; the release's calendar `quarter` on obs_env / obs_bio through
   v2026.10.08), so with `q=3` the inshore line 93.3 stations of 2026-07-3322, worked on 30 June, vanished. Every slice

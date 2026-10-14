@@ -104,3 +104,29 @@ describe("Copy code for a per-bin variable — unchanged by the per-cast grain",
     expect(w).toContain("qual_ok"); expect(w).not.toContain("depth_bin IS NOT NULL AND"); expect(w).not.toMatch(/GROUP BY/);
   });
 });
+
+describe("Copy code with the depth × time anomaly card open (explore#28)", () => {
+  const CLIM_URL = `${BASE}tables/climatology/measurement_type=nitrate/aaa111/data_0.parquet`;
+  const CAT = { ...CATALOG, tables: [...CATALOG.tables, { name: "climatology", rows: 1, partitioned: true, objects: [{ path: "tables/climatology/measurement_type=nitrate/aaa111/data_0.parquet", bytes: 1, partition_by: "measurement_type", partition_value: "nitrate" }] }] };
+  const dctx = (depthTime: { base: "month" | "season"; clim: string[] } | null, grain: "bin" | "cast" = "bin") => ({ ...ctx(grain, "nitrate"), catalog: CAT as any, depthTime });
+  it("hands over slice_anom and the card's grid after the four lens queries, reading the climatology by its URL", () => {
+    const sqls = R.resolvedSql(dctx({ base: "month", clim: ["nitrate"] }));
+    expect(sqls.map(([f]) => f)).toEqual(["01_slice.sql", "02_station.sql", "03_depth_strip.sql", "04_years.sql", "05_anom_slice.sql", "06_anom_depth_time.sql"]);
+    expect(sqls[4][1]).toContain(`read_parquet('${CLIM_URL}')`); expect(sqls[4][1]).toContain("CREATE OR REPLACE TABLE slice_anom");
+    expect(sqls[4][1]).toContain("clim_mean"); expect(sqls[4][1]).not.toContain("season_mean");
+    expect(R.resolvedSql(dctx({ base: "season", clim: ["nitrate"] }))[4][1]).toContain("season_mean");
+    expect(sqls[5][1]).toContain("FROM slice_anom"); expect(sqls[5][1]).not.toMatch(/\{\{\w+\}\}/);
+  });
+  it("closed, for a per-cast variable, or without a baseline: nothing more", () => {
+    expect(R.resolvedSql(dctx(null)).length).toBe(4);
+    expect(R.resolvedSql(dctx({ base: "month", clim: [] })).length).toBe(4);
+    expect(R.resolvedSql(dctx({ base: "month", clim: ["nitrate"] }, "cast")).map(([f]) => f)).not.toContain("06_anom_depth_time.sql");
+  });
+  it("R and Python execute slice_anom and fetch the grid as `anom_depth_time`", () => {
+    const r = R.copyAs("r", dctx({ base: "month", clim: ["nitrate"] })), py = R.copyAs("py", dctx({ base: "month", clim: ["nitrate"] }));
+    expect(r).toMatch(/# --- 05_anom_slice\.sql\ndbExecute\(con, /); expect(r).toMatch(/anom_depth_time <- dbGetQuery\(con, /);
+    expect(py).toMatch(/# --- 05_anom_slice\.sql\ncon\.execute\("/); expect(py).toMatch(/anom_depth_time = con\.execute\(/);
+    const bundled = R.rBody("v", "station", R.resolvedSql(dctx({ base: "month", clim: ["nitrate"] })), false);
+    expect(bundled).toContain('run("05_anom_slice.sql")'); expect(bundled).toContain('anom_depth_time <- run("06_anom_depth_time.sql")');
+  });
+});
