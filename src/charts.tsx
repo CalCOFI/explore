@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "./icons";
 import { colorScale, quantileDomain } from "./map";
-import { rampPlotly } from "./ramps";
+import { anomRange, rampPlotly } from "./ramps";
 import { anomalyOf, climLookup, type ClimBase } from "./anomaly";
 import { dtGrid, dtTrace, wrapText, type DtRow } from "./depthtime";
 // Plotly is ~3.5 MB of the bundle and no panel needs it before the slice answers: load it lazily
@@ -365,7 +365,7 @@ export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | nul
     }));
     const isDepth = p.yLabel.startsWith("depth");
     // a symmetric range about zero, from the data: the colorbar's two ends mean the same magnitude either way
-    const amax = p.anom ? Math.max(0.1, ...z.flat().filter((v): v is number => v != null).map(Math.abs)) : 0;
+    const amax = p.anom ? anomRange(z.flat())[1] : 0;
     // x is km now, so the station number travels in customdata to stay in the hover
     const cd = ys.map(() => stas.map((sta) => sta));
     const traces = xs.length ? [{

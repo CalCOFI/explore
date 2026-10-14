@@ -4,7 +4,7 @@
 // is pure — the grid shaping, the colour window, the Plotly trace and the empty-card reasons — so tests/depthtime.test.ts
 // pins every rule and charts.tsx only draws what it returns.
 import type { ClimBase } from "./anomaly";
-import { lensRamp, rampPlotly } from "./ramps";
+import { anomRange, lensRamp, rampPlotly } from "./ramps";
 
 /** the panel id: `show=depthtime` opens the card (state.ts DEFAULT_HIDE folds it), `max=depthtime` fills the map with it */
 export const DT_PANEL = "depthtime" as const;
@@ -49,16 +49,8 @@ export function dtGrid(rows: DtRow[], quarters: number[] | null = null): DtGrid 
     z: cell.map((rr) => rr.map((c) => (c && c.anom != null && Number.isFinite(c.anom) ? c.anom : null))), cell };
 }
 
-/** the colour window: symmetric about 0, so the diverging ramp's neutral midpoint IS the normal — the map lenses' rule
- * (App.tsx symDomain over the 5–95 % window): the larger of the two 5–95 % ends, so one odd cell does not wash the rest
- * out (the hover keeps its true value). Never a zero-width window. */
-export function dtRange(values: (number | null | undefined)[]): [number, number] {
-  const v = values.filter((x): x is number => x != null && Number.isFinite(x)).sort((a, b) => a - b);
-  if (!v.length) return [-1, 1];
-  const q = (p: number) => { const i = (v.length - 1) * p, lo = Math.floor(i), hi = Math.ceil(i); return v[lo] + (v[hi] - v[lo]) * (i - lo); };
-  const a = Math.max(Math.abs(q(0.05)), Math.abs(q(0.95))) || Math.max(...v.map(Math.abs)) || 1e-9;
-  return [-a, a];
-}
+/** the colour window: the section plot's (ramps.ts anomRange) — symmetric about 0, as wide as the largest departure */
+export const dtRange = anomRange;
 
 /** the ramp the card draws: the selection's ANOMALY ramp — `ramp=` when the URL names one, else `balance`, the rule every
  * lens drawing an env anomaly shares (ramps.ts lensRamp(), the section's as the reference) */
@@ -75,7 +67,7 @@ export function dtHover(r: DtRow | null, season: [number, number], bin: number, 
     (r.cruises ? `<br>${r.cruises.split(", ").length > 3 ? `${r.cruises.split(", ").length} cruises` : `cruise ${r.cruises}`}` : "");
 }
 
-/** the Plotly heatmap trace: no smoothing (a blank stays blank), the anomaly ramp, a window symmetric about 0 (zmid 0) */
+/** the Plotly heatmap trace: no smoothing (a blank stays blank), the anomaly ramp, the section's window about 0 (zmid 0) */
 export function dtTrace(g: DtGrid, unit: string, base: ClimBase, ramp: string | null) {
   const [zmin, zmax] = dtRange(g.z.flat());
   return {

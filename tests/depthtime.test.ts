@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { render, datasetFilterSql, type Params } from "../src/sqltpl";
 import { anomTokens } from "../src/anomaly";
 import { areaSql, parseArea } from "../src/area";
-import { RAMPS, rampPlotly } from "../src/ramps";
+import { RAMPS, anomRange, rampPlotly } from "../src/ramps";
 import { binLabel, dtEmpty, dtGrid, dtHover, dtRange, dtTrace, seasonLabel, seasonX, wrapText, type DtRow } from "../src/depthtime";
 import { DEFAULTS, fromUrl, toUrl, type Sel } from "../src/state";
 import { openDuck, type Duck } from "./helpers/duck";
@@ -103,12 +103,14 @@ describe("depthtime.ts — the grid, the window, the hover, the empty card", () 
     expect(g.seasons).toEqual([[2019, 3], [2020, 3], [2021, 3]]);
     expect(dtGrid([], null).x).toEqual([]);
   });
-  it("the window is symmetric about 0 from the larger 5–95 % end, never zero-width", () => {
-    const [lo, hi] = dtRange([-0.5, 0.1, 0.2, 2, null]);
-    expect(lo).toBe(-hi); expect(hi).toBeGreaterThan(0.5); expect(hi).toBeLessThanOrEqual(2);
+  it("the window is the section plot's: symmetric about 0, as wide as the largest departure, never under ±0.1", () => {
+    expect(dtRange([-0.5, 0.1, 0.2, 2, null])).toEqual([-2, 2]);
+    expect(dtRange([-3, 0.2])).toEqual([-3, 3]);
     expect(dtRange([1, 1, 1])).toEqual([-1, 1]);
-    expect(dtRange([0, 0])[1]).toBeGreaterThan(0);
-    expect(dtRange([])).toEqual([-1, 1]);
+    expect(dtRange([0, 0])).toEqual([-0.1, 0.1]);
+    expect(dtRange([])).toEqual([-0.1, 0.1]);
+    expect(dtRange([NaN, Infinity, 0.5])).toEqual([-0.5, 0.5]);
+    expect(dtRange).toBe(anomRange);
   });
   it("the trace: the balance ramp (#22's anomaly ramp) with 0 at its neutral midpoint, no smoothing", () => {
     const t = dtTrace(dtGrid([row(2020, 3, 10, 1), row(2020, 4, 10, -3)]), "degC", "month", null);

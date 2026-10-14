@@ -6,7 +6,8 @@
   the x axis"). An *Anomaly · depth × time* pill above the Time panel opens a card (`show=depthtime`, so a permalink
   reproduces it; `max=depthtime` fills the map with it): x is the cruise season (the cruise's year and quarter), y the
   10 m depth bin increasing downward, the colour the mean departure from the 1993–2013 normal over the observations in
-  each cell, on the map lenses' diverging ramp (cmocean *balance*, a 5–95 % window symmetric about 0). It reads #22's
+  each cell, on the section plot's diverging ramp and window (cmocean *balance*, symmetric about 0 and as wide as the
+  largest departure, `ramps.ts anomRange()`, which the section now shares; Ben, 2026-10-14). It reads #22's
   `slice_anom` (`sql/anom_depth_time.sql`), so each observation has its own station × cruise month × depth bin normal
   subtracted before pooling, and no baseline is re-derived; a cell with no baseline is blank, never 0, and its hover says
   so. It follows every filter in force — years, season, depth band, datasets and the Area (the standard grid or a
