@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **a depth × time anomaly card** (explore#28 part 2, Rasmus Swalethorp: "an anomaly plot with depth on the y and time on
+  the x axis"). An *Anomaly · depth × time* pill above the Time panel opens a card (`show=depthtime`, so a permalink
+  reproduces it; `max=depthtime` fills the map with it): x is the cruise season (the cruise's year and quarter), y the
+  10 m depth bin increasing downward, the colour the mean departure from the 1993–2013 normal over the observations in
+  each cell, on the section plot's diverging ramp and window (cmocean *balance*, symmetric about 0 and as wide as the
+  largest departure, `ramps.ts anomRange()`, which the section now shares; Ben, 2026-10-14). It reads #22's
+  `slice_anom` (`sql/anom_depth_time.sql`), so each observation has its own station × cruise month × depth bin normal
+  subtracted before pooling, and no baseline is re-derived; a cell with no baseline is blank, never 0, and its hover says
+  so. It follows every filter in force — years, season, depth band, datasets and the Area (the standard grid or a
+  region) — and the *month · season* baseline toggle in its header (`base=season`, written whatever the lens while the
+  card is open). Hover: the season, the bin ("50–60 m"), the anomaly with its unit, n and the cruise. An organism, a
+  per-cast variable or a variable without a climatology gets the reason instead of a plot. Share › Copy code and the
+  download bundle add `05_anom_slice.sql` and `06_anom_depth_time.sql` while the card is open, reading the release's
+  climatology objects by URL. `src/depthtime.ts`, `tests/depthtime.test.ts`. The bottom-edge pills now sit above an open
+  Time panel (they were hidden under it).
 - **an Area can be a whole layer or any set of its regions** (explore#20 · explore#16; Ben, 2026-10-14: "allow ALL
   features in a given layer to be used as the filter … a large modal for selecting individual features from a table
   and/or on the map"; `src/area.ts`, `src/regionpicker.tsx`, `tests/area.test.ts`). Refine › Area › region offers

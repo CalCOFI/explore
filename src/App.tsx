@@ -14,7 +14,7 @@ import { computeSurface, surfaceImage, isolines, niceLevels, joinSegments, label
 import { LensPicker } from "./lenspicker";
 import type { MapboxOverlay } from "@deck.gl/mapbox";
 import { drawsAnomaly, lensRamp, rampCss, seriesRamp } from "./ramps";
-import { DepthStrip, YearStrip, SectionPlot, CruiseSeries, StationCard, MONTH_LOD_YEARS, type DepthRow, type YearRow, type CruiseSeason, type SectionCell, type CruiseRow, type GanttRow, type StripMode } from "./charts";
+import { DepthStrip, YearStrip, SectionPlot, DepthTimePlot, CruiseSeries, StationCard, MONTH_LOD_YEARS, type DepthRow, type YearRow, type CruiseSeason, type SectionCell, type CruiseRow, type GanttRow, type StripMode } from "./charts";
 import { resolveVersion, fetchCatalog, fetchVersions, sources, sidecarUrl, earlySidecar, type Catalog } from "./release";
 import { buildBundle, saveBlob, copyAs } from "./bundle";
 import { Icon } from "./icons";
@@ -42,6 +42,7 @@ import { captureView, canvasBlob, luminanceStats, blobStats } from "./capture";
 import { track as trackEvent } from "./track";
 import { BRAND, LOGO, DEFAULT_THEME, fontEmbedCss } from "./brand";
 import { categoryRank, categoryIcon, envCategory, DATASET_CATEGORY_FALLBACK } from "./categories";
+import { dtEmpty, type DtRow } from "./depthtime";
 import { CLIM_MIN_CRUISES, anomTokens, baselineWord, climBaseSql, cruiseMonth, hasSeasonCols, sectionRange, type ClimBase } from "./anomaly";
 import {
   fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LENS_DESC, LENS_ICON, RES_KM, INTERPS, INTERP_LABEL, INTERP_WORD, INTERP_HOW, SURFACES, SURFACE_LABEL, GRAIN_LABEL, GRAIN_HOW, type Surface, type Grain, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, DEN_HOW, SHF_NOTE, STAT_LABEL, YEAR_OPEN, MAP_HOME,
@@ -185,7 +186,12 @@ export function App() {
   const climSeasonRef = useRef<Promise<boolean> | null>(null);
   // a map lens drawing an anomaly: the observations in view, and how many of them had a baseline (sql/anom_share.sql)
   const [anomShare, setAnomShare] = useState<{ n: number; n_base: number } | null>(null);
-  const anomKeyRef = useRef<string | null>(null);  // the slice × baseline slice_anom was built for (sql/anom_slice.sql)
+  // the slice × baseline slice_anom was built for (sql/anom_slice.sql), and the build itself: the map lenses and the depth ×
+  // time card share one table, so a build in flight is awaited by the other, never started twice
+  const anomBuild = useRef<{ key: string; p: Promise<void> } | null>(null);
+  // the depth × time anomaly card (explore#28, sql/anom_depth_time.sql): its cells (null while they load) and its baseline share
+  const [dtRows, setDtRows] = useState<DtRow[] | null>(null);
+  const [dtShare, setDtShare] = useState<{ n: number; n_base: number } | null>(null);
   const [sectionCruises, setSectionCruises] = useState<Row[]>([]);
   const [depthRows, setDepthRows] = useState<DepthRow[]>([]);
   const [yearRows, setYearRows] = useState<YearRow[]>([]);
@@ -458,15 +464,38 @@ export function App() {
   const seasonWhyNot = climSeason === false ? "this release's climatology has no seasonal baseline (season_* columns arrive with calcofi4db 4.24.0, the release after v2026.10.08)" : null;
   // a map lens summarizing departures (sql/anom_slice.sql): Hexagons or Contours, an env variable, a statistic of the value
   const anomMap = anomOn && sel.realm === "env" && (sel.lens === "hex" || sel.lens === "contour") && sel.stat !== "n";
+  // the depth × time anomaly card (explore#28): open (`show=depthtime`), and something to draw — a per-bin env variable whose
+  // types have a baseline in this release. It always draws the anomaly, whatever the lens and the `anom=` checkbox.
+  const dtOpen = !sel.hide.includes("depthtime");
+  const dtWant = dtOpen && sel.realm === "env" && !isCast && anomAvail;
   useEffect(() => {
     // probe the climatology's columns once per release, when an anomaly is first asked for (one ~0.2 MB object)
-    if (!anomOn || climSeason != null || !climMs.length) return;
+    if (!(anomOn || dtWant) || climSeason != null || !climMs.length) return;
     const m = climMs[0];
     (climSeasonRef.current ??= ensure(climReg(m))
       .then(() => engine.exec(`SELECT column_name FROM (DESCRIBE SELECT * FROM ${q(climReg(m))})`, "probe:climatology.season"))
       .then((r) => hasSeasonCols(r.map((x) => String(x.column_name)))))
       .then(setClimSeason).catch((e) => { console.warn("climatology probe:", e.message); setClimSeason(false); });
-  }, [anomOn, climMs, climSeason]);
+  }, [anomOn, dtWant, climMs, climSeason]);
+  // slice_anom — every observation minus the baseline of its own cell, before any aggregation (sql/anom_slice.sql) — built
+  // once per slice × baseline for whichever asks first (Hexagons, Contours, the depth × time card); an observation with no
+  // baseline keeps anom NULL and drops out of every statistic
+  const anomSlice = (sk: string, base: ClimBase): Promise<void> => {
+    const k = `${sk}|${base}`;
+    if (anomBuild.current?.key === k) return anomBuild.current.p;
+    const ms = climMs, grain = isCast ? "cast" as const : "bin" as const;
+    setStatus("subtracting the climatology…");
+    const p = (async () => {
+      await Promise.all(ms.map((m) => ensure(climReg(m))));
+      const t2 = performance.now();
+      await engine.query("anom_slice", anomTokens(climSrc(ms), base, grain));
+      timing.add(`anom_slice:${base}`, performance.now() - t2, `${sk} − ${ms.join(" + ")}`);
+      setStatus((st) => (st === "subtracting the climatology…" ? "ready" : st)); // the card alone asked: nothing else clears it
+    })();
+    anomBuild.current = { key: k, p };
+    p.catch(() => { if (anomBuild.current?.p === p) anomBuild.current = null; }); // a failed build is retried by the next ask
+    return p;
+  };
   // the registry's word on the selected variable, for the one thing its name cannot say (ramps.ts RampHint)
   const rampHint = useMemo(() => (isCast ? { grain: "cast" as const, units: mt.get(sel.var)?.units ?? null } : null), [isCast, mt, sel.var]);
   (window as any).__cast = { grain: varGrain, vars: castVars, census: castCensus, hex: castHex }; // scripts/smoke_release.mjs reads the registry-keyed list (and whether sample_root carries hex7) from here
@@ -553,16 +582,8 @@ export function App() {
       // any aggregation (sql/anom_slice.sql) — built once per slice x baseline; an observation with no baseline drops out
       let mp = { ...params, tbl: "slice" };
       if (anomMap) {
-        const k = `${sliceKey}|${climBase}`;
-        if (anomKeyRef.current !== k) {
-          setStatus("subtracting the climatology…");
-          await Promise.all(climMs.map((m) => ensure(climReg(m))));
-          if (stale()) return;
-          const t2 = performance.now();
-          await engine.query("anom_slice", anomTokens(climSrc(climMs), climBase, isCast ? "cast" : "bin"));
-          anomKeyRef.current = k;
-          timing.add(`anom_slice:${climBase}`, performance.now() - t2, `${sliceKey} − ${climMs.join(" + ")}`);
-        }
+        await anomSlice(sliceKey, climBase);
+        if (stale()) return;
         mp = { ...params, tbl: "slice_anom", val: "anom" };
         const sh = (await engine.query("anom_share", params))[0];
         if (stale()) return;
@@ -995,6 +1016,22 @@ export function App() {
     engine.query("years", { ...params, bin: SEASON_BIN }).then((r) => { if (live) setSeasonRows(r as YearRow[]); }).catch(console.error);
     return () => { live = false; };
   }, [bySeason, sliceKey, params, areaPending]);
+  // the depth × time anomaly card (explore#28): cruise season × 10 m bin over slice_anom, under every filter in force (the
+  // lens params: years, months, season, depth band, datasets, Area). A `base=season` link waits for the column probe, so it
+  // never draws the monthly anomaly first and then the seasonal one
+  useEffect(() => {
+    if (!dtWant || !sliceKey || areaPending || (sel.base === "season" && climSeason == null)) { setDtRows(null); setDtShare(null); return; }
+    let live = true;
+    setDtRows(null);
+    (async () => {
+      await anomSlice(sliceKey, climBase);
+      if (!live) return;
+      const [rows, sh] = await Promise.all([engine.query("anom_depth_time", params), engine.query("anom_share", params)]);
+      if (!live) return;
+      setDtRows(rows as DtRow[]); setDtShare({ n: Number(sh[0]?.n ?? 0), n_base: Number(sh[0]?.n_base ?? 0) });
+    })().catch((e) => { console.error(e); if (live) { setDtRows([]); setStatus(`depth × time: ${e.message}`); } });
+    return () => { live = false; };
+  }, [dtWant, sliceKey, areaPending, params, climBase, sel.base, climSeason]);
   useEffect(() => {
     if (!bySeason || cruiseSeasons || !catalog) return;
     ensure(REG.cruise).then(() => engine.query("cruise_seasons", { src: q(REG.cruise) })).then((r) => setCruiseSeasons(r as CruiseSeason[])).catch(console.error);
@@ -1038,6 +1075,8 @@ export function App() {
   }, [sel.station, cov, covStations, grid]);
 
   const onLens = (l: Lens) => { lensClickAt.current = performance.now(); setSel({ lens: l }); };
+  // Share › Copy code and the bundle hand over the depth × time card's statements while it is open (src/reproduce.ts)
+  const dtRepro = dtWant ? { base: climBase, clim: climMs } : null;
   const download = async () => {
     if (!catalog || !version || bundling) return;
     try {
@@ -1045,7 +1084,7 @@ export function App() {
       const lensParams: Record<string, any> = sel.lens === "hex" ? { hex: hexExpr(sel.res) } : sel.lens === "region" ? { layer: sel.layer } : sel.lens === "section" ? { line: sel.line, cruise: sel.cruise } : {};
       const summary = sel.lens === "hex" ? hexRows : sel.lens === "region" ? regionRows : sel.lens === "cruise" ? cruiseRows : sel.lens === "section" ? sectionCells : stationRows;
       const { blob, name } = await buildBundle({
-        sel, version, catalog, params, lensParams, lensTemplate, grain: varGrain, rootHex7: !!castHex, summary: summary as Row[], summaryKey: sel.lens, grid, regionFeatures: layerFeatures,
+        sel, version, catalog, params, lensParams, lensTemplate, grain: varGrain, rootHex7: !!castHex, depthTime: dtRepro, summary: summary as Row[], summaryKey: sel.lens, grid, regionFeatures: layerFeatures,
         datasets, unit: unitLabel, envFile: sel.realm === "env" ? envReg(sel.var) : null, bioSrcName: REG.obs_bio, hexRes: sel.res, onStatus: setBundling,
       });
       (window as any).__lastBundle = { name, bytes: blob.size };
@@ -1060,7 +1099,7 @@ export function App() {
   const lensPar = (): Record<string, any> => sel.lens === "hex" ? { hex: hexExpr(sel.res) } : sel.lens === "region" ? { layer: sel.layer } : sel.lens === "section" ? { line: sel.line, cruise: sel.cruise } : {};
   const copy = async (kind: "sql" | "r" | "py") => {
     if (!catalog || !version) return;
-    const text = copyAs(kind, { sel, catalog, version, params, lensParams: lensPar(), lensTemplate: lensTpl(), grain: varGrain, rootHex7: !!castHex });
+    const text = copyAs(kind, { sel, catalog, version, params, lensParams: lensPar(), lensTemplate: lensTpl(), grain: varGrain, rootHex7: !!castHex, depthTime: dtRepro });
     try { await navigator.clipboard.writeText(text); setStatus(`copied ${kind.toUpperCase()} (${text.length.toLocaleString()} chars)`); } catch { setStatus("clipboard blocked"); }
     (window as any).__lastCopy = text;
   };
@@ -1149,13 +1188,14 @@ export function App() {
   const anomNote = anomMap && anomShare
     ? (anomShare.n ? `${Math.round((100 * anomShare.n_base) / anomShare.n)} % of ${fmtN(anomShare.n)} ${countWord} had a ${climBase === "season" ? "cruise-quarter" : "cruise-month"} normal at their station${isCast ? "" : " and depth"}; the rest are left out, never drawn as 0` : `no ${countWord} in view`)
     : null;
+  const baseSeg = <span className="seg" role="group" aria-label="the baseline the anomaly subtracts">
+    <button type="button" className={climBase === "month" ? "on" : ""} title={baseHow.month} onClick={() => setSel({ base: "month" })}>month</button>
+    <button type="button" className={climBase === "season" ? "on" : ""} disabled={climSeason !== true} title={seasonWhyNot ?? (climSeason == null ? "checking whether this release carries a seasonal baseline…" : baseHow.season)} onClick={() => setSel({ base: "season" })}>season</button>
+  </span>;
   const anomControl = sel.realm === "env" && <div className="opt-anom">
     <label className="row" style={{ fontSize: 12 }} title={anomAvail ? `a departure from the release's climatology: ${sel.lens === "section" ? "this station" : "each observation's own station"}, ${baseHow[climBase]}${isCast ? "" : ", this 10 m depth bin"} — the same table ctd-transects subtracts` : anomWhyNot}>
       <input type="checkbox" checked={anomOn} disabled={!anomAvail} onChange={(e) => setSel({ anom: e.target.checked })} /> difference from the {climWord} normal</label>
-    {anomOn && <div className="row"><span className="hint">normal of the cruise's</span><span className="seg" role="group" aria-label="the baseline the anomaly subtracts">
-      <button type="button" className={climBase === "month" ? "on" : ""} title={baseHow.month} onClick={() => setSel({ base: "month" })}>month</button>
-      <button type="button" className={climBase === "season" ? "on" : ""} disabled={climSeason !== true} title={seasonWhyNot ?? (climSeason == null ? "checking whether this release carries a seasonal baseline…" : baseHow.season)} onClick={() => setSel({ base: "season" })}>season</button>
-    </span></div>}
+    {anomOn && <div className="row"><span className="hint">normal of the cruise's</span>{baseSeg}</div>}
     {anomOn && sel.lens !== "section" && sel.stat === "n" && <div className="hint">the observation count is not a departure: pick the mean or the median to see the anomaly</div>}
     {anomNote && <div className="hint" data-anom-share>{anomNote}</div>}
   </div>;
@@ -1372,6 +1412,19 @@ export function App() {
   const sectionBody = <SectionPlot cells={sectionCells} clim={climCells} anom={sel.anom && sel.realm === "env" && !!climCells} base={climBase} yLabel={sel.realm === "env" ? "depth (m)" : "year"} theme={theme} unit={unitLabel} ramp={rampId}
     empty={isCast ? "a section cuts the water column —<br>a per-cast variable is one value for the whole cast" : null}
     title={`line ${sel.line} · ${sel.realm === "env" ? `depth section · cruise ${sel.cruise ?? "—"}${sel.anom && climCells ? ` · the difference from the ${climWord} ${baselineWord(climBase, cruiseMonth(sel.cruise))} normal` : ""}` : "station by year · all cruises · the tows are depth-integrated, so the axis is year"}`} />;
+  // the depth × time anomaly card (explore#28): why it is empty (an organism, a per-cast variable, no baseline, the filters),
+  // the plot, and a note of the baseline and of what a blank cell means
+  const dtWhy = dtEmpty({ realm: sel.realm, cast: isCast, anomAvail, anomWhyNot, rows: dtRows, filters: filterWords });
+  const dtBaseWord = climBase === "season" ? "quarter" : "month";
+  const dtTitle = `${subject} · difference from the ${climWord} ${climBase === "season" ? "seasonal" : "monthly"} normal${area ? ` · ${areaWord(area)}` : ""}`;
+  const dtBody = <div className="dt-body" data-depthtime={dtWhy ? "empty" : dtRows ? dtRows.length : "loading"}>
+    <DepthTimePlot rows={dtRows} quarters={sel.q} unit={unitLabel} base={climBase} ramp={sel.ramp} theme={theme} title={dtTitle} empty={dtWhy} />
+    {sel.realm === "env" && !isCast && anomAvail && <div className="hint dt-note">
+      each cell: the mean over its observations of each one minus the {climWord} normal of its station, 10 m bin and cruise {dtBaseWord} ({climBase === "season" ? "the Jan–Mar … Oct–Dec normals" : "the release's monthly climatology"}) · blank: no observation, or none with a normal — never 0
+      {dtShare && dtShare.n > 0 ? ` · ${Math.round((100 * dtShare.n_base) / dtShare.n)} % of ${fmtN(dtShare.n)} observations had one` : ""}
+      {filterWords.length ? ` · ${filterWords.join(" · ")}` : ""}
+    </div>}
+  </div>;
   const cruiseBody = <CruiseSeries rows={cruiseRows} stat={stat} selected={sel.cruise} theme={theme} unit={unitLabel} onPick={(k) => setSel({ cruise: k })} countWord={countWord} />;
   const stationBody = <>
     {stationNote && stationNote.key === sel.station && <div className={`hint${stationNote.warn ? " warn" : ""}`} data-station-note>{stationNote.note}</div>}
@@ -1408,12 +1461,14 @@ export function App() {
     select: "Controls", depth: "Depth", years: "Time", section: <>Section <span className="plain">{sectionSub}</span></>, cruise: "Cruise series", layers: "Layers",
     station: stationCard ? <>{stationCard.grid_key} {stationCard.cell && <span className="plain">· line {stationCard.cell.line} station {stationCard.cell.station}{ownLine(stationCard.cell.line) ? ` · ${OWN_LINE}` : ""}</span>}</> : "Station",
     timing: <>SQL &amp; timing <span className="plain">· {anyCached ? "warm" : "cold"} · paint {firstPaint ?? "…"} · ready {readyAt ?? "…"} · query {lastQ ? lastQ.ms : "…"} · switch {grain ? grain.ms : "…"} ms</span></>,
+    depthtime: <>Anomaly <span className="plain">· depth × cruise season · normal of the cruise's {climBase === "season" ? "quarter" : "month"}</span></>,
   };
-  const titleText: Record<PanelId, string> = { select: "Controls", depth: "Depth", years: "Time", section: `Section ${sectionSub}`, cruise: "Cruise series", layers: "Layers", station: stationCard ? `${stationCard.grid_key} · line ${stationCard.cell?.line} station ${stationCard.cell?.station}` : "Station", timing: "SQL & timing" };
-  const icons: Record<PanelId, IconName> = { select: "ui-tune", depth: "ui-tune", years: "ui-years", section: "lens-sections", cruise: "lens-cruises", station: "lens-stations", timing: "ui-sql", layers: "ui-map-layers" };
-  const body = (id: PanelId, wide = false) => id === "select" ? selectBody : id === "depth" ? depthBody(wide) : id === "years" ? yearsBody : id === "section" ? sectionBody : id === "cruise" ? cruiseBody : id === "station" ? stationBody : id === "layers" ? layersBody : timingBody;
+  const titleText: Record<PanelId, string> = { select: "Controls", depth: "Depth", years: "Time", section: `Section ${sectionSub}`, cruise: "Cruise series", layers: "Layers", station: stationCard ? `${stationCard.grid_key} · line ${stationCard.cell?.line} station ${stationCard.cell?.station}` : "Station", timing: "SQL & timing", depthtime: "Anomaly · depth × time" };
+  const icons: Record<PanelId, IconName> = { select: "ui-tune", depth: "ui-tune", years: "ui-years", section: "lens-sections", cruise: "lens-cruises", station: "lens-stations", timing: "ui-sql", layers: "ui-map-layers", depthtime: "ui-calendar" };
+  const body = (id: PanelId, wide = false) => id === "select" ? selectBody : id === "depth" ? depthBody(wide) : id === "years" ? yearsBody : id === "section" ? sectionBody : id === "cruise" ? cruiseBody : id === "station" ? stationBody : id === "layers" ? layersBody : id === "depthtime" ? dtBody : timingBody;
   const tbinToggle = seriesMode === "mean" ? <span className="seg" role="group" aria-label="mean ± se by"><button className={sel.tbin === "season" ? "on" : ""} onClick={() => setSel({ tbin: "season" })} title="one point per season (cruise quarter): four a year">season</button><button className={sel.tbin === "year" ? "on" : ""} onClick={() => setSel({ tbin: "year" })} title="one point per year">year</button></span> : null;
-  const actions = (id: PanelId) => (id === "years" ? <>{sel.yview && <IconButton icon="ui-zoom-out" label="Reset zoom (double-click the strip)" className="sm" onClick={() => setSel({ yview: null })} data-tour="zoom-reset" />}{seriesToggle}{tbinToggle}{logChip}</> : null);
+  const actions = (id: PanelId) => (id === "years" ? <>{sel.yview && <IconButton icon="ui-zoom-out" label="Reset zoom (double-click the strip)" className="sm" onClick={() => setSel({ yview: null })} data-tour="zoom-reset" />}{seriesToggle}{tbinToggle}{logChip}</>
+    : id === "depthtime" && dtWant ? baseSeg : null);
   // ── figures (D19) and the whole-view share (D17): every panel exports PNG · SVG · CSV from its header with the shared footer
   // the stamp's third line is the datasets the figure pools (WS-A3): a figure travels further than any other
   // download and used to leave the app with no way back to whom to cite
@@ -1423,7 +1478,7 @@ export function App() {
   // the map's table is what it draws: the lens summary per station / hexagon / region, the samples along a cruise track
   const mapRows = (): Row[] => sel.lens === "hex" ? hexRows : sel.lens === "region" ? regionRows : sel.lens === "cruise" ? cruiseSamples : stationRows;
   const rowsOf = (id: FigureId): Row[] => id === "map" ? mapRows() : id === "years" ? (seriesMode === "cruises" && gantt ? gantt.rows : (monthRows ?? (bySeason ? seasonRows : null) ?? yearRows)) : id === "depth" ? (depthDs.length ? depthDs : depthRows)
-    : id === "section" ? sectionCells : id === "cruise" ? cruiseRows : id === "timing" ? marks : id === "station" ? (stationCard?.detail?.datasets ?? stationCard?.summary?.datasets ?? []).flatMap((d: any) => (d.years?.length ? d.years.map((y: [number, number]) => ({ grid_key: stationCard!.grid_key, dataset_key: d.dataset_key, year: y[0], n_obs: y[1] })) : [{ grid_key: stationCard!.grid_key, dataset_key: d.dataset_key, n_obs: d.n_obs, year_min: d.year_min, year_max: d.year_max }])) : [];
+    : id === "section" ? sectionCells : id === "depthtime" ? (dtRows ?? []) : id === "cruise" ? cruiseRows : id === "timing" ? marks : id === "station" ? (stationCard?.detail?.datasets ?? stationCard?.summary?.datasets ?? []).flatMap((d: any) => (d.years?.length ? d.years.map((y: [number, number]) => ({ grid_key: stationCard!.grid_key, dataset_key: d.dataset_key, year: y[0], n_obs: y[1] })) : [{ grid_key: stationCard!.grid_key, dataset_key: d.dataset_key, n_obs: d.n_obs, year_min: d.year_min, year_max: d.year_max }])) : [];
   // the figure as a blob (no download): what the export items and window.__figure share
   const figure = async (id: FigureId, kind: "png" | "svg" | "csv"): Promise<{ blob: Blob; name: string }> => {
     const name = figureName(id, sel.lens, rel, kind), st = stampFor(id);
@@ -1464,7 +1519,7 @@ export function App() {
   (window as any).__fontEmbedCss = fontEmbedCss;   // verify.mjs: the v2 capture embeds the brand fonts
   (window as any).__captureView = async () => { const c = await captureView({ stamp: viewStamp() }); return { w: c.width, h: c.height, ...luminanceStats(c), dataUrl: c.toDataURL("image/png") }; };
   const cardOpen: Record<CardId, boolean> = { section: displayLens === "section", cruise: displayLens === "cruise", station: !!stationCard, timing: advanced, layers: layersOpen };
-  const maxId: PanelId | null = sel.max && !phone && (sel.max === "select" || sel.max === "depth" || sel.max === "years" || cardOpen[sel.max as CardId]) ? sel.max : null;
+  const maxId: PanelId | null = sel.max && !phone && (sel.max === "select" || sel.max === "depth" || sel.max === "years" || sel.max === "depthtime" || cardOpen[sel.max as CardId]) ? sel.max : null;
   // ── the panels' home geometry: Select top-left, Years along the bottom, Depth on the right, a lens result above the
   // years, the cards beside the Depth panel or its pill. Dragged or resized, a panel keeps its own place per browser.
   const yearsOpen = !folded("years"), depthOpen = !folded("depth"), selectOpen = !folded("select");
@@ -1472,19 +1527,25 @@ export function App() {
   const stationUp = cardOpen.station && !minCards.station;
   const rightBand = depthOpen ? 230 : 48;
   const tallCap = `calc(100% - 62px - ${yearsOpen ? 150 : 0}px)`; // under the map's top-right row, above the Time panel
+  // the bottom edge above whatever is docked there: the Time panel, and the section or cruise card over it. The depth × time
+  // card opens there, and the bottom pills (its own among them) sit there, so an open Time panel no longer hides them
+  const aboveBottom: number | string = resultUp ? `calc(${yearsOpen ? 170 : 20}px + ${cardOpen.section && !minCards.section ? 42 : 34}%)` : yearsOpen ? 160 : 10;
+  const bottomPillsAt: React.CSSProperties | undefined = yearsOpen || resultUp ? { bottom: aboveBottom, left: selectOpen ? 340 : 10 } : undefined;
   const panelBox: Record<PanelId, CardBox> = {
     select: { left: 10, top: 10, width: 320, maxHeight: `calc(100% - 20px - ${yearsOpen ? 150 : 0}px)` },   // never under the Time panel: the body scrolls instead
     years: { left: 10, right: 60, bottom: 10, height: 140 },
     depth: { right: 10, top: 52, width: 210, height: `calc(100% - ${yearsOpen || resultUp ? 212 : 62}px)` },
     section: { left: selectOpen ? 340 : 10, right: 60, bottom: yearsOpen ? 160 : 10, height: "42%" },
     cruise: { left: selectOpen ? 340 : 10, right: 60, bottom: yearsOpen ? 160 : 10, height: "34%" },
+    // the depth × time card sits above the Time panel, clear of the Depth panel; above the section or cruise card when one is up
+    depthtime: { left: selectOpen ? 340 : 10, right: depthOpen ? 230 : 60, height: resultUp ? "28%" : "38%", bottom: aboveBottom },
     station: { top: 52, right: rightBand, width: 340, maxHeight: tallCap },
     timing: { top: 52, right: rightBand + (stationUp ? 350 : 0), width: 420, maxHeight: tallCap },
     layers: { top: 52, right: rightBand + (stationUp ? 350 : 0) + (view3dOn ? 40 : 0), width: 270, maxHeight: tallCap }, // 3-D: clear of the camera column under the row
   };
-  const docks: Record<PanelId, Dock> = { select: "left", depth: "right", years: "bottom", section: "bottom", cruise: "bottom", station: "right", timing: "right", layers: "right" };
+  const docks: Record<PanelId, Dock> = { select: "left", depth: "right", years: "bottom", section: "bottom", cruise: "bottom", station: "right", timing: "right", layers: "right", depthtime: "bottom" };
   const closeCard: Partial<Record<CardId, () => void>> = { station: () => setSel({ station: null }), timing: () => setAdvanced(false), layers: () => setLayersOpen(false) };
-  const isRail = (id: PanelId) => id === "select" || id === "depth" || id === "years";
+  const isRail = (id: PanelId) => id === "select" || id === "depth" || id === "years" || id === "depthtime"; // folds in the URL
   const panel = (id: PanelId) => {
     if (phone) return null;
     if (isRail(id) ? folded(id) : !(cardOpen[id as CardId] && !minCards[id as CardId])) return null;
@@ -1504,9 +1565,15 @@ export function App() {
     onRestore: () => toggleFold("depth") };
   const leftPills: EdgePill[] = folded("select") ? [{ id: "select", icon: "ui-tune", "data-tour": "rail", title: "open the Controls panel", label: <><b>Controls</b><Icon name={LENS_ICON[sel.lens]} /><Icon name={sel.realm === "bio" ? "realm-bio" : "realm-env"} />{selectSummary}</>, onRestore: () => toggleFold("select") }] : [];
   const rightPills: EdgePill[] = [...(folded("depth") ? [depthPill] : []), ...minimized(["station", "timing", "layers"])];
-  const bottomPills: EdgePill[] = [...(folded("years") ? [{ id: "years", icon: "ui-years", "data-tour": "years", title: "open the years", label: <><b>Time</b> {years[0]}–{years[1]}<Sparkline values={yearsSpark} /></>, onRestore: () => toggleFold("years") } as EdgePill] : []), ...minimized(["section", "cruise"])];
+  // the depth × time anomaly card's pill (explore#28): an Environment pick only (organisms have no normal); muted, with the
+  // reason, when the variable has no baseline or no depth axis
+  const dtPill: EdgePill = { id: "depthtime", icon: "ui-calendar", muted: !dtWant, "data-tour": "depthtime",
+    title: dtWant ? "the difference from the 1993–2013 normal by depth and cruise season, under the current filters" : `no depth × time anomaly for this pick — ${dtEmpty({ realm: sel.realm, cast: isCast, anomAvail, anomWhyNot, rows: null }) ?? ""}`,
+    label: <><b>Anomaly</b> depth × time</>, onRestore: () => toggleFold("depthtime") };
+  const bottomPills: EdgePill[] = [...(folded("years") ? [{ id: "years", icon: "ui-years", "data-tour": "years", title: "open the years", label: <><b>Time</b> {years[0]}–{years[1]}<Sparkline values={yearsSpark} /></>, onRestore: () => toggleFold("years") } as EdgePill] : []),
+    ...(folded("depthtime") && sel.realm === "env" ? [dtPill] : []), ...minimized(["section", "cruise"])];
   const lensStrip = <div className="lens-strip" data-tour="lens-strip"><LensPicker lens={sel.lens} onLens={onLens} /></div>;
-  const closeSheet = () => { const pnl = sheet.panel; if (pnl === "station") setSel({ station: null }); else if (pnl === "timing") setAdvanced(false); else if (pnl === "layers") setLayersOpen(false); else if (pnl === "section" || pnl === "cruise") setMinCards((m) => ({ ...m, [pnl]: true })); setSheet({ panel: "select", detent: "peek" }); };
+  const closeSheet = () => { const pnl = sheet.panel; if (pnl === "depthtime") setSelRaw((s) => (s.hide.includes("depthtime") ? s : { ...s, hide: [...s.hide, "depthtime"] })); if (pnl === "station") setSel({ station: null }); else if (pnl === "timing") setAdvanced(false); else if (pnl === "layers") setLayersOpen(false); else if (pnl === "section" || pnl === "cruise") setMinCards((m) => ({ ...m, [pnl]: true })); setSheet({ panel: "select", detent: "peek" }); };
   // the legend's rows the title sentence carries under it: the boundary layers drawn, an empty result's note, the exclusions
   const legendExtra = <>
     {anomNote && mapAnomDrawn && <div className="hint" data-anom-legend>the difference from each cruise's {climBase === "season" ? "quarter" : "month"} normal ({climWord}) · {anomNote}</div>}
@@ -1617,12 +1684,13 @@ export function App() {
               {legendExtra}
             </div>
           </div>}
-          {(["select", "years", "depth", "section", "cruise", "station", "timing", "layers"] as PanelId[]).map(panel)}
-          {!phone && <><EdgePills side="left" pills={leftPills} /><EdgePills side="right" pills={rightPills} /><EdgePills side="bottom" pills={bottomPills} /></>}
+          {(["select", "years", "depth", "section", "cruise", "depthtime", "station", "timing", "layers"] as PanelId[]).map(panel)}
+          {!phone && <><EdgePills side="left" pills={leftPills} /><EdgePills side="right" pills={rightPills} /><EdgePills side="bottom" pills={bottomPills} style={bottomPillsAt} /></>}
           {phone && <>
             <div className="phone-pills" style={{ bottom: SHEET_PEEK + 8 }}>
               <button type="button" className={`pill${sliceKey && !depthRows.length ? " muted" : ""}`} onClick={() => setSheet({ panel: "depth", detent: "half" })} data-tour="depth"><Icon name="ui-tune" />{depthSummary}</button>
               <button type="button" className="pill" onClick={() => setSheet({ panel: "years", detent: "half" })} data-tour="years"><Icon name="ui-years" />Time {years[0]}–{years[1]}<Sparkline values={yearsSpark} width={40} height={10} /></button>
+              {sel.realm === "env" && <button type="button" className={`pill${dtWant ? "" : " muted"}`} onClick={() => { setSelRaw((s) => ({ ...s, hide: s.hide.filter((h) => h !== "depthtime") })); setSheet({ panel: "depthtime", detent: "half" }); }}><Icon name="ui-calendar" />Anomaly depth × time</button>}
               <button type="button" className="pill map-layers-pill" data-tour="layers" onClick={() => { setLayersOpen(true); setSheet({ panel: "layers", detent: "half" }); }}><Icon name="ui-map-layers" />Layers</button>
               {(["section", "cruise", "station", "timing", "layers"] as CardId[]).filter((c) => cardOpen[c] && sheet.panel !== c).map((c) => <button key={c} type="button" className="pill" onClick={() => openCard(c)}><Icon name={icons[c]} />{c === "station" ? stationCard!.grid_key : c === "timing" ? "SQL & timing" : titleText[c]}</button>)}
             </div>

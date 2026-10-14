@@ -28,8 +28,11 @@ export async function buildBundle(ctx: BundleCtx): Promise<{ blob: Blob; name: s
   zip.file("query/selection.json", JSON.stringify({ url, release: version, params: Object.fromEntries(new URLSearchParams(location.search)), generated_at: new Date().toISOString() }, null, 2));
   // every object the SQL reads, with its catalog bytes / sha256 / content_hash — the query is pinned to these
   const cast = isCast(ctx);
-  const used = cast ? ["sample_measurement", "sample_root", "measurement_type", "sample_spatial"] : ["obs_bio", "sample_root", "sample_spatial", "taxon", ...(sel.realm === "env" ? ["obs_env"] : [])];
-  zip.file("query/objects.json", JSON.stringify({ release: version, layout: catalog.layout, objects: used.flatMap((t) => (catalog.tables.find((x) => x.name === t)?.objects ?? []).filter((o) => t !== "obs_env" || members(sel.var).includes(String(o.partition_value))).map((o) => ({ table: t, ...o }))) }, null, 2));
+  // the depth × time anomaly card's statements (explore#28) read the variable's climatology objects too
+  const dtClim = sqls.some(([f]) => f === "05_anom_slice.sql") ? ctx.depthTime?.clim ?? [] : [];
+  const used = cast ? ["sample_measurement", "sample_root", "measurement_type", "sample_spatial"] : ["obs_bio", "sample_root", "sample_spatial", "taxon", ...(sel.realm === "env" ? ["obs_env"] : []), ...(dtClim.length ? ["climatology"] : [])];
+  const partOk = (t: string, v: unknown) => t === "obs_env" ? members(sel.var).includes(String(v)) : t === "climatology" ? dtClim.includes(String(v)) : true;
+  zip.file("query/objects.json", JSON.stringify({ release: version, layout: catalog.layout, objects: used.flatMap((t) => (catalog.tables.find((x) => x.name === t)?.objects ?? []).filter((o) => partOk(t, o.partition_value)).map((o) => ({ table: t, ...o }))) }, null, 2));
   // 2. the observation rows behind the view (CSV under 300k rows; parquet always)
   say("observations…");
   const where = whereSql(ctx); // the filter the lens applied (was read off sqls[2], the depth-strip query a per-cast variable does not have)

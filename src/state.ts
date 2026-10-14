@@ -129,11 +129,13 @@ const parseCam = (v: string | null): Cam | null => {
   if (Math.abs(n[0]) > 180 || Math.abs(n[1]) > 85 || n[2] < 3 || n[2] > 14 || n[3] < 0 || n[3] > 85) return null;
   return roundCam(n as Cam);
 };
-export type PanelId = "select" | "depth" | "years" | "section" | "cruise" | "station" | "timing" | "layers";
-export const PANEL_IDS: PanelId[] = ["select", "depth", "years", "section", "cruise", "station", "timing", "layers"];
+export type PanelId = "select" | "depth" | "years" | "section" | "cruise" | "station" | "timing" | "layers" | "depthtime";
+export const PANEL_IDS: PanelId[] = ["select", "depth", "years", "section", "cruise", "station", "timing", "layers", "depthtime"];
 /** the folds a visit starts with: Depth is folded to its pill by default and SIGNALS when a pick is sampled at depth —
- *  it never opens itself (2026-09-06). The URL says `show=depth` for a visit that opened it, `hide=…` for the others. */
-export const DEFAULT_HIDE: PanelId[] = ["depth"];
+ *  it never opens itself (2026-09-06). The URL says `show=depth` for a visit that opened it, `hide=…` for the others.
+ *  The depth × time anomaly card (explore#28, src/depthtime.ts) is folded to a pill the same way: `show=depthtime` opens
+ *  it, so a permalink reproduces it, and a link from before it existed never does. */
+export const DEFAULT_HIDE: PanelId[] = ["depth", "depthtime"];
 /** the folds as the URL carries them: `show=` opens a default fold, `hide=` folds an open one; a `depth=` band with
  *  neither opens the Depth panel, because whoever shared the link had it open to brush it */
 export function hideFromUrl(p: URLSearchParams): PanelId[] {
@@ -337,7 +339,10 @@ export function toUrl(s: Sel) {
   if (s.lens === "region") { p.set("layer", s.layer); if (s.region) p.set("region", s.region); }
   if (s.lens === "section") p.set("line", String(s.line));
   // the anomaly and its baseline: the lenses that draw one (an env section, Hexagons, Contours — ANOM_LENSES)
-  if (s.realm === "env" && ANOM_LENSES.includes(s.lens) && s.anom) { p.set("anom", "1"); if (s.base !== "month") p.set("base", s.base); }
+  // the depth × time card always draws the anomaly, so it carries the baseline whatever the lens (`show=depthtime&base=season`)
+  const anomLens = s.realm === "env" && ANOM_LENSES.includes(s.lens) && s.anom;
+  if (anomLens) p.set("anom", "1");
+  if (s.realm === "env" && s.base !== "month" && (anomLens || !s.hide.includes("depthtime"))) p.set("base", s.base);
   if ((s.lens === "section" || s.lens === "cruise") && s.cruise) p.set("cruise", s.cruise);
   if (s.stat !== DEFAULTS.stat) p.set("stat", s.stat);
   if (!s.tour) p.set("tour", "off"); else if (s.tourOn) p.set("tour", "on");

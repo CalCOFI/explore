@@ -10,10 +10,12 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "./icons";
 import { IconButton, Menu, type MenuItem } from "./ui";
 
-export type RailId = "select" | "depth" | "years";
+// a rail folds to a pill and its fold lives in the URL (`hide=` / `show=`): the three rails, and the depth × time anomaly
+// card (explore#28), which floats like a card but opens and folds like the Depth panel
+export type RailId = "select" | "depth" | "years" | "depthtime";
 export type CardId = "section" | "cruise" | "station" | "timing" | "layers";
 export type PanelId = RailId | CardId;
-export const RAILS: RailId[] = ["select", "depth", "years"];
+export const RAILS: RailId[] = ["select", "depth", "years", "depthtime"];
 export const PANELS: PanelId[] = [...RAILS, "section", "cruise", "station", "timing"];
 export const FOLDED_PX = 28;
 /** where a panel's pill lands, and where a double-click on its bar sends it back to */
@@ -52,7 +54,7 @@ export function MaxPanel(p: { title: ReactNode; icon?: IconName; onRestore: () =
 
 // ── floating panels ───────────────────────────────────────────────────────────────────────────────
 /** a panel's home geometry, in CSS lengths relative to the map's box (numbers are px) */
-export interface CardBox { left?: number; top?: number; right?: number; bottom?: number; width?: number | string; height?: number | string; maxHeight?: number | string }
+export interface CardBox { left?: number; top?: number; right?: number; bottom?: number | string; width?: number | string; height?: number | string; maxHeight?: number | string }
 export type CardBoxLike = CardBox;
 interface Geom { left: number; top: number; width: number; height: number | null } // null height = content-sized (the Select panel)
 type Edge = "n" | "s" | "e" | "w" | "se";
@@ -129,11 +131,11 @@ export const FloatCard = Panel;
 
 /** a collapsed panel on the map's edge: its state in one line (vertical on the sides), click to reopen */
 export interface EdgePill { id: PanelId | string; label: ReactNode; icon?: IconName; onRestore: () => void; onClose?: () => void; muted?: boolean; on?: boolean; pulse?: boolean; extra?: ReactNode; "data-tour"?: string; title?: string }
-export function EdgePills(p: { side: Dock; pills: EdgePill[] }) {
+export function EdgePills(p: { side: Dock; pills: EdgePill[]; style?: React.CSSProperties }) {
   if (!p.pills.length) return null;
   const openIcon: IconName = p.side === "left" ? "ui-right" : p.side === "right" ? "ui-left" : "ui-up";
   return (
-    <div className={`edge-pills side-${p.side}`} role="toolbar" aria-label="collapsed panels">
+    <div className={`edge-pills side-${p.side}`} style={p.style} role="toolbar" aria-label="collapsed panels">
       {p.pills.map((q) => <span key={q.id} className={`edge-pill pill-${q.id}${q.muted ? " muted" : ""}${q.on ? " on" : ""}${q.pulse ? " pulse" : ""}`} data-tour={q["data-tour"]}>
         <button type="button" className="edge-restore" onClick={q.onRestore} title={q.title ?? "expand"} aria-expanded={false}>
           <Icon name={openIcon} className="chev" />{q.icon && <Icon name={q.icon} />}<span className="edge-text">{q.label}</span>

@@ -53,6 +53,15 @@ export function rampPlotly(id: string | null | undefined): [number, string][] {
   const R = rampColors(id);
   return R.map((c, i) => [i / (R.length - 1), `rgb(${c.join(",")})`]);
 }
+/** an anomaly heatmap's colour window: symmetric about 0 (the diverging ramp's neutral midpoint IS the normal) and as
+ * wide as the largest departure, so the colorbar's two ends mean the same magnitude either way and no cell saturates.
+ * Never narrower than ±0.1. The section plot and the depth × time card share it (Ben, 2026-10-14: the card's colour
+ * "like the section plot"). A loop, not Math.max(...v): a long card has more cells than the call stack takes. */
+export function anomRange(values: (number | null | undefined)[]): [number, number] {
+  let a = 0.1;
+  for (const v of values) if (v != null && Number.isFinite(v) && Math.abs(v) > a) a = Math.abs(v);
+  return [-a, a];
+}
 /** what the release's registry says about the variable, for the one case its name cannot answer: a PER-CAST type is
  * named after its criterion, not its quantity (mld_sigma_theta_002 is a depth, not a density; chl_max_depth is not a
  * chlorophyll), so a per-cast variable hands the rule its registry units (src/castgrain.ts). Per-bin callers pass none. */

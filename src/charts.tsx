@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "./icons";
 import { colorScale, quantileDomain } from "./map";
-import { rampPlotly } from "./ramps";
+import { anomRange, rampPlotly } from "./ramps";
 import { anomalyOf, climLookup, type ClimBase } from "./anomaly";
+import { dtGrid, dtTrace, wrapText, type DtRow } from "./depthtime";
 // Plotly is ~3.5 MB of the bundle and no panel needs it before the slice answers: load it lazily
 let PlotlyMod: any = null;
 const plotly = () => PlotlyMod ? Promise.resolve(PlotlyMod) : import("plotly.js-dist-min").then((m) => (PlotlyMod = m.default ?? m));
@@ -364,7 +365,7 @@ export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | nul
     }));
     const isDepth = p.yLabel.startsWith("depth");
     // a symmetric range about zero, from the data: the colorbar's two ends mean the same magnitude either way
-    const amax = p.anom ? Math.max(0.1, ...z.flat().filter((v): v is number => v != null).map(Math.abs)) : 0;
+    const amax = p.anom ? anomRange(z.flat())[1] : 0;
     // x is km now, so the station number travels in customdata to stay in the hover
     const cd = ys.map(() => stas.map((sta) => sta));
     const traces = xs.length ? [{
@@ -422,6 +423,28 @@ export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | nul
       if (cur.length === 2 && cur.every((v: number, i: number) => Math.abs(v - want[i]) < 1e-6)) return;
       Plotly.relayout(div, { "xaxis2.range": want });
     });
+  });
+  return <div ref={ref} className="plot fill" />;
+}
+
+// the depth × time anomaly card (explore#28): x the cruise season, y the 10 m depth bin increasing downward, the colour
+// the mean departure from the normal on the anomaly ramp, symmetric about 0. Every rule lives in depthtime.ts (the grid,
+// the window, the trace, the hover); this draws it. A blank cell is no observation, or none with a baseline — never a 0.
+export function DepthTimePlot(p: { rows: DtRow[] | null; quarters: number[] | null; unit: string; base: ClimBase; ramp: string | null; theme: string; title: string; empty: string | null }) {
+  const ref = usePlot([p.rows, p.quarters, p.unit, p.base, p.ramp, p.theme, p.title, p.empty], (div, Plotly) => {
+    const b = base(p.theme);
+    const g = dtGrid(p.empty ? [] : p.rows ?? [], p.quarters);
+    const traces = g.x.length ? [dtTrace(g, p.unit, p.base, p.ramp)] : [];
+    const on = traces.length > 0;   // an empty card says why, on no axes and under no title that would name a normal it lacks
+    Plotly.react(div, traces, {
+      ...b, title: { text: on ? p.title : "", font: { size: 12 }, x: 0.02, xanchor: "left", yref: "container", y: 0.985, yanchor: "top" },
+      xaxis: { ...b.xaxis, title: { text: "cruise season", standoff: 4 }, type: "linear", tickformat: "d", hoverformat: ".2f", visible: on },
+      yaxis: { ...b.yaxis, title: { text: "depth (m)", standoff: 4 }, autorange: "reversed", visible: on },
+      margin: { l: 50, r: 10, t: 28, b: 36 },
+      // Plotly does not wrap an annotation: the note is broken into lines to the card's width
+      annotations: g.x.length ? [] : [{ text: wrapText(p.empty ?? (p.rows == null ? "subtracting the climatology…" : "nothing to draw"), Math.max(30, Math.floor((div.clientWidth - 40) / 6.5))),
+        xref: "paper", yref: "paper", x: 0.5, y: 0.5, showarrow: false, font: { color: b.muted, size: 11 }, align: "center" }],
+    }, CFG);
   });
   return <div ref={ref} className="plot fill" />;
 }
