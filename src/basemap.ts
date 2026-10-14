@@ -182,7 +182,16 @@ export interface SpatialLayerDef {
   line_width: number | null; fill_opacity: number | null; default_visible: boolean;
   name_field: string | null; description: string | null; attribution: string | null;
   n_features: number; bbox: number[] | null; names: string[] | null; n_memberships: number;
+  // dated status (contract 2026-10-14, calcofi4db build_spatial_layers()): passed through from the gazetteer manifest
+  // for a gazetteer row, absent on v2026.10.13 and older sidecars — every reader treats them as optional
+  status?: LayerStatus | null;                     // layer level: "rescinded" on 2025-07-30, with its source
+  status_history?: LayerStatus[] | null;           // ascending events
+  status_label?: string | null;                    // "rescinded 2025-07-30": the app appends it to the plain name
+  created?: string | null; updated?: string | null; source_date?: string | null; gazetteer_version?: string | null;
+  region_status?: RegionStatus[] | null;           // per region with samples AND a status attribute; null when none
 }
+export interface LayerStatus { value: string; date?: string | null; source?: string | null; note?: string | null }
+export interface RegionStatus { name: string; status: string | null; status_date?: string | null }
 export interface SpatialLayers { version: string; pmtiles_base: string; built: string | null; layers: SpatialLayerDef[] }
 export interface BoundaryState { base: string; defs: SpatialLayerDef[]; styles: LayerStyle[]; regionOutline: string | null }
 export const spatialBaseUrl = (sidecarBase: string): string => import.meta.env.VITE_SPATIAL_URL ?? sidecarBase;

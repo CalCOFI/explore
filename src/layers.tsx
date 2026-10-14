@@ -7,6 +7,7 @@ import { useRef, useState } from "react";
 import { Icon } from "./icons";
 import { BATHY_PARTS, OBS_COLOR, type BathyPart, type LayerStyle, type Sel } from "./state";
 import { LAND_ID, PALETTES, baseLabelDefaultOpacity, bathyDefaultOpacity, defaultLayers, effectiveLayers, isPalette, labelDefaultOpacity, sameLayers, type SpatialLayerDef } from "./basemap";
+import { layerLabel } from "./spatial_registry";
 import { RAMPS, RAMP_IDS, parseRamp, rampCss, defaultRamp, lensRamp, type RampHint } from "./ramps";
 
 const LABELS: Record<BathyPart, string> = { relief: "shaded relief", depth: "depth colour", contours: "contours" };
@@ -167,7 +168,7 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
               <div className="onmap-head">
                 <span className="drag" title="drag to reorder" onPointerDown={onHandle(i)}><Icon name="ui-drag" size="0.9rem" /></span>
                 {swatchFor(d, st)}
-                <button type="button" className="onmap-name" onClick={() => setExpanded(open ? null : st.id)} title={d.description ?? d.name}>{d.name}</button>
+                <button type="button" className="onmap-name" onClick={() => setExpanded(open ? null : st.id)} title={d.description ?? d.name}>{layerLabel(d)}</button>
                 <button type="button" className="sm" aria-label={`Move ${d.name} up`} disabled={i === 0} onClick={() => move(i, i - 1)}><Icon name="ui-up" size="0.85rem" /></button>
                 <button type="button" className="sm" aria-label={`Move ${d.name} down`} disabled={i === entries.length - 1} onClick={() => move(i, i + 1)}><Icon name="ui-down" size="0.85rem" /></button>
                 <button type="button" className="sm" aria-label={`Remove ${d.name}`} onClick={() => remove(i)}><Icon name="ui-close" size="0.85rem" /></button>
@@ -238,7 +239,7 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
             <label key={d.id} className="layers-row layers-sub">
               <input type="checkbox" checked={entries.some((e) => e.id === d.id)}
                 onChange={(e) => (e.target.checked ? addLayer(d.id) : setLayers(entries.filter((x) => x.id !== d.id)))} />
-              <span title={d.description ?? ""}>{d.name}</span> <span className="hint">{d.geom === "raster" ? "raster" : d.n_features > 0 ? d.n_features.toLocaleString() : ""}</span>
+              <span title={d.description ?? ""}>{layerLabel(d)}</span> <span className="hint">{d.geom === "raster" ? "raster" : d.n_features > 0 ? d.n_features.toLocaleString() : ""}</span>
             </label>))}
         </div>))}
     </div>

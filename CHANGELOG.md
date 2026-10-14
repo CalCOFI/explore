@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+- **an Area can be a whole layer or any set of its regions** (explore#20 · explore#16; Ben, 2026-10-14: "allow ALL
+  features in a given layer to be used as the filter … a large modal for selecting individual features from a table
+  and/or on the map"; `src/area.ts`, `src/regionpicker.tsx`, `tests/area.test.ts`). Refine › Area › region offers
+  *all regions (n samples)* (`area=in:layer`, `layer = …` in `{{area_filter}}`, the layer's own distinct count from
+  `sql/area_regions.sql`) and *choose on map / table…*: a modal over most of the viewport with the layer's regions in a
+  sortable, searchable table (checkbox, name, status, status date, samples; all / none; a count) beside a map of the
+  layer's own polygons, drawn from its PMTiles (the CalCOFI bucket or the gazetteer) — a click toggles a region, chosen
+  ones are yellow, ones with no sample in the release are grey and dashed and cannot be chosen. Apply writes
+  `area=ins:layer|A,B,C` (each name with `%` → `%25` and `,` → `%2C`, so any name round-trips; a set of one is written
+  `in:layer|A`, every region is written `in:layer`); Cancel or Esc change nothing. The title sentence reads "within all
+  of …" / "within 3 regions of …", and the map's yellow outline covers every chosen region. `area=in:layer|name` links
+  parse exactly as before.
+- **status beside the name, not in it** (contract 2026-10-14; `src/spatial_registry.ts`, `tests/spatial_registry.test.ts`).
+  A layer whose sidecar row has a dated status reads "BOEM Wind Planning Areas (rescinded 2025-07-30)" in the Area
+  picker, the Layers card, the legend and the boundary popup (`status_label`, else worded from `status`); a region with
+  a `region_status` reads "OCS-P 0561 (relinquished 2026-09-03) (12 samples)"; the modal's status column falls back to
+  the gazetteer polygons' own `status` / `status_date`. A layer that cannot be an area says why: "points: no area",
+  "lines: no area" or "not in this release's sample index". Every field is optional: v2026.10.13 reads as before. The
+  bundled registry drops "(rescinded)" from the planning areas' name and carries the status as data.
+- **Chumash Heritage National Marine Sanctuary** (explore#34). *National Marine Sanctuaries* (`noaa_onms_sanctuaries`,
+  id and name kept) draws the gazetteer's `noaa_sanctuaries` archive, so the 2024 sanctuary is on the map. Its region
+  names are the gazetteer's ("Channel Islands National Marine Sanctuary - Northern Section"): an `in:` link with the old
+  short name, once the release has the new ones, opens as every region that name prefixes at a word boundary ("Channel
+  Islands" → both sections) and the link is rewritten; the modal maps a polygon to the release's regions by the same
+  rule, so v2026.10.13's short names still pick on the new polygons. Monterey Bay's subregions (also asked in #34) are
+  not done: no public polygons for them were found.
+- **one SoCal Aquaculture AOAs layer.** `noaa_aquaculture_aoas` (id and name kept, regions CN1-A … N2-E unchanged) draws
+  the gazetteer's `noaa_aoa_socal` archive with status popups; the duplicate `noaa_aoa_socal` row is gone, a
+  `layers=noaa_aoa_socal` link draws the merged layer (`aliasLayers()`), and a release sidecar that still lists both
+  shows one. A polygon names its region by the row's `name_field`, else `name`, else the gazetteer's `source_id`
+  (the AOA tiles carry "Southern California AOA N2-E" and "N2-E").
+- Area › region: changing the layer after opening a region link no longer hides the picker (fix).
+
 - **the season is the cruise's quarter** (fix, explore#17). The season filter used each cast's calendar date
   (`quarter(datetime)` in `sql/slice_cast.sql`; the release's calendar `quarter` on obs_env / obs_bio through
   v2026.10.08), so with `q=3` the inshore line 93.3 stations of 2026-07-3322, worked on 30 June, vanished. Every slice
