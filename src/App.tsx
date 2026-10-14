@@ -20,14 +20,15 @@ import { buildBundle, saveBlob, copyAs } from "./bundle";
 import { Icon } from "./icons";
 import { Picker, type PickerItem, type GroupOpt } from "./picker";
 import { Menu, Group, NumInput, YearRange } from "./ui";
-import { parseArea, areaSql, areaToUrl, areaWord, boxFeature, PATTERN_WORD, type Area } from "./area";
+import { parseArea, areaSql, areaToUrl, areaWord, boxFeature, featuresBbox, pickedArea, regionOutline, resolveArea, PATTERN_WORD, type Area } from "./area";
+import { RegionPicker } from "./regionpicker";
 import { Panel, EdgePills, MaxPanel, Sheet, Sparkline, VSpark, SHEET_PEEK, type CardId, type CardBox, type Detent, type Dock, type EdgePill } from "./panels";
 import { Sentence, type DerivedNote } from "./sentence";
 import { LayersCard } from "./layers";
 import { Curtain3D, Nav3D, cam3d } from "./curtain";
 import { bathyFromSel, bathyOn, boundaryLayerIds, effectiveLayers, isPalette, LAND_LAYER, PALETTES, type BoundaryState, type SpatialLayerDef, type SpatialLayers } from "./basemap";
 import spatialFallback from "./spatial_layers.fallback";
-import { boundaryTooltip, mergeRegistry } from "./spatial_registry";
+import { areaLayerReason, boundaryTooltip, isAreaCandidate, layerLabel, mergeRegistry, regionLabel, regionStatusMap } from "./spatial_registry";
 import type { IconName } from "./icons";
 import { Welcome, About, seenWelcome, markWelcome, markCiteAck } from "./help";
 import { fromUrl as selFromUrl } from "./state";
@@ -372,12 +373,13 @@ export function App() {
       .catch(() => console.log("spatial_layers.json: not in this release — using the bundled registry"));
   }, [version]);
   const area = useMemo(() => parseArea(sel.area), [sel.area]); // the Area filter (src/area.ts, explore#20)
+  const [areaRegionMode, setAreaRegionMode] = useState(false);
   // the polygon layers are heavy (all layers, simplified): the Regions lens and a region Area need them
   useEffect(() => {
-    if ((sel.lens !== "region" && area?.kind !== "region") || !version || spatial.length) return; // the Area filter outlines its region too
+    if ((sel.lens !== "region" && area?.kind !== "region" && !areaRegionMode) || !version || spatial.length) return; // the Area filter outlines its regions too, and the region modal opens on them
     const t = performance.now();
     fetch(sidecarUrl(version, "spatial.geojson")).then((r) => r.json()).then((gj) => { setSpatial(gj.features); timing.add("fetch:spatial.geojson", performance.now() - t, `${gj.features.length} polygons`); }).catch(console.error);
-  }, [sel.lens, version, area?.kind]);
+  }, [sel.lens, version, area?.kind, areaRegionMode]);
 
   // ── the slice: one taxon or one variable, materialized in the worker ───────
   useEffect(() => {
@@ -515,30 +517,41 @@ export function App() {
     for (const g of grid) if (g.pattern) (m.get(g.pattern) ?? m.set(g.pattern, []).get(g.pattern)!).push(g.grid_key);
     return m;
   }, [grid]);
+  // the region lists of the Area picker (sql/area_regions.sql), fetched the first time the picker or a region link asks
+  // for them: per layer its regions with samples, and the layer's own distinct count ("all regions (n samples)")
+  const [areaRegions, setAreaRegions] = useState<Map<string, { name: string; n: number }[]> | null>(null);
+  const [areaTotals, setAreaTotals] = useState<Map<string, number>>(new Map());
+  const [areaLayerPick, setAreaLayerPick] = useState<string | null>(null);
+  const [regionModal, setRegionModal] = useState<string | null>(null); // the layer the region modal is open on
+  const wantRegions = areaRegionMode || area?.kind === "region";
+  useEffect(() => {
+    if (!wantRegions || areaRegions || !catalog) return;
+    ensure(REG.sample_spatial).then(() => engine.query("area_regions", { spatial_src: q(REG.sample_spatial) })).then((r) => {
+      const m = new Map<string, { name: string; n: number }[]>(), tot = new Map<string, number>();
+      for (const x of r) {
+        if (Number(x.whole)) { tot.set(x.layer, Number(x.n)); continue; }
+        (m.get(x.layer) ?? m.set(x.layer, []).get(x.layer)!).push({ name: x.spatial_name, n: Number(x.n) });
+      }
+      setAreaTotals(tot); setAreaRegions(m);
+    }).catch(console.error);
+  }, [wantRegions, areaRegions, catalog]);
+  // an old single-region link whose name this release spells longer (explore#34: "Channel Islands" -> the gazetteer's
+  // two sections) is widened to that set and the link rewritten; a single name waits for the list, so it never draws
+  // an empty map first
+  const areaResolved = useMemo(() => (area?.kind === "region" && areaRegions ? resolveArea(area, (areaRegions.get(area.layer) ?? []).map((r) => r.name)) : area), [area, areaRegions]);
+  useEffect(() => { if (areaResolved && areaResolved !== area) setSel({ area: areaToUrl(areaResolved) }); }, [areaResolved]);
+  const areaWaits = area?.kind === "region" && area.names?.length === 1 && (!areaRegions || areaResolved !== area);
   const [areaFilter, setAreaFilter] = useState<{ key: string; sql: string } | null>(null);
   useEffect(() => {
-    if (!sel.area) return;
+    if (!sel.area || areaWaits) return;
     const sql = areaSql(area, { gridKeys, spatialSrc: q(REG.sample_spatial) });
     if (sql == null || (area?.kind === "region" && !catalog)) return;
     let live = true;
     (area?.kind === "region" ? ensure(REG.sample_spatial) : Promise.resolve()).then(() => { if (live) setAreaFilter({ key: sel.area!, sql }); }).catch(console.error);
     return () => { live = false; };
-  }, [sel.area, area, gridKeys, catalog]);
+  }, [sel.area, area, gridKeys, catalog, areaWaits]);
   const areaClause = !sel.area || !area ? "TRUE" : areaFilter?.key === sel.area ? areaFilter.sql : null;
   const areaPending = areaClause == null;
-  // the region lists of the Area picker (sql/area_regions.sql), fetched the first time the picker asks for them
-  const [areaRegions, setAreaRegions] = useState<Map<string, { name: string; n: number }[]> | null>(null);
-  const [areaRegionMode, setAreaRegionMode] = useState(false);
-  const [areaLayerPick, setAreaLayerPick] = useState<string | null>(null);
-  const wantRegions = areaRegionMode || area?.kind === "region";
-  useEffect(() => {
-    if (!wantRegions || areaRegions || !catalog) return;
-    ensure(REG.sample_spatial).then(() => engine.query("area_regions", { spatial_src: q(REG.sample_spatial) })).then((r) => {
-      const m = new Map<string, { name: string; n: number }[]>();
-      for (const x of r) (m.get(x.layer) ?? m.set(x.layer, []).get(x.layer)!).push({ name: x.spatial_name, n: x.n });
-      setAreaRegions(m);
-    }).catch(console.error);
-  }, [wantRegions, areaRegions, catalog]);
   const freezeView = () => {
     const b = (window as any).__map?.getBounds?.(); if (!b) return;
     setAreaRegionMode(false); setSel({ area: areaToUrl({ kind: "box", bbox: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()] }) });
@@ -777,7 +790,7 @@ export function App() {
     return { image, bounds: [g.lon0, g.latS, g.lon1, g.latN] as [number, number, number, number], lines, labels, casts: surf.fit.nmax > 0 ? (castRows as any[]) : null, inputs: showInputs };
   }, [displayLens, surf, surfVals, legendDomain, rampId, castRows, showInputs, sel.labels, sel.surface, sel.map?.[2]]);
 
-  const areaOutline = useMemo(() => area?.kind === "box" ? [boxFeature(area.bbox)] : area?.kind === "region" ? spatial.filter((f) => f.properties.layer === area.layer && f.properties.name === area.name) : null, [area, spatial]);
+  const areaOutline = useMemo(() => area?.kind === "box" ? [boxFeature(area.bbox)] : area?.kind === "region" ? regionOutline(area, spatial) : null, [area, spatial]); // every chosen region's edge
   const lineThreadsAll = useMemo(() => lineThreads(grid), [grid]); // the Lines layer (`lines=on`)
   const layerInputs = useMemo((): LayerInputs => ({
     lens: displayLens, res: sel.res, stat: preSlice ? "n" : stat, grid, station: stationMap, hex: hexRows as any,
@@ -1317,30 +1330,42 @@ export function App() {
         <button type="button" className={!area && !areaRegionMode ? "on" : ""} onClick={() => { setAreaRegionMode(false); setSel({ area: null }); }} title="every sample, wherever it was taken">everywhere</button>
         <button type="button" className={area?.kind === "pattern" ? "on" : ""} onClick={() => { setAreaRegionMode(false); setSel({ area: "std" }); }} title="only the standard station pattern, lines 76.7–93.3: the same footprint on every cruise, so years compare like with like">standard grid</button>
         <button type="button" className={area?.kind === "box" ? "on" : ""} onClick={freezeView} title="only what the map shows now: the view's lon/lat box, frozen until you change it">map view</button>
-        <button type="button" className={area?.kind === "region" || (areaRegionMode && !area) ? "on" : ""} onClick={() => setAreaRegionMode(true)} title="only samples inside one region of a boundary layer (the release's own sample_spatial membership)">region</button>
+        <button type="button" className={area?.kind === "region" || (areaRegionMode && !area) ? "on" : ""} onClick={() => setAreaRegionMode(true)} title="only samples inside regions of a boundary layer — one, all of them or any set (the release's own sample_spatial membership)">region</button>
       </span>
       {area?.kind === "pattern" && <label className="row hint area-ext"><input type="checkbox" checked={area.patterns.includes("extended")} onChange={(e) => setSel({ area: e.target.checked ? "std,ext" : "std" })} /> add the extended lines (60–73.3)</label>}
       {(area?.kind === "region" || (areaRegionMode && !area)) && (() => {
-        const groupOf = new Map(spatialLayers.layers.map((d) => [d.name, d.group]));
+        const defOf = new Map(spatialLayers.layers.map((d) => [d.name, d]));
         const have = [...(areaRegions?.keys() ?? [])];
-        // the Layers card's own groups and names; a boundary layer the release has not intersected with its samples
-        // (the US EEZ in v2026.10.08) is listed but cannot be picked, so its absence explains itself
-        const missing = spatialLayers.layers.filter((d) => d.role !== "reference" && d.geom !== "raster" && d.geom !== "label" && !have.includes(d.name)).map((d) => d.name);
-        const groups = [...new Set([...have, ...missing].map((n) => groupOf.get(n) ?? "Other"))].sort();
+        // the Layers card's own groups and names, each with its dated status ("BOEM Wind Planning Areas (rescinded
+        // 2025-07-30)"); a layer that cannot be picked is listed with the real reason: points and lines enclose no area,
+        // and a boundary layer the release has not intersected with its samples is "not in this release's sample index"
+        const missing = spatialLayers.layers.filter((d) => isAreaCandidate(d) && !have.includes(d.name)).map((d) => d.name);
+        const groups = [...new Set([...have, ...missing].map((n) => defOf.get(n)?.group ?? "Other"))].sort();
         const curLayer = area?.kind === "region" ? area.layer : areaLayerPick ?? have[0] ?? "";
         const names = areaRegions?.get(curLayer) ?? [];
+        const rs = regionStatusMap(defOf.get(curLayer));
+        const total = areaTotals.get(curLayer);
+        // the region select: one name, "all regions", or a set from the modal (shown, not choosable here)
+        const regVal = area?.kind !== "region" ? "" : area.names == null ? "__all__" : area.names.length === 1 ? area.names[0] : "__set__";
         return <>
-          <label className="f">layer<select value={curLayer} onChange={(e) => { setAreaLayerPick(e.target.value); const first = areaRegions?.get(e.target.value)?.[0]; setSel({ area: first && areaRegions!.get(e.target.value)!.length === 1 ? areaToUrl({ kind: "region", layer: e.target.value, name: first.name }) : null }); }}>
+          <label className="f">layer<select value={curLayer} onChange={(e) => { setAreaLayerPick(e.target.value); setAreaRegionMode(true); const rr = areaRegions?.get(e.target.value); setSel({ area: rr?.length === 1 ? areaToUrl({ kind: "region", layer: e.target.value, names: [rr[0].name] }) : null }); }}>
             {!areaRegions && <option>loading…</option>}
-            {areaRegions && groups.map((g) => <optgroup key={g} label={g}>{[...have, ...missing].filter((n) => (groupOf.get(n) ?? "Other") === g).sort().map((n) => <option key={n} value={n} disabled={!have.includes(n)}>{n}{have.includes(n) ? "" : " — not in this release's sample index"}</option>)}</optgroup>)}
+            {areaRegions && groups.map((g) => <optgroup key={g} label={g}>{[...have, ...missing].filter((n) => (defOf.get(n)?.group ?? "Other") === g).sort().map((n) => {
+              const d = defOf.get(n), why = d ? areaLayerReason(d, have.includes(n)) : null;
+              return <option key={n} value={n} disabled={!!why}>{d ? layerLabel(d) : n}{why ? ` — ${why}` : ""}</option>;
+            })}</optgroup>)}
           </select></label>
-          <label className="f">region<select value={area?.kind === "region" ? area.name : ""} onChange={(e) => setSel({ area: e.target.value ? areaToUrl({ kind: "region", layer: curLayer, name: e.target.value }) : null })}>
+          <label className="f">region<select value={regVal} onChange={(e) => { const v = e.target.value; setAreaRegionMode(true); setSel({ area: !v || v === "__set__" ? (v ? sel.area : null) : areaToUrl({ kind: "region", layer: curLayer, names: v === "__all__" ? null : [v] }) }); }}>
             <option value="">choose a region…</option>
-            {names.map((r) => <option key={r.name} value={r.name}>{r.name} ({fmtN(r.n)} samples)</option>)}
+            {names.length > 0 && <option value={"__all__"}>all regions{total != null ? ` (${fmtN(total)} samples)` : ""}</option>}
+            {regVal === "__set__" && area?.kind === "region" && <option value={"__set__"}>{area.names!.length} regions chosen</option>}
+            {names.map((r) => <option key={r.name} value={r.name}>{regionLabel(r.name, rs.get(r.name), r.n, fmtN)}</option>)}
           </select></label>
+          <button type="button" className="pill act area-choose" disabled={!names.length} onClick={() => setRegionModal(curLayer)} title="choose any set of this layer's regions from a table or by clicking them on a map">
+            <Icon name="ui-map-layers" size="0.9rem" /> choose on map / table…</button>
         </>;
       })()}
-      <div className="hint">{!area ? (areaRegionMode ? "pick a layer and a region; only the samples inside it count" : "every sample, wherever it was taken")
+      <div className="hint">{!area ? (areaRegionMode ? "pick a layer and one region, all of them, or any set (on the map or in a table); only the samples inside count" : "every sample, wherever it was taken")
         : area.kind === "pattern" ? `${fmtN(area.patterns.reduce((k, p) => k + (gridKeys?.get(p)?.length ?? 0), 0))} grid stations ${areaWord(area)} — the same footprint every cruise, so the years compare like with like`
         : area.kind === "box" ? <>{areaWord(area)} · <button type="button" className="linkish" onClick={freezeView}>use the current view</button></>
         : `${areaWord(area)} · exact per sample (the release's sample_spatial)`}{areaPending && sel.area ? " · applying…" : ""}</div>
@@ -1557,7 +1582,7 @@ export function App() {
         {isPalette(st.color)
           ? <span className="pal-strip">{PALETTES[st.color][theme].slice(0, 6).map((c) => <i key={c} style={{ background: c }} />)}</span>
           : <span className="swatch" style={{ background: st.color ? `#${st.color}` : (d.fill_color || d.line_color || "#9aa0a6") }} />}
-        <span>{d.name}</span>{isPalette(st.color) && d.names && <span className="hint">by name · {d.names.length}</span>}
+        <span>{layerLabel(d)}</span>{isPalette(st.color) && d.names && <span className="hint">by name · {d.names.length}</span>}
       </div>)}
     </div>}
     {/* a per-cast variable in a lens that cannot draw it says why, and where to go — it is not "nothing in the selection" */}
@@ -1684,6 +1709,16 @@ export function App() {
       {modal === "sources" && <SourcesModal release={rel} catalog={catalog} datasets={datasets} cov={cov} inView={viewDatasetKeys} providerTable={providerTable} short={short}
         onClose={closeModal} onRegister={() => openModal("product")} onCite={() => copyCite("text")} />}
       {(modal === "feedback" || modal === "product") && <FeedbackDialog kind={modal === "product" ? "product" : "feedback"} datasets={viewDatasetKeys} url={location.href} release={rel} onClose={closeModal} capture={() => captureView({ stamp: viewStamp() })} />}
+      {regionModal && areaRegions && (() => {
+        // the region modal (src/regionpicker.tsx): the layer's regions with samples, its polygons, the current pick
+        const regs = areaRegions.get(regionModal) ?? [], def = spatialLayers.layers.find((d) => d.name === regionModal);
+        const have = new Set(regs.map((r) => r.name));
+        const cur = area?.kind === "region" && area.layer === regionModal ? area.names : [];
+        return <RegionPicker layer={regionModal} def={def} regions={regs} status={regionStatusMap(def)} initial={cur} base={spatialLayers.pmtiles_base} theme={theme} fmtN={fmtN}
+          bounds={featuresBbox(spatial.filter((f) => f.properties.layer === regionModal && have.has(f.properties.name)))}
+          onCancel={() => setRegionModal(null)}
+          onApply={(picked) => { setRegionModal(null); setAreaLayerPick(regionModal); setSel({ area: areaToUrl(pickedArea(regionModal, picked, regs.map((r) => r.name))) }); }} />;
+      })()}
     </div>
   );
 }

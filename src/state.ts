@@ -1,6 +1,7 @@
 // selection model = the URL (plan § Architecture). every lens is a pure function of the slice + this.
 import type { IconName } from "./icons";
 import type { ClimBase } from "./anomaly";
+import { aliasLayers } from "./spatial_registry";
 export type Lens = "station" | "hex" | "contour" | "cruise" | "region" | "section";
 export type Interp = "idw" | "ok" | "tps";
 export type Surface = "value" | "se" | "n" | "y0" | "y1" | "p05" | "p95" | "spread";
@@ -304,7 +305,7 @@ export function fromUrl(): Sel {
     land: p.get("land") !== "off",
     baseLabels: p.get("basemap") !== "nolabels",
     basemapo: (v => v != null && v !== "" && isFinite(+v) && +v >= 0.1 && +v <= 1 ? Math.round(+v * 100) / 100 : null)(p.get("basemapo")),
-    layers: parseLayerStyles(p.get("layers")),
+    layers: aliasLayers(parseLayerStyles(p.get("layers"))), // a retired slug (noaa_aoa_socal) reads as its successor
     view3d: p.get("view") === "3d",
     exag: (v => v != null && isFinite(+v) && +v >= 10 && +v <= 150 ? Math.round(+v) : null)(p.get("exag")),
     cam: p.get("view") === "3d" ? parseCam(p.get("cam")) : null,
