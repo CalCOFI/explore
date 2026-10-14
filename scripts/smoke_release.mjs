@@ -92,7 +92,8 @@ else {
     await page.evaluate(() => [...document.querySelectorAll(".menu-item")].find((b) => /^SQL/.test(b.innerText.trim()))?.click());
     await new Promise((r) => setTimeout(r, 500));
     const sql = (await page.evaluate(() => window.__lastCopy ?? "")) ?? "";
-    check(/FROM read_parquet\('https:\/\/[^']*\/tables\/sample_measurement\/[^']+\.parquet'\) sm\s+JOIN read_parquet\('https:\/\/[^']*\/tables\/sample_root\/[^']+\.parquet'\) r ON r\.root_sample_key = sm\.sample_key/.test(sql), `${v.key}: Copy code › SQL does not carry the sample_measurement ⋈ sample_root join against the catalog's objects`);
+    // sample_root is joined bare or wrapped in a subquery that adds the cruise year/quarter (explore#22, season = cruise quarter)
+    check(/FROM read_parquet\('https:\/\/[^']*\/tables\/sample_measurement\/[^']+\.parquet'\) sm\s+JOIN (?:read_parquet\('https:\/\/[^']*\/tables\/sample_root\/[^']+\.parquet'\)|\(SELECT [^;]*?FROM read_parquet\('https:\/\/[^']*\/tables\/sample_root\/[^']+\.parquet'\)\)) r ON r\.root_sample_key = sm\.sample_key/.test(sql),`${v.key}: Copy code › SQL does not carry the sample_measurement ⋈ sample_root join against the catalog's objects`);
     check(!/releases\/v[\d.]+\/parquet\//.test(sql), `${v.key}: the copied SQL holds a hand-built releases/{v}/parquet/ path`);
     check(/measurement_qual/.test(sql) && /AS qual_ok/.test(sql), `${v.key}: the copied SQL does not apply the quality predicate`);
     check(errors.length === 0, `${v.key}: console errors: ${errors.slice(0, 3).join(" | ")}`);
