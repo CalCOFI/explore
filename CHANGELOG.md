@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **fix: the map's data was hidden under the sea** (explore#39, Rasmus Swalethorp: "The explorer app stopped displaying
+  temperature"). CARTO moved its basemap tiles from OpenMapTiles to Protomaps (water polygons now carry `kind`, not
+  `class`), so the land mask's inland-water copy, filtered on `class != "ocean"`, matched the whole ocean and repainted
+  it over the station dots, hexagons and sea floor (the legend and Time strip still filled; `land=off` showed the data).
+  The filter now drops `class` or `kind` = ocean (`basemap.ts INLAND_WATER_FILTER`, `tests/basemap.water.test.ts`
+  evaluates it with MapLibre's style-spec against both schemas). Island labels (`place` · `class=island`) find no
+  features in the Protomaps tiles and are silent for now.
 - **a depth × time anomaly card** (explore#28 part 2, Rasmus Swalethorp: "an anomaly plot with depth on the y and time on
   the x axis"). An *Anomaly · depth × time* pill above the Time panel opens a card (`show=depthtime`, so a permalink
   reproduces it; `max=depthtime` fills the map with it): x is the cruise season (the cruise's year and quarter), y the

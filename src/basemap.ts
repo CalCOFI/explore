@@ -307,6 +307,13 @@ function entryLayers(style: any, d: SpatialLayerDef, st: LayerStyle, theme: "dar
   return [{ id: `sp-${st.id}-circle`, type: "circle", ...common, paint: { "circle-color": color, "circle-radius": Math.max(2, width * 2), "circle-opacity": 0.85, "circle-stroke-width": 0 } }];
 }
 
+/** the inland-water copy's filter: CARTO's water polygons minus the ocean. Schema-agnostic (explore#39): CARTO's tiles
+ *  moved from OpenMapTiles (`class: "ocean"`, source `carto`) to Protomaps (`kind: "ocean"`, source `protomaps`) by
+ *  2026-10-26, and a `class`-only filter then matched the whole sea — repainting it in the water colour OVER the data
+ *  and the sea floor. A missing property reads null, so each test passes a feature of the other schema */
+export const INLAND_WATER_FILTER: any = ["all", ["==", ["geometry-type"], "Polygon"],
+  ["!=", ["get", "class"], "ocean"], ["!=", ["get", "kind"], "ocean"]];
+
 /** the mask (D47): the OSM land polygons in the theme's background colour, then CARTO's water without the ocean so
  *  lakes, rivers and ponds — inside the land polygons — come back over it */
 function landLayers(style: any, base: string): any[] {
@@ -314,7 +321,7 @@ function landLayers(style: any, base: string): any[] {
   style.sources["osm-land"] = { type: "vector", url: `pmtiles://${base}${LAND_ID}.pmtiles`, attribution: LAND_ATTRIBUTION };
   const out: any[] = [{ id: LAND_LAYER, type: "fill", source: "osm-land", "source-layer": LAND_ID, paint: { "fill-color": bg, "fill-antialias": true } }];
   const water = style.layers.find((l: any) => l.id === "water");
-  if (water) out.push({ ...structuredClone(water), id: "water-inland", filter: ["all", ["==", "$type", "Polygon"], ["!=", "class", "ocean"]] });
+  if (water) out.push({ ...structuredClone(water), id: "water-inland", filter: INLAND_WATER_FILTER });
   return out;
 }
 
