@@ -11,6 +11,7 @@
 // rather than printing "undefined" — see `DEGRADES_WITHOUT` for the list.
 import type { Row } from "./engine";
 import type { Catalog } from "./release";
+import { SITE_URL } from "./preview";
 
 /** the columns this module reads; each is optional and each has a stated fallback (README § Attribution) */
 export const DEGRADES_WITHOUT = [
@@ -55,7 +56,7 @@ export const dsLongName = (d: Row) => s(d.dataset_name) || s(d.dataset_name_shor
 /** the calcofi.io dataset-catalog page (plan 2026-09-05 D-4) — built from the key alone, so it
  *  degrades correctly on the dev catalog (no `datasets.json` there) exactly like every other
  *  citation surface here: never a lookup, never conditional on a field the row may not carry. */
-export const datasetPageUrl = (dataset_key: string) => `https://calcofi.io/datasets/${dataset_key}/`;
+export const datasetPageUrl = (dataset_key: string) => `${SITE_URL}datasets/${dataset_key}/`;
 
 // ── the release cites itself ─────────────────────────────────────────────────
 /** calcofi4db::release_citation()'s wording, so the app and the release notes cannot disagree */
