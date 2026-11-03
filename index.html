@@ -32,7 +32,8 @@
   // WebDriver spec in every controlled browser, so treat it as do-not-count.
   // (A crawler that patches the flag still gets through; engagement rate is
   // the backstop for those — see calcofi.io/analytics.)
-  var IS_BOT = !!navigator.webdriver;
+  // a private preview build (VITE_PREVIEW=1) records no usage at all
+  var IS_BOT = !!navigator.webdriver || "%VITE_PREVIEW%" === "1";
 
   // ---- GA4 ----------------------------------------------------------------
   window.dataLayer = window.dataLayer || [];
