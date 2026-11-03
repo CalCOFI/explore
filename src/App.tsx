@@ -45,6 +45,7 @@ import { categoryRank, categoryIcon, envCategory, DATASET_CATEGORY_FALLBACK } fr
 import { dtEmpty, type DtRow } from "./depthtime";
 import { CLIM_MIN_CRUISES, anomTokens, baselineWord, climBaseSql, cruiseMonth, hasSeasonCols, sectionRange, type ClimBase } from "./anomaly";
 import { PREVIEW, PREVIEW_HOME } from "./preview";
+import { feedbackEndpoint } from "./feedback";
 import {
   fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LENS_DESC, LENS_ICON, RES_KM, INTERPS, INTERP_LABEL, INTERP_WORD, INTERP_HOW, SURFACES, SURFACE_LABEL, GRAIN_LABEL, GRAIN_HOW, type Surface, type Grain, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, DEN_HOW, SHF_NOTE, STAT_LABEL, YEAR_OPEN, MAP_HOME,
   type Sel, type Lens, type Den, type Stat, type PickerRow, type PanelId,
@@ -948,8 +949,9 @@ export function App() {
   const [modal, setModal] = useState<ModalId | null>(() => (sel.modal === "sources" ? "sources" : sel.tour && (sel.tourOn || !seenWelcome()) ? "welcome" : null));
   const [aboutAt, setAboutAt] = useState<string | null>(null); // Help ▾ → Keyboard opens About on that section
   const openModal = (m: ModalId, at: string | null = null) => {
-    // a private preview never files a public issue: feedback is the preview's decision form
-    if (PREVIEW && (m === "feedback" || m === "product")) { location.assign(PREVIEW_HOME); return; }
+    // a private preview never files a public issue: feedback posts to the preview service (feedback.tsx, when the
+    // build has its endpoint) and a product registration goes to the preview's landing page
+    if (PREVIEW && (m === "product" || (m === "feedback" && !feedbackEndpoint()))) { location.assign(PREVIEW_HOME); return; }
     setSel({ modal: m === "sources" ? "sources" : null }); setAboutAt(at); setModal(m);
   };
   const openSources = () => openModal("sources");

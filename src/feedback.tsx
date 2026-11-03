@@ -13,11 +13,13 @@ import { Icon } from "./icons";
 import { Annotator } from "./annotate";
 import { fitBytes } from "./capture";
 import { track } from "./track";
+import { PREVIEW } from "./preview";
 
 /** the endpoint: the build's VITE_FEEDBACK_URL (a Pages repository variable), else a localStorage override (tests, a staging deploy) */
 export function feedbackEndpoint(): string | null {
   const env = (import.meta.env.VITE_FEEDBACK_URL as string | undefined)?.trim();
-  if (env && /^https?:\/\//.test(env)) return env;
+  // a private preview's endpoint is the preview service on the same origin (/<key>/<token>/feedback)
+  if (env && (/^https?:\/\//.test(env) || (PREVIEW && env.startsWith("/")))) return env;
   try { const v = localStorage.getItem("explore.feedback_url"); if (v && /^https?:\/\//.test(v)) return v; } catch { /* private mode */ }
   return null;
 }
@@ -77,13 +79,13 @@ export function FeedbackDialog(p: { url: string; release: string; kind?: Feedbac
     </Modal>);
   if (result?.ok) return (
     <Modal id="feedback" title="Thank you" icon="ui-check" onClose={p.onClose} actions={<button type="button" className="btn primary" onClick={p.onClose}>Close</button>}>
-      <p>{result.opaque ? "Sent." : "Received."} The team gets it by mail{result.issue_url ? <> and it is public issue <a href={result.issue_url} target="_blank" rel="noopener">{result.issue_url.replace(/^https?:\/\/github\.com\//, "")}</a></> : ""}{result.id ? <span className="hint"> · id {result.id}</span> : null}.</p>
+      <p>{result.opaque ? "Sent." : "Received."} {PREVIEW ? "The CalCOFI data team has it; it stays private and is listed on the preview's landing page." : "The team gets it by mail"}{result.issue_url ? <> and it is public issue <a href={result.issue_url} target="_blank" rel="noopener">{result.issue_url.replace(/^https?:\/\/github\.com\//, "")}</a></> : ""}{result.id ? <span className="hint"> · id {result.id}</span> : null}.</p>
       {product && <p className="hint">Thank you for telling us — a registered product is how the program shows what six decades of sampling is for.</p>}
     </Modal>);
   return (
     <Modal id="feedback" title={product ? "Register a product" : "Feedback"} icon={product ? "ui-product" : "ui-feedback"} onClose={p.onClose} wide
       actions={<>
-        <a className="btn" href={issueUrl} target="_blank" rel="noopener" onClick={copyImage} title={`for developers: a prefilled public issue (label ${KIND_LABEL[kind]}); the screenshot is copied to your clipboard to paste`}><Icon name="ui-github" /> Open as GitHub issue myself</a>
+        {!PREVIEW && <a className="btn" href={issueUrl} target="_blank" rel="noopener" onClick={copyImage} title={`for developers: a prefilled public issue (label ${KIND_LABEL[kind]}); the screenshot is copied to your clipboard to paste`}><Icon name="ui-github" /> Open as GitHub issue myself</a>}
         <button type="button" className="btn primary" disabled={!endpoint || !ready || sending || capturing} onClick={send} data-tour="feedback-send"><Icon name="ui-send" /> {sending ? "Sending…" : product ? "Register" : "Send"}</button>
       </>}>
       {product ? <>
@@ -116,7 +118,8 @@ export function FeedbackDialog(p: { url: string; release: string; kind?: Feedbac
         </div>
       </div>
       <p className="hint">What is sent: your {product ? "entry" : "text"}, this view's URL, the release ({p.release}){datasets.length ? `, the datasets in view (${datasets.join(", ")})` : ""}, the viewport ({viewport}) and theme ({theme}), and the screenshot{include ? "" : " (off)"} — nothing else.
-        It goes to the team by mail and lands in a Sheet they read and, <b>without your email</b>, as a public issue in <code>CalCOFI/explore</code> labelled <code>{KIND_LABEL[kind]}</code>; with an email you get the same report back.</p>
+        {PREVIEW ? <>This is a private preview: it goes to the CalCOFI data team only and is listed on the preview's landing page. Nothing is posted publicly.</>
+                 : <>It goes to the team by mail and lands in a Sheet they read and, <b>without your email</b>, as a public issue in <code>CalCOFI/explore</code> labelled <code>{KIND_LABEL[kind]}</code>; with an email you get the same report back.</>}</p>
       {!endpoint && <p className="hint warn">This build has no feedback endpoint yet — use <i>Open as GitHub issue myself</i> (it copies the screenshot for you to paste).</p>}
       {result && !result.ok && <p className="hint warn">Not sent: {result.error}. Try again, or open the issue yourself.</p>}
     </Modal>);
