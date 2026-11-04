@@ -83,7 +83,7 @@ describe("slice_cast.sql — one row per cast value, placed by the cast's sample
       "cruise_key:VARCHAR", "latitude:DOUBLE", "longitude:DOUBLE", "datetime:TIMESTAMP", "year:SMALLINT", "quarter:TINYINT",
       "depth_min_m:DOUBLE", "depth_max_m:DOUBLE", "depth_bin:INTEGER", "taxon_key:VARCHAR", "life_stage:VARCHAR", "measurement_type:VARCHAR", "units:VARCHAR", "value:DOUBLE",
       "measurement_qual:VARCHAR", "qual_ok:BOOLEAN", "tow_type:VARCHAR", "std_haul_factor:DOUBLE", "prop_sorted:DOUBLE", "volume_sampled_m3:DOUBLE",
-      "density_per_10m2:DOUBLE", "density_per_1000m3:DOUBLE", "effort_class:VARCHAR", "hex7:UBIGINT", "sample_key:VARCHAR"]);
+      "density_per_10m2:DOUBLE", "density_per_1000m3:DOUBLE", "effort_class:VARCHAR", "hex7:UBIGINT", "cruise_month:TINYINT", "season_year:SMALLINT", "sample_key:VARCHAR"]);
   });
   it("a registry with a repeated row cannot double a cast (units is a scalar lookup, not a join)", () => {
     db.exec("CREATE OR REPLACE TABLE mt2 AS SELECT * FROM mt UNION ALL SELECT * FROM mt");

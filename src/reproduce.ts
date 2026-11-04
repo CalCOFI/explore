@@ -13,6 +13,7 @@ export interface ReproCtx {
   sel: Sel; version: string; catalog: Catalog; params: Params; lensParams: Params; lensTemplate: string;
   grain?: VarGrain | null;     // an env variable's grain: "cast" reads sample_measurement ⋈ sample_root (sql/slice_cast.sql); absent / "bin" = obs_env
   rootHex7?: boolean;          // the release's sample_root carries hex7 (v2026.10.04+): the per-cast slice takes the cast's H3 cell from it
+  cruiseMedian?: boolean;      // the release's cruise table carries month_median (v2026.11+): the slices join it for the cruise's month and season
   // the depth × time anomaly card is open (explore#28): hand over its two statements too — the per-observation subtraction
   // (sql/anom_slice.sql, over the variable's climatology objects `clim`, the member types that have one) and the card's grid
   depthTime?: { base: ClimBase; clim: string[] } | null;
@@ -20,7 +21,7 @@ export interface ReproCtx {
 export const isCast = (ctx: Pick<ReproCtx, "sel" | "grain">) => ctx.sel.realm === "env" && ctx.grain === "cast";
 
 /** the SQL the view ran, in order, with the browser's registered file names replaced by the release's URLs */
-export function resolvedSql(ctx: Pick<ReproCtx, "sel" | "catalog" | "params" | "lensParams" | "lensTemplate" | "grain" | "rootHex7" | "depthTime">): [string, string][] {
+export function resolvedSql(ctx: Pick<ReproCtx, "sel" | "catalog" | "params" | "lensParams" | "lensTemplate" | "grain" | "rootHex7" | "cruiseMedian" | "depthTime">): [string, string][] {
   const { sel, catalog } = ctx;
   const cast = isCast(ctx);
   const bioSrc = sources(catalog, "obs_bio"), envSrc = sources(catalog, "obs_env"), rootSrc = sources(catalog, "sample_root"), spSrc = sources(catalog, "sample_spatial"), txSrc = sources(catalog, "taxon");
@@ -29,6 +30,8 @@ export function resolvedSql(ctx: Pick<ReproCtx, "sel" | "catalog" | "params" | "
   const tokens: Params = {
     src: sel.realm === "bio" ? readParquetSql(bioSrc) : envUnion ?? "", // a per-cast slice reads no {{src}}: its sources are sm_src / root_src / mt_src
     taxon_src: readParquetSql(txSrc), root_src: readParquetSql(rootSrc), spatial_src: readParquetSql(spSrc),
+    // the cruise table, for the cruise's median month and season (v2026.11+); without it the slice keys on the cruise_key
+    ...(ctx.cruiseMedian ? { cruise_src: readParquetSql(sources(catalog, "cruise")) } : {}),
   };
   // a per-cast variable: the same join the browser ran — sample_measurement ⋈ sample_root, units from the registry,
   // the quality predicate qualOkSQL("sm") — against the release's own object URLs (sql/slice_cast.sql)
@@ -106,7 +109,7 @@ ${lens === "contour" ? `# the Contours lens: the same surface the map drew (calc
 # s = cc.interpolate(summary.rename(columns={"longitude": "lon", "latitude": "lat", "mean": "z"}), method="ok"); s.values
 ` : ""}${inline ? "" : "print(summary.head())\n"}`;
 /** "Copy as…": the whole reproduction as one pasteable text */
-export function copyAs(kind: "sql" | "r" | "py", ctx: Pick<ReproCtx, "sel" | "catalog" | "params" | "lensParams" | "lensTemplate" | "version" | "grain" | "rootHex7" | "depthTime">): string {
+export function copyAs(kind: "sql" | "r" | "py", ctx: Pick<ReproCtx, "sel" | "catalog" | "params" | "lensParams" | "lensTemplate" | "version" | "grain" | "rootHex7" | "cruiseMedian" | "depthTime">): string {
   const sqls = resolvedSql(ctx), cast = isCast(ctx);
   if (kind === "sql") return sqls.map(([f, s]) => `-- ${f}\n${s};`).join("\n\n") + "\n";
   return kind === "r" ? rBody(ctx.version, ctx.sel.lens, sqls, true, cast) : pyBody(ctx.version, ctx.sel.lens, sqls, true, cast);

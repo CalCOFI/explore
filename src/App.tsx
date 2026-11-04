@@ -8,7 +8,7 @@ import { UNIFIED, members, setUnified, unifiedDefs } from "./variables";
 import { castVariables, derivedFamily, derivedTip, grainCount, grainWord, variableGrain, DERIVED_FAMILY, type CastCensusRow, type RegistryRow, type VarGrain } from "./castgrain";
 import { qualOkSQL } from "./qual";
 import { lineThreads, nearestSectionLine, resolveStation, sectionLines, type CrosswalkRow } from "./gridkey";
-import { lit, CRUISE_MONTH_SQL } from "./sqltpl";
+import { lit, CRUISE_MONTH_SQL, djfSql, type Params } from "./sqltpl";
 import { buildLayers, MapView, quantileDomain, colorScale, type GridCell, type StatRow, type LayerInputs } from "./map";
 import { computeSurface, surfaceImage, isolines, niceLevels, joinSegments, labelPoints, thinLabels, cellToLonLat, cellValue, landMask, MASK_KM, type Surface as SurfaceResult } from "./contour";
 import { LensPicker } from "./lenspicker";
@@ -43,7 +43,7 @@ import { track as trackEvent } from "./track";
 import { BRAND, LOGO, DEFAULT_THEME, fontEmbedCss } from "./brand";
 import { categoryRank, categoryIcon, envCategory, DATASET_CATEGORY_FALLBACK } from "./categories";
 import { dtEmpty, type DtRow } from "./depthtime";
-import { CLIM_MIN_CRUISES, anomTokens, baselineWord, climBaseSql, cruiseMonth, hasSeasonCols, sectionRange, type ClimBase } from "./anomaly";
+import { CLIM_MIN_CRUISES, SEASON_CODE, SEASON_WORD, anomTokens, baselineWord, climBaseSql, cruiseMonth, hasSeasonCols, sectionRange, type ClimBase } from "./anomaly";
 import { PREVIEW, PREVIEW_HOME } from "./preview";
 import { feedbackEndpoint } from "./feedback";
 import {
@@ -100,8 +100,9 @@ const climSrc = (ms: string[]) => `(${ms.map((m) => `SELECT *, '${m}' AS measure
 const q = (name: string) => `'${name}'`;
 /** a colour window symmetric about 0 (the larger of the two 5–95 % ends), for a diverging anomaly ramp */
 const symDomain = (d: [number, number]): [number, number] => { const a = Math.max(Math.abs(d[0]), Math.abs(d[1])) || 1e-9; return [-a, a]; };
-// the Time strip's season bin (explore#21): the quarter's midpoint as a fractional year, beside the month bins' convention
-const SEASON_BIN = "year::INTEGER + (quarter - 0.5) / 4.0";
+// the Time strip's season bin (explore#21): the season's midpoint as a fractional year of its season_year (1 = DJF sits at
+// .125 of the year its January–February fall in; a December cruise with them), beside the month bins' convention
+const SEASON_BIN = "season_year::INTEGER + (quarter - 0.5) / 4.0";
 
 export interface Coverage {
   version: string;
@@ -156,6 +157,16 @@ export function App() {
   const [castCensus, setCastCensus] = useState<CastCensusRow[]>([]);
   // the release's sample_root carries hex7 (v2026.10.04+): a per-cast variable then draws in Hexagons too
   const [castHex, setCastHex] = useState<boolean | null>(null);
+  // does this release's cruise table carry the median cast month (month_median / date_median / season_year, v2026.11+)?
+  // a column probe on the registered object, once; the slices join it where it does and the lens templates key on it
+  const cruiseMedianRef = useRef<Promise<boolean> | null>(null);
+  const [cruiseMedian, setCruiseMedian] = useState<boolean | null>(null);
+  const probeCruiseMedian = () => (cruiseMedianRef.current ??= ensure(REG.cruise)
+    .then(() => engine.exec(`SELECT count(*) AS n FROM (DESCRIBE SELECT * FROM ${q(REG.cruise)}) WHERE column_name = 'month_median'`, "probe:cruise.month_median"))
+    .then((r) => { const ok = Number(r[0]?.n) > 0; setCruiseMedian(ok); return ok; })
+    .catch((e) => { console.warn("cruise probe:", e.message); setCruiseMedian(false); return false; }));
+  // the cruise table's own month / season / season year, for cruise_seasons.sql and cruise_ref.sql (sqltpl.ts cs_* tokens)
+  const cruiseTokens = (median: boolean | null): Params => median ? { cs_month: "month_median", cs_year: "season_year", cs_quarter: djfSql("month_median") } : {};
   const rootHex7Ref = useRef<Promise<boolean> | null>(null);
   // a `?station=` link resolved against this release's grid (gridkey.ts resolveStation): what the card says about it
   const [stationNote, setStationNote] = useState<{ key: string; note: string; warn: boolean } | null>(null);
@@ -208,7 +219,9 @@ export function App() {
   const [monthRows, setMonthRows] = useState<YearRow[] | null>(null);
   const [needMonths, setNeedMonths] = useState(false);
   const [ganttRows, setGanttRows] = useState<CruiseRow[]>([]);
-  const [cruiseRef, setCruiseRef] = useState<Map<string, { ship: string; nodc: string }> | null>(null);
+  const [cruiseRef, setCruiseRef] = useState<Map<string, { ship: string; nodc: string; month: number | null }> | null>(null);
+  // a cruise's month: the cruise table's median cast month where the release carries it (cruise_ref.sql), the key's MM otherwise
+  const cruiseMonthOf = (k: string | null | undefined): number | null => (k ? cruiseRef?.get(k)?.month ?? null : null) ?? cruiseMonth(k);
   const [seasonEdit, setSeasonEdit] = useState(false);
   // advanced: the timing marks + the last SQL, behind a gear (off by default; ?timing=1 opens it)
   const [advanced, setAdvanced] = useState<boolean>(() => new URLSearchParams(location.search).get("timing") === "1");
@@ -410,12 +423,14 @@ export function App() {
       const hex7 = grain === "cast" ? (rootHex7Ref.current ??= engine.exec(`SELECT count(*) AS n FROM (DESCRIBE SELECT * FROM ${q(REG.sample_root)}) WHERE column_name = 'hex7'`, "probe:sample_root.hex7").then((r) => Number(r[0]?.n) > 0)) : null;
       const rootHex7 = hex7 ? await hex7 : false;
       if (grain === "cast") setCastHex(rootHex7);
+      // the cruise table joins every slice for the cruise's median month and season (v2026.11+); absent, the key rule
+      const cruiseSrc: Params = (await probeCruiseMedian()) ? { cruise_src: q(REG.cruise) } : {};
       if (g !== gen.current) return;
       setStatus("building slice…");
       const t = performance.now();
-      await (sel.realm === "bio" ? engine.query("slice_bio", { src: q(REG.obs_bio), taxon: sel.taxon })
-        : grain === "cast" ? engine.query("slice_cast", { ...castTokens(rootHex7), type: sel.var, qual_ok: qualOkSQL("sm") })
-        : engine.query("slice_env", { src: envSrc(sel.var) }));
+      await (sel.realm === "bio" ? engine.query("slice_bio", { src: q(REG.obs_bio), taxon: sel.taxon, ...cruiseSrc })
+        : grain === "cast" ? engine.query("slice_cast", { ...castTokens(rootHex7), ...cruiseSrc, type: sel.var, qual_ok: qualOkSQL("sm") })
+        : engine.query("slice_env", { src: envSrc(sel.var), ...cruiseSrc }));
       const rows = (await engine.query("picker", {})) as PickerRow[];
       if (g !== gen.current) return;
       timing.add(`slice:${key}`, performance.now() - t, `${grainCount(grain, rows.reduce((a, r) => a + r.n, 0))}${grain === "cast" ? " (sample_measurement ⋈ sample_root)" : ""}`);
@@ -1009,7 +1024,7 @@ export function App() {
   useEffect(() => {
     if (!needMonths || !sliceKey) { setMonthRows(null); return; }
     let live = true;
-    engine.query("years", { ...params, bin: `year::INTEGER + (COALESCE(${CRUISE_MONTH_SQL}, month(datetime)) - 0.5) / 12.0` }).then((r) => { if (live) setMonthRows(r as YearRow[]); }).catch(console.error);
+    engine.query("years", { ...params, bin: `year::INTEGER + (COALESCE(${CRUISE_MONTH_SQL}, month(datetime)) - 0.5) / 12.0` }).then((r) => { if (live) setMonthRows(r as YearRow[]); }).catch(console.error); // the cruise's month (slice column)
     return () => { live = false; };
   }, [needMonths, sliceKey, params]);
   // explore#21: mean ± se by season (four points a year, one per quarterly cruise) — the mode's default; `tbin=year` keeps
@@ -1041,15 +1056,22 @@ export function App() {
   }, [dtWant, sliceKey, areaPending, params, climBase, sel.base, climSeason]);
   useEffect(() => {
     if (!bySeason || cruiseSeasons || !catalog) return;
-    ensure(REG.cruise).then(() => engine.query("cruise_seasons", { src: q(REG.cruise) })).then((r) => setCruiseSeasons(r as CruiseSeason[])).catch(console.error);
+    probeCruiseMedian().then((m) => engine.query("cruise_seasons", { src: q(REG.cruise), ...cruiseTokens(m) })).then((r) => setCruiseSeasons(r as CruiseSeason[])).catch(console.error);
   }, [bySeason, cruiseSeasons, catalog]);
   useEffect(() => {
     if (seriesMode !== "cruises" || !sliceKey) return;
     let live = true;
     engine.query("cruise", params).then((r) => { if (live) setGanttRows(r as CruiseRow[]); }).catch(console.error);
-    if (!cruiseRef) ensure(REG.cruise).then(() => engine.query("cruise_ref", { src: q(REG.cruise) })).then((r) => { if (live) setCruiseRef(new Map(r.map((c) => [c.cruise_key, { ship: c.ship_name ?? c.ship_nodc ?? "", nodc: c.ship_nodc ?? "" }]))); }).catch(console.error);
+    if (!cruiseRef) probeCruiseMedian().then((m) => engine.query("cruise_ref", { src: q(REG.cruise), ...cruiseTokens(m) })).then((r) => { if (live) setCruiseRef(new Map(r.map((c) => [c.cruise_key, { ship: c.ship_name ?? c.ship_nodc ?? "", nodc: c.ship_nodc ?? "", month: c.month == null ? null : Number(c.month) }]))); }).catch(console.error);
     return () => { live = false; };
   }, [seriesMode, sliceKey, params]);
+  // the Sections lens names the cruise's month in its caption: load the cruise reference for it too
+  useEffect(() => {
+    if (sel.lens !== "section" || cruiseRef || !catalog) return;
+    let live = true;
+    probeCruiseMedian().then((m) => engine.query("cruise_ref", { src: q(REG.cruise), ...cruiseTokens(m) })).then((r) => { if (live) setCruiseRef(new Map(r.map((c) => [c.cruise_key, { ship: c.ship_name ?? c.ship_nodc ?? "", nodc: c.ship_nodc ?? "", month: c.month == null ? null : Number(c.month) }]))); }).catch(console.error);
+    return () => { live = false; };
+  }, [sel.lens, cruiseRef, catalog]);
   const gantt = useMemo(() => {
     if (seriesMode !== "cruises") return null;
     const rows = (sel.lens === "cruise" && cruiseRows.length ? cruiseRows : ganttRows).filter((c) => c.t0 && c.t1);
@@ -1091,7 +1113,7 @@ export function App() {
       const lensParams: Record<string, any> = sel.lens === "hex" ? { hex: hexExpr(sel.res) } : sel.lens === "region" ? { layer: sel.layer } : sel.lens === "section" ? { line: sel.line, cruise: sel.cruise } : {};
       const summary = sel.lens === "hex" ? hexRows : sel.lens === "region" ? regionRows : sel.lens === "cruise" ? cruiseRows : sel.lens === "section" ? sectionCells : stationRows;
       const { blob, name } = await buildBundle({
-        sel, version, catalog, params, lensParams, lensTemplate, grain: varGrain, rootHex7: !!castHex, depthTime: dtRepro, summary: summary as Row[], summaryKey: sel.lens, grid, regionFeatures: layerFeatures,
+        sel, version, catalog, params, lensParams, lensTemplate, grain: varGrain, rootHex7: !!castHex, cruiseMedian: !!cruiseMedian, depthTime: dtRepro, summary: summary as Row[], summaryKey: sel.lens, grid, regionFeatures: layerFeatures,
         datasets, unit: unitLabel, envFile: sel.realm === "env" ? envReg(sel.var) : null, bioSrcName: REG.obs_bio, hexRes: sel.res, onStatus: setBundling,
       });
       (window as any).__lastBundle = { name, bytes: blob.size };
@@ -1106,7 +1128,7 @@ export function App() {
   const lensPar = (): Record<string, any> => sel.lens === "hex" ? { hex: hexExpr(sel.res) } : sel.lens === "region" ? { layer: sel.layer } : sel.lens === "section" ? { line: sel.line, cruise: sel.cruise } : {};
   const copy = async (kind: "sql" | "r" | "py") => {
     if (!catalog || !version) return;
-    const text = copyAs(kind, { sel, catalog, version, params, lensParams: lensPar(), lensTemplate: lensTpl(), grain: varGrain, rootHex7: !!castHex, depthTime: dtRepro });
+    const text = copyAs(kind, { sel, catalog, version, params, lensParams: lensPar(), lensTemplate: lensTpl(), grain: varGrain, rootHex7: !!castHex, cruiseMedian: !!cruiseMedian, depthTime: dtRepro });
     try { await navigator.clipboard.writeText(text); setStatus(`copied ${kind.toUpperCase()} (${text.length.toLocaleString()} chars)`); } catch { setStatus("clipboard blocked"); }
     (window as any).__lastCopy = text;
   };
@@ -1127,8 +1149,8 @@ export function App() {
     }
     const id = info.layer?.id;
     if (id === "stations") { const s = stationMap.get(o.grid_key); return { text: `${o.grid_key} · line ${o.line} station ${o.station}${ownLine(o.line) ? ` · ${OWN_LINE}` : ""}\n${s ? (preSlice ? `${fmtN(s.n)} root samples, all datasets` : isCast ? `${STAT_LABEL[stat]} ${fmt(statOf(s))} ${unitLabel} · ${grainCount("cast", s.n)} · ${s.y0}–${s.y1}` : `${STAT_LABEL[stat]} ${fmt(statOf(s))} · ${fmtN(s.n)} observations · ${s.n_samples} samples · ${s.y0}–${s.y1}`) : `no ${countWord} in selection`}\nclick for the station's coverage card` }; }
-    if (id === "surface") { const px = (info as any).bitmap?.pixel; const v = px && surf && surfVals ? cellValue(surfVals, surf.grid, px[0], px[1]) : null; return v == null ? null : { text: `${SURFACE_LABEL[sel.surface]}${mapAnomDrawn ? ` · difference from the cruise-${climBase === "season" ? "quarter" : "month"} normal` : ""}: ${fmt(v)} ${legendUnit}\n${INTERP_WORD[sel.interp]} over ${surf!.fit.n} stations · leave-one-out RMSE ${fmt(surf!.fit.loo)}` }; }
-    if (id === "hexes") return { text: `${o.hex}\n${mapAnomDrawn ? `${STAT_LABEL[stat]} difference from the cruise-${climBase === "season" ? "quarter" : "month"} normal ` : `${STAT_LABEL[stat]} `}${fmt(statOf(o))}${mapAnomDrawn ? ` ${unitLabel}` : ""} · ${fmtN(o.n)} ${countWord}${mapAnomDrawn ? " with a baseline" : ""} · ${o.n_samples} samples` };
+    if (id === "surface") { const px = (info as any).bitmap?.pixel; const v = px && surf && surfVals ? cellValue(surfVals, surf.grid, px[0], px[1]) : null; return v == null ? null : { text: `${SURFACE_LABEL[sel.surface]}${mapAnomDrawn ? ` · difference from the cruise-${climBase === "season" ? "season" : "month"} normal` : ""}: ${fmt(v)} ${legendUnit}\n${INTERP_WORD[sel.interp]} over ${surf!.fit.n} stations · leave-one-out RMSE ${fmt(surf!.fit.loo)}` }; }
+    if (id === "hexes") return { text: `${o.hex}\n${mapAnomDrawn ? `${STAT_LABEL[stat]} difference from the cruise-${climBase === "season" ? "season" : "month"} normal ` : `${STAT_LABEL[stat]} `}${fmt(statOf(o))}${mapAnomDrawn ? ` ${unitLabel}` : ""} · ${fmtN(o.n)} ${countWord}${mapAnomDrawn ? " with a baseline" : ""} · ${o.n_samples} samples` };
     if (id === "regions") { const s = regionStats.get(o.properties.spatial_key); return { text: `${o.properties.name}\n${s ? `${STAT_LABEL[stat]} ${fmt(statOf(s))} · ${fmtN(s.n)} observations · ${s.n_samples} samples · ${s.y0}–${s.y1}` : "no data"}` }; }
     if (id === "cruise-samples") return { text: `${o.grid_key ?? "—"} · ${new Date(o.t * 1000).toISOString().slice(0, 10)}\n${STAT_LABEL[stat]} ${fmt(statOf(o))} · ${fmtN(o.n)} observations` };
     return null;
@@ -1171,8 +1193,8 @@ export function App() {
   const noDepthWhy = noneLeft ? "nothing in the selection is left under these filters" : isCast ? "it is one value for the whole cast" : sel.realm === "bio" ? "its net tows are depth-integrated" : "its values carry no depth (surface or weather measurements)";
   const seriesToggle = <span className="seg" role="group" aria-label="year strip mode" data-tour="strip-mode"><button className={seriesMode === "n" ? "on" : ""} onClick={() => setSeriesMode("n")}>{countWord}</button><button className={seriesMode === "mean" ? "on" : ""} onClick={() => setSeriesMode("mean")}>mean ± se</button><button className={seriesMode === "cruises" ? "on" : ""} onClick={() => setSeriesMode("cruises")} title="a year × month calendar, one cell per cruise coloured by the summary stat; zoom in for the dates and codes; click a cell to pick the cruise"><Icon name="ui-gantt" />cruises</button></span>;
   const logChip = seriesMode === "mean" ? <button type="button" className={`chip${ylog ? " on" : ""}`} aria-pressed={ylog} title="log scale — the axis keeps the original values; the minor gridlines sit at one even step, so they bunch toward the top. A zero mean sits on the axis floor (log 0 does not exist); the hover always carries the true value" onClick={() => setYlog(!ylog)}>log</button> : null;
-  const Q_LABEL = ["Jan–Mar", "Apr–Jun", "Jul–Sep", "Oct–Dec"];
-  const seasonLabel = sel.q?.length && sel.q.length < 4 ? sel.q.map((x) => `Q${x}`).join(" ") : "all";
+  const Q_LABEL = SEASON_WORD; // 1 = DJF … 4 = SON (release v2026.11+: the cruise's season, December with the following winter)
+  const seasonLabel = sel.q?.length && sel.q.length < 4 ? sel.q.map((x) => SEASON_CODE[x - 1]).join(" ") : "all";
   // the filters in force, in words — an empty result's note says them
   const filterWords = [yearsSet && (sel.months ? `${years[0]}-${String(sel.months[0]).padStart(2, "0")} → ${years[1]}-${String(sel.months[1]).padStart(2, "0")}` : `${years[0]}–${years[1]}`), sel.q && seasonLabel, depthSet && `${sel.depth[0]}–${sel.depth[1]} m`, sel.datasets && sel.datasets.map(short).join(", "), area && areaWord(area)].filter(Boolean) as string[];
   const depthEmpty = noneLeft ? `no observations<br>under these filters${filterWords.length ? ":<br>" + filterWords.join(" · ") : ""}`
@@ -1190,10 +1212,10 @@ export function App() {
   const climWord = climWindow ? `${climWindow[0]}–${climWindow[1]}` : "1993–2013";
   const baseHow: Record<ClimBase, string> = {
     month: `the cruise's month: the mean of that month's ${climWord} cruises at the station (≥ ${CLIM_MIN_CRUISES} cruises) — e.g. a July cruise minus the July normal`,
-    season: `the cruise's quarter: the mean of that quarter's ${climWord} cruises at the station (≥ ${CLIM_MIN_CRUISES} cruises in the quarter) — e.g. a July cruise minus the Jul–Sep normal; fills a month with too few cruises of its own`,
+    season: `the cruise's season (Dec–Feb, Mar–May, Jun–Aug, Sep–Nov): the mean of that season's ${climWord} cruises at the station (≥ ${CLIM_MIN_CRUISES} cruises in the season) — e.g. a July cruise minus the Jun–Aug normal; fills a month with too few cruises of its own`,
   };
   const anomNote = anomMap && anomShare
-    ? (anomShare.n ? `${Math.round((100 * anomShare.n_base) / anomShare.n)} % of ${fmtN(anomShare.n)} ${countWord} had a ${climBase === "season" ? "cruise-quarter" : "cruise-month"} normal at their station${isCast ? "" : " and depth"}; the rest are left out, never drawn as 0` : `no ${countWord} in view`)
+    ? (anomShare.n ? `${Math.round((100 * anomShare.n_base) / anomShare.n)} % of ${fmtN(anomShare.n)} ${countWord} had a ${climBase === "season" ? "cruise-season" : "cruise-month"} normal at their station${isCast ? "" : " and depth"}; the rest are left out, never drawn as 0` : `no ${countWord} in view`)
     : null;
   const baseSeg = <span className="seg" role="group" aria-label="the baseline the anomaly subtracts">
     <button type="button" className={climBase === "month" ? "on" : ""} title={baseHow.month} onClick={() => setSel({ base: "month" })}>month</button>
@@ -1330,7 +1352,7 @@ export function App() {
       <div className="hint">or drag on the Years panel{sel.months ? " · month edges from the brush" : ""}</div>
     </Group>
     <Group title="Season" icon="ui-calendar">
-      <div className="season-row"><span className="seg">{[1, 2, 3, 4].map((x) => <button key={x} className={!sel.q || sel.q.includes(x) ? "on" : ""} onClick={() => toggleQ(x)} title={Q_LABEL[x - 1]}>Q{x}</button>)}</span><span className="hint">{sel.q ? sel.q.map((x) => Q_LABEL[x - 1]).join(", ") : "every quarter"}</span></div>
+      <div className="season-row"><span className="seg">{[1, 2, 3, 4].map((x) => <button key={x} className={!sel.q || sel.q.includes(x) ? "on" : ""} onClick={() => toggleQ(x)} title={`${Q_LABEL[x - 1]} (the cruise's season, by its median cast month)`}>{SEASON_CODE[x - 1]}</button>)}</span><span className="hint">{sel.q ? sel.q.map((x) => Q_LABEL[x - 1]).join(", ") : "every season"}</span></div>
     </Group>
     <Group title="Area" icon="ui-filter" data-tour="area">
       <span className="seg area-seg" role="group" aria-label="area">
@@ -1418,16 +1440,16 @@ export function App() {
     view={sel.yview} onView={(v) => setSel({ yview: v })} onYears={(y, m) => setSel({ years: y ?? [1949, YEAR_OPEN], months: y ? m ?? null : null })} gantt={gantt} />;
   const sectionBody = <SectionPlot cells={sectionCells} clim={climCells} anom={sel.anom && sel.realm === "env" && !!climCells} base={climBase} yLabel={sel.realm === "env" ? "depth (m)" : "year"} theme={theme} unit={unitLabel} ramp={rampId}
     empty={isCast ? "a section cuts the water column —<br>a per-cast variable is one value for the whole cast" : null}
-    title={`line ${sel.line} · ${sel.realm === "env" ? `depth section · cruise ${sel.cruise ?? "—"}${sel.anom && climCells ? ` · the difference from the ${climWord} ${baselineWord(climBase, cruiseMonth(sel.cruise))} normal` : ""}` : "station by year · all cruises · the tows are depth-integrated, so the axis is year"}`} />;
+    title={`line ${sel.line} · ${sel.realm === "env" ? `depth section · cruise ${sel.cruise ?? "—"}${sel.anom && climCells ? ` · the difference from the ${climWord} ${baselineWord(climBase, cruiseMonthOf(sel.cruise))} normal` : ""}` : "station by year · all cruises · the tows are depth-integrated, so the axis is year"}`} />;
   // the depth × time anomaly card (explore#28): why it is empty (an organism, a per-cast variable, no baseline, the filters),
   // the plot, and a note of the baseline and of what a blank cell means
   const dtWhy = dtEmpty({ realm: sel.realm, cast: isCast, anomAvail, anomWhyNot, rows: dtRows, filters: filterWords });
-  const dtBaseWord = climBase === "season" ? "quarter" : "month";
+  const dtBaseWord = climBase === "season" ? "season" : "month";
   const dtTitle = `${subject} · difference from the ${climWord} ${climBase === "season" ? "seasonal" : "monthly"} normal${area ? ` · ${areaWord(area)}` : ""}`;
   const dtBody = <div className="dt-body" data-depthtime={dtWhy ? "empty" : dtRows ? dtRows.length : "loading"}>
     <DepthTimePlot rows={dtRows} quarters={sel.q} unit={unitLabel} base={climBase} ramp={sel.ramp} theme={theme} title={dtTitle} empty={dtWhy} />
     {sel.realm === "env" && !isCast && anomAvail && <div className="hint dt-note">
-      each cell: the mean over its observations of each one minus the {climWord} normal of its station, 10 m bin and cruise {dtBaseWord} ({climBase === "season" ? "the Jan–Mar … Oct–Dec normals" : "the release's monthly climatology"}) · blank: no observation, or none with a normal — never 0
+      each cell: the mean over its observations of each one minus the {climWord} normal of its station, 10 m bin and cruise {dtBaseWord} ({climBase === "season" ? "the Dec–Feb … Sep–Nov normals" : "the release's monthly climatology"}) · blank: no observation, or none with a normal — never 0
       {dtShare && dtShare.n > 0 ? ` · ${Math.round((100 * dtShare.n_base) / dtShare.n)} % of ${fmtN(dtShare.n)} observations had one` : ""}
       {filterWords.length ? ` · ${filterWords.join(" · ")}` : ""}
     </div>}
@@ -1468,12 +1490,12 @@ export function App() {
     select: "Controls", depth: "Depth", years: "Time", section: <>Section <span className="plain">{sectionSub}</span></>, cruise: "Cruise series", layers: "Layers",
     station: stationCard ? <>{stationCard.grid_key} {stationCard.cell && <span className="plain">· line {stationCard.cell.line} station {stationCard.cell.station}{ownLine(stationCard.cell.line) ? ` · ${OWN_LINE}` : ""}</span>}</> : "Station",
     timing: <>SQL &amp; timing <span className="plain">· {anyCached ? "warm" : "cold"} · paint {firstPaint ?? "…"} · ready {readyAt ?? "…"} · query {lastQ ? lastQ.ms : "…"} · switch {grain ? grain.ms : "…"} ms</span></>,
-    depthtime: <>Anomaly <span className="plain">· depth × cruise season · normal of the cruise's {climBase === "season" ? "quarter" : "month"}</span></>,
+    depthtime: <>Anomaly <span className="plain">· depth × cruise season · normal of the cruise's {climBase === "season" ? "season" : "month"}</span></>,
   };
   const titleText: Record<PanelId, string> = { select: "Controls", depth: "Depth", years: "Time", section: `Section ${sectionSub}`, cruise: "Cruise series", layers: "Layers", station: stationCard ? `${stationCard.grid_key} · line ${stationCard.cell?.line} station ${stationCard.cell?.station}` : "Station", timing: "SQL & timing", depthtime: "Anomaly · depth × time" };
   const icons: Record<PanelId, IconName> = { select: "ui-tune", depth: "ui-tune", years: "ui-years", section: "lens-sections", cruise: "lens-cruises", station: "lens-stations", timing: "ui-sql", layers: "ui-map-layers", depthtime: "ui-calendar" };
   const body = (id: PanelId, wide = false) => id === "select" ? selectBody : id === "depth" ? depthBody(wide) : id === "years" ? yearsBody : id === "section" ? sectionBody : id === "cruise" ? cruiseBody : id === "station" ? stationBody : id === "layers" ? layersBody : id === "depthtime" ? dtBody : timingBody;
-  const tbinToggle = seriesMode === "mean" ? <span className="seg" role="group" aria-label="mean ± se by"><button className={sel.tbin === "season" ? "on" : ""} onClick={() => setSel({ tbin: "season" })} title="one point per season (cruise quarter): four a year">season</button><button className={sel.tbin === "year" ? "on" : ""} onClick={() => setSel({ tbin: "year" })} title="one point per year">year</button></span> : null;
+  const tbinToggle = seriesMode === "mean" ? <span className="seg" role="group" aria-label="mean ± se by"><button className={sel.tbin === "season" ? "on" : ""} onClick={() => setSel({ tbin: "season" })} title="one point per season (the cruise's: DJF, MAM, JJA, SON): four a year">season</button><button className={sel.tbin === "year" ? "on" : ""} onClick={() => setSel({ tbin: "year" })} title="one point per year">year</button></span> : null;
   const actions = (id: PanelId) => (id === "years" ? <>{sel.yview && <IconButton icon="ui-zoom-out" label="Reset zoom (double-click the strip)" className="sm" onClick={() => setSel({ yview: null })} data-tour="zoom-reset" />}{seriesToggle}{tbinToggle}{logChip}</>
     : id === "depthtime" && dtWant ? baseSeg : null);
   // ── figures (D19) and the whole-view share (D17): every panel exports PNG · SVG · CSV from its header with the shared footer
@@ -1583,7 +1605,7 @@ export function App() {
   const closeSheet = () => { const pnl = sheet.panel; if (pnl === "depthtime") setSelRaw((s) => (s.hide.includes("depthtime") ? s : { ...s, hide: [...s.hide, "depthtime"] })); if (pnl === "station") setSel({ station: null }); else if (pnl === "timing") setAdvanced(false); else if (pnl === "layers") setLayersOpen(false); else if (pnl === "section" || pnl === "cruise") setMinCards((m) => ({ ...m, [pnl]: true })); setSheet({ panel: "select", detent: "peek" }); };
   // the legend's rows the title sentence carries under it: the boundary layers drawn, an empty result's note, the exclusions
   const legendExtra = <>
-    {anomNote && mapAnomDrawn && <div className="hint" data-anom-legend>the difference from each cruise's {climBase === "season" ? "quarter" : "month"} normal ({climWord}) · {anomNote}</div>}
+    {anomNote && mapAnomDrawn && <div className="hint" data-anom-legend>the difference from each cruise's {climBase === "season" ? "season" : "month"} normal ({climWord}) · {anomNote}</div>}
     {legendBoundaries.length > 0 && <div className="legend-layers">
       {legendBoundaries.map(({ st, d }) => <div key={st.id} className="row">
         {isPalette(st.color)
@@ -1607,7 +1629,7 @@ export function App() {
     const t = setTimeout(() => setStatus("ready"), 5000); return () => clearTimeout(t);
   }, [status, busy]);
   const statusToast = status !== "ready" && status !== "grid (static)" ? <div className={`status-toast${busy ? " busy" : ""}${/error|failed/.test(status) ? " err" : ""}`} role="status" aria-live="polite">{busy && <span className="spin" />}{status}</div> : null;
-  const sentence = !phone && <Sentence sel={sel} setSel={setSel} onLens={onLens} organismItems={organismItems} organismGroups={organismGroups} variableItems={variableItems} variableGroups={variableGroups}
+  const sentence = !phone && <Sentence sel={sel} setSel={setSel} onLens={onLens} cruiseMonthOf={cruiseMonthOf} organismItems={organismItems} organismGroups={organismGroups} variableItems={variableItems} variableGroups={variableGroups}
     sectionCruiseItems={sectionCruiseItems} cruiseItems={cruiseItems} lines={lines} layerNames={layerNames} regionName={regionName} areaText={area ? areaWord(area) : null} stages={stages} denRows={(d) => denInfo(d).rows} defaultDen={(s) => defaultDen(picker, s)}
     years={years} yearMax={yearMax} hasDepthAxis={depthAvail || noneLeft} hasClim={hasClim(catalog)} anomAvail={anomAvail} climBase={climBase} seasonOk={climSeason} climWindow={climWindow} datasetsInSlice={datasetsInSlice} dsOn={dsOn} toggleDataset={toggleDataset} dsColor={dsColor} short={short}
     subject={subject} derived={derivedNote} countWord={countWord} unit={preSlice ? "root samples" : (legendUnit ?? unitLabel)} domain={[(legendUnit === "year" ? fmtYear : fmt)(legendDomain[0]), (legendUnit === "year" ? fmtYear : fmt)(legendDomain[1])]} bar={rampCss(rampId)} count={inView} status={status} ready={!!sliceKey} seaFloor={seaFloorOn}

@@ -15,9 +15,10 @@
 --   · site_key / line / station are NULL: sample_root carries no site_key, so Sections do not draw a per-cast value
 --   · hex7 is the cast's own res-7 H3 cell, {{root_hex7}} = r.hex7 when sample_root carries it (v2026.10.04+), so
 --     Hexagons draw a per-cast value; NULL::UBIGINT for an older release, and the Hexagons lens says why it is empty
---   · year / quarter are the CRUISE's (sqltpl.ts {{cruise_year}} / {{cruise_quarter}} on the cast's cruise_key), the
---     calendar only for a missing or malformed key — never quarter(datetime) alone: a July cruise works its first
---     stations on 30 June, and the season filter Q3 dropped them (explore#17). obs_env / obs_bio carry the same at release.
+--   · year / quarter / cruise_month / season_year are the CRUISE's: its median cast month from the release's cruise table
+--     ({{cruise_src}}, v2026.11+), the key's YYYY-MM where the table lacks it, the calendar only for a missing or malformed
+--     key — never quarter(datetime) alone: a July cruise works its first stations on 30 June, and the season filter dropped
+--     them (explore#17). quarter is the season 1 = DJF … 4 = SON. obs_env / obs_bio carry the same at release.
 --   · units is a scalar lookup in the registry, not a join: a repeated registry row cannot double a cast
 -- a value whose sample has no sample_root row has no position and is not in the slice; cast_list.sql counts those.
 CREATE OR REPLACE TABLE slice AS
@@ -31,8 +32,11 @@ SELECT sm.sample_measurement_id AS obs_id, sm.dataset_key, r.root_id, r.grid_key
        sm.measurement_value AS value, sm.measurement_qual, {{qual_ok}} AS qual_ok,
        NULL::VARCHAR AS tow_type, NULL::DOUBLE AS std_haul_factor, NULL::DOUBLE AS prop_sorted, NULL::DOUBLE AS volume_sampled_m3,
        NULL::DOUBLE AS density_per_10m2, NULL::DOUBLE AS density_per_1000m3, NULL::VARCHAR AS effort_class, {{root_hex7}} AS hex7,
+       r.c_month::TINYINT AS cruise_month, r.c_season_year::SMALLINT AS season_year,
        sm.sample_key
 FROM {{sm_src}} sm
-JOIN (SELECT *, COALESCE({{cruise_year}}, year(datetime)) AS c_year, COALESCE({{cruise_quarter}}, quarter(datetime)) AS c_quarter
-      FROM {{root_src}}) r ON r.root_sample_key = sm.sample_key
+JOIN (SELECT r.*, COALESCE(COALESCE(year(cz.date_median), {{key_year}}), year(datetime)) AS c_year, COALESCE((CASE WHEN COALESCE(cz.month_median, {{key_month}}) IN (12, 1, 2) THEN 1 WHEN COALESCE(cz.month_median, {{key_month}}) IN (3, 4, 5) THEN 2 WHEN COALESCE(cz.month_median, {{key_month}}) IN (6, 7, 8) THEN 3 WHEN COALESCE(cz.month_median, {{key_month}}) IN (9, 10, 11) THEN 4 END), (CASE WHEN month(datetime) IN (12, 1, 2) THEN 1 WHEN month(datetime) IN (3, 4, 5) THEN 2 WHEN month(datetime) IN (6, 7, 8) THEN 3 WHEN month(datetime) IN (9, 10, 11) THEN 4 END)) AS c_quarter,
+             COALESCE(COALESCE(cz.month_median, {{key_month}}), month(datetime)) AS c_month,
+             COALESCE((CASE WHEN COALESCE(cz.month_median, {{key_month}}) = 12 THEN COALESCE(year(cz.date_median), {{key_year}}) + 1 ELSE COALESCE(year(cz.date_median), {{key_year}}) END), CASE WHEN month(datetime) = 12 THEN year(datetime) + 1 ELSE year(datetime) END) AS c_season_year
+      FROM {{root_src}} r LEFT JOIN {{cruise_src}} cz USING (cruise_key)) r ON r.root_sample_key = sm.sample_key
 WHERE sm.measurement_type = {{type}}

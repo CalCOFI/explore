@@ -1,6 +1,7 @@
 // Plotly panels: the water-column strip (brush = depth band), the year strip (brush = year range),
 // the section heatmap (zsmooth best, anomaly toggle) and the per-cruise series (click = cruise).
 import { useEffect, useRef, useState } from "react";
+import { SEASON_CODE } from "./anomaly";
 import { Icon } from "./icons";
 import { colorScale, quantileDomain } from "./map";
 import { anomRange, rampPlotly } from "./ramps";
@@ -135,8 +136,8 @@ export function YearStrip(p: {
     const qs = p.quarters?.length ? [...p.quarters].sort() : [1, 2, 3, 4];
     const qStep = Math.max(...qs.map((q, i) => ((qs[(i + 1) % qs.length] - q + 4) % 4 || 4))) / 4;
     const gap = monthly ? 1 / 12 + 1e-6 : seasonal ? qStep + 1e-6 : 1;
-    // a bin's name in the hover: 1998 · 1998 Q1 · 1998.46 (a month bin)
-    const binName = (x: number) => (seasonal ? `${Math.floor(x)} Q${Math.floor((x - Math.floor(x)) * 4) + 1}` : monthly ? x.toFixed(2) : String(x));
+    // a bin's name in the hover: 1998 · 1998 DJF (the season, 1 = DJF … 4 = SON) · 1998.46 (a month bin)
+    const binName = (x: number) => (seasonal ? `${Math.floor(x)} ${SEASON_CODE[Math.floor((x - Math.floor(x)) * 4)]}` : monthly ? x.toFixed(2) : String(x));
     let data: any[] = [];
     let layout: any = {};
     let cal: CalCell[] = [];
@@ -191,8 +192,8 @@ export function YearStrip(p: {
           if (have.has(Math.round(x * 8))) continue;
           const cr = sailed.get(y * 4 + q - 1);
           if (cr && x < first) continue; // before the pick's record begins, a cruise without it is no gap
-          if (cr) { empty.push(x); empty_t.push(`${y} Q${q}: ${cr} sailed, but none of this pick is in the release under these filters`); }
-          else { none.push(x); none_t.push(`${y} Q${q}: no cruise this season`); }
+          if (cr) { empty.push(x); empty_t.push(`${y} ${SEASON_CODE[q - 1]}: ${cr} sailed, but none of this pick is in the release under these filters`); }
+          else { none.push(x); none_t.push(`${y} ${SEASON_CODE[q - 1]}: no cruise this season`); }
         }
         const mark = (x: number[], t: string[], symbol: string, color: string) => ({ x, y: x.map(() => 0.06), yaxis: "y2", type: "scatter", mode: "markers", text: t, hovertemplate: "%{text}<extra></extra>",
           marker: { symbol, size: 6, color, line: { width: 1.2, color } }, showlegend: false, cliponaxis: false });

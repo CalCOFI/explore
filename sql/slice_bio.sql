@@ -9,16 +9,18 @@
 -- counts shown stay the records and only the statistics (mean, se, median) see the zeros.
 -- site_key rides along (same column set as slice_env.sql) so a template shared by both realms can name it; it is
 -- NULL for datasets with no station (cufes, bird-mammal, phytoplankton). line / station stay the grid cell's here.
--- year / quarter are the CRUISE's where the cruise_key is a YYYY-MM-NODC key, as in slice_env.sql (explore#17).
+-- year / quarter / cruise_month / season_year are the CRUISE's, as in slice_env.sql: the median cast month from the
+-- release's cruise table ({{cruise_src}}), the key's YYYY-MM where it lacks one, the row's own column on a bad key (explore#17).
 CREATE OR REPLACE TABLE slice AS
 WITH pos AS (
   SELECT obs_id, dataset_key, root_id, grid_key, site_key,
          regexp_extract(grid_key, 'ln([0-9.]+)', 1)::DOUBLE AS line, regexp_extract(grid_key, 'st(-?[0-9.]+)', 1)::DOUBLE AS station,
-         cruise_key, latitude, longitude, datetime, COALESCE({{cruise_year}}, year)::SMALLINT AS year, COALESCE({{cruise_quarter}}, quarter)::TINYINT AS quarter,
+         cruise_key, latitude, longitude, datetime, COALESCE(COALESCE(year(cz.date_median), {{key_year}}), year)::SMALLINT AS year, COALESCE((CASE WHEN COALESCE(cz.month_median, {{key_month}}) IN (12, 1, 2) THEN 1 WHEN COALESCE(cz.month_median, {{key_month}}) IN (3, 4, 5) THEN 2 WHEN COALESCE(cz.month_median, {{key_month}}) IN (6, 7, 8) THEN 3 WHEN COALESCE(cz.month_median, {{key_month}}) IN (9, 10, 11) THEN 4 END), quarter)::TINYINT AS quarter,
          depth_min_m, depth_max_m, depth_bin,
          taxon_key, life_stage, measurement_type, units, value, measurement_qual, qual_ok,
-         tow_type, std_haul_factor, prop_sorted, volume_sampled_m3, density_per_10m2, density_per_1000m3, effort_class, hex7
-  FROM {{src}}
+         tow_type, std_haul_factor, prop_sorted, volume_sampled_m3, density_per_10m2, density_per_1000m3, effort_class, hex7,
+         COALESCE(cz.month_median, {{key_month}})::TINYINT AS cruise_month, (CASE WHEN COALESCE(cz.month_median, {{key_month}}) = 12 THEN COALESCE(year(cz.date_median), {{key_year}}) + 1 ELSE COALESCE(year(cz.date_median), {{key_year}}) END)::SMALLINT AS season_year
+  FROM {{src}} o LEFT JOIN {{cruise_src}} cz USING (cruise_key)
   WHERE taxon_key = {{taxon}}),
 positive_only AS (
   SELECT dataset_key FROM {{src}}
@@ -27,11 +29,12 @@ positive_only AS (
 tow AS (
   SELECT dataset_key, root_id, any_value(grid_key) AS grid_key, any_value(site_key) AS site_key, any_value(cruise_key) AS cruise_key,
          any_value(latitude) AS latitude, any_value(longitude) AS longitude, any_value(datetime) AS datetime,
-         any_value(COALESCE({{cruise_year}}, year))::SMALLINT AS year, any_value(COALESCE({{cruise_quarter}}, quarter))::TINYINT AS quarter, any_value(depth_min_m) AS depth_min_m,
+         any_value(COALESCE(COALESCE(year(cz.date_median), {{key_year}}), year))::SMALLINT AS year, any_value(COALESCE((CASE WHEN COALESCE(cz.month_median, {{key_month}}) IN (12, 1, 2) THEN 1 WHEN COALESCE(cz.month_median, {{key_month}}) IN (3, 4, 5) THEN 2 WHEN COALESCE(cz.month_median, {{key_month}}) IN (6, 7, 8) THEN 3 WHEN COALESCE(cz.month_median, {{key_month}}) IN (9, 10, 11) THEN 4 END), quarter))::TINYINT AS quarter, any_value(depth_min_m) AS depth_min_m,
          any_value(depth_max_m) AS depth_max_m, any_value(depth_bin) AS depth_bin, any_value(tow_type) AS tow_type,
          any_value(effort_class) AS effort_class, any_value(hex7) AS hex7,
+         any_value(COALESCE(cz.month_median, {{key_month}}))::TINYINT AS cruise_month, any_value((CASE WHEN COALESCE(cz.month_median, {{key_month}}) = 12 THEN COALESCE(year(cz.date_median), {{key_year}}) + 1 ELSE COALESCE(year(cz.date_median), {{key_year}}) END))::SMALLINT AS season_year,
          bool_or(density_per_10m2 IS NOT NULL) AS has_10m2, bool_or(density_per_1000m3 IS NOT NULL) AS has_1000m3
-  FROM {{src}}
+  FROM {{src}} o LEFT JOIN {{cruise_src}} cz USING (cruise_key)
   WHERE dataset_key IN (SELECT dataset_key FROM positive_only)
   GROUP BY dataset_key, root_id),
 stage AS (
@@ -45,6 +48,7 @@ SELECT NULL AS obs_id, t.dataset_key, t.root_id, t.grid_key, t.site_key,
        {{taxon}} AS taxon_key, s.life_stage, s.measurement_type, s.units, 0.0 AS value, NULL AS measurement_qual, TRUE AS qual_ok,
        t.tow_type, NULL AS std_haul_factor, NULL AS prop_sorted, NULL AS volume_sampled_m3,
        CASE WHEN t.has_10m2 THEN 0.0 END AS density_per_10m2, CASE WHEN t.has_1000m3 THEN 0.0 END AS density_per_1000m3,
-       t.effort_class, t.hex7
+       t.effort_class, t.hex7,
+       t.cruise_month, t.season_year
 FROM tow t JOIN stage s USING (dataset_key)
 WHERE NOT EXISTS (SELECT 1 FROM pos p WHERE p.dataset_key = t.dataset_key AND p.root_id = t.root_id AND p.life_stage IS NOT DISTINCT FROM s.life_stage)

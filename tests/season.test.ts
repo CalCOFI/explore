@@ -1,14 +1,16 @@
-// the season is the CRUISE's quarter (explore#17), and the anomaly can subtract a monthly or a seasonal normal, in the
-// Section lens and — per observation, before pooling — in the map lenses (Rasmus Swalethorp, 2026-10-06 / 10-07).
+// the season is the CRUISE's (explore#17) — DJF / MAM / JJA / SON of its median cast month since release v2026.11 (Rasmus
+// Swalethorp 2026-10-16, Ben Best 2026-10-20), the key's MM before — and the anomaly can subtract a monthly or a seasonal
+// normal, in the Section lens and — per observation, before pooling — in the map lenses (Rasmus Swalethorp, 2026-10-06 / 10-07).
 // One small fixture per rule, run in the engine the browser ships (duckdb-wasm's node build):
-//   · a station of a July cruise worked on 30 June is in Q3 and its cruise's year/month, in slice_env and slice_cast
+//   · a station of a July cruise worked on 30 June is in JJA and its cruise's year/month, in slice_env and slice_cast
+//   · with the cruise table's month_median, the slice carries the median month, its season and season_year (December → next winter)
 //   · a NULL clim_mean is "no monthly baseline", exactly like an absent row; the seasonal baseline reads season_*
 //   · a per-cast value (depth_bin NULL) finds its baseline NULL-safely, by grid_key; one with none drops out, never 0
 //   · a release whose climatology has no season_* columns (v2026.10.08) still draws the monthly anomaly
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { render, datasetFilterSql, hexExpr, type Params } from "../src/sqltpl";
 import { qualOkSQL } from "../src/qual";
-import { anomTokens, anomalyOf, baselineWord, climBaseSql, climLookup, cruiseQuarter, hasSeasonCols, periodOf } from "../src/anomaly";
+import { anomTokens, anomalyOf, baselineWord, climBaseSql, climLookup, cruiseQuarter, hasSeasonCols, periodOf, seasonOf } from "../src/anomaly";
 import type { SectionCell } from "../src/charts";
 import { openDuck, type Duck, type Row } from "./helpers/duck";
 
@@ -21,19 +23,20 @@ const by = (k: string) => (a: Row, b: Row) => String(a[k]).localeCompare(String(
 
 // an obs_env object (the columns slice_env.sql reads). The release's own year / quarter are the CALENDAR's here, as in
 // v2026.10.08: the 30 June cast says quarter 2
-function obsEnv(rows: string) {
+function obsEnv(rows: string, cruiseSrc?: string) {
   db.exec(`CREATE OR REPLACE TABLE obs_env AS SELECT obs_id, dataset_key, root_id, grid_key, site_key, cruise_key, latitude, longitude, datetime,
       year(datetime)::SMALLINT AS year, quarter(datetime)::TINYINT AS quarter, depth_bin::DOUBLE AS depth_min_m, depth_bin::DOUBLE AS depth_max_m, depth_bin,
       NULL::VARCHAR AS taxon_key, NULL::VARCHAR AS life_stage, 'temp_x' AS measurement_type, 'degC' AS units, value, NULL::VARCHAR AS measurement_qual, TRUE AS qual_ok,
       NULL::VARCHAR AS tow_type, NULL::DOUBLE AS std_haul_factor, NULL::DOUBLE AS prop_sorted, NULL::DOUBLE AS volume_sampled_m3,
       NULL::DOUBLE AS density_per_10m2, NULL::DOUBLE AS density_per_1000m3, NULL::VARCHAR AS effort_class, 600000000000000000::UBIGINT AS hex7
     FROM (VALUES ${rows}) t(obs_id, dataset_key, root_id, grid_key, site_key, cruise_key, latitude, longitude, datetime, depth_bin, value)`);
-  db.exec(render("slice_env", { src: "obs_env" }));
+  db.exec(render("slice_env", cruiseSrc ? { src: "obs_env", cruise_src: cruiseSrc } : { src: "obs_env" }));
 }
-// the climatology object of one type, the next release's columns (calcofi4db 4.24.0); `season = false` drops season_*
+// the climatology object of one type, the release's columns (calcofi4db 4.24.0; quarter 1 = DJF … 4 = SON since 4.33.0);
+// `season = false` drops season_*
 function clim(rows: string, season = true) {
   db.exec(`CREATE OR REPLACE TABLE clim AS SELECT dataset_key, site_key, grid_key, month::TINYINT AS month, depth_bin, clim_mean, clim_sd, clim_n, n_cruises,
-      1993::SMALLINT AS clim_yr_min, 2013::SMALLINT AS clim_yr_max, ((month - 1) // 3 + 1)::TINYINT AS quarter, season_mean, 0.1 AS season_sd, season_n, season_n_cruises, measurement_type
+      1993::SMALLINT AS clim_yr_min, 2013::SMALLINT AS clim_yr_max, (CASE WHEN month IN (12, 1, 2) THEN 1 WHEN month IN (3, 4, 5) THEN 2 WHEN month IN (6, 7, 8) THEN 3 ELSE 4 END)::TINYINT AS quarter, season_mean, 0.1 AS season_sd, season_n, season_n_cruises, measurement_type
     FROM (VALUES ${rows}) t(dataset_key, site_key, grid_key, month, depth_bin, clim_mean, clim_sd, clim_n, n_cruises, season_mean, season_n, season_n_cruises, measurement_type)`);
   if (!season) db.exec(`ALTER TABLE clim DROP COLUMN season_mean; ALTER TABLE clim DROP COLUMN season_sd; ALTER TABLE clim DROP COLUMN season_n;
     ALTER TABLE clim DROP COLUMN season_n_cruises; ALTER TABLE clim DROP COLUMN quarter`);
@@ -42,11 +45,13 @@ function clim(rows: string, season = true) {
 beforeAll(async () => { db = await openDuck(); });
 afterAll(() => db.close());
 
-describe("the season is the cruise's quarter (explore#17)", () => {
-  it("cruiseQuarter(): a July cruise is Q3, whatever day its stations were worked", () => {
+describe("the season is the cruise's (explore#17): DJF / MAM / JJA / SON of its month", () => {
+  it("seasonOf() / cruiseQuarter(): 1 = DJF, 2 = MAM, 3 = JJA, 4 = SON; a July cruise is JJA, whatever day its stations were worked", () => {
+    expect([12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(seasonOf)).toEqual([1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4]);
+    expect(seasonOf(null)).toBeNull(); expect(seasonOf(13)).toBeNull();
     expect(cruiseQuarter("2026-07-3322")).toBe(3);
-    expect(cruiseQuarter("2026-06-3322")).toBe(2);
-    expect(cruiseQuarter("1950-12-31CR")).toBe(4);
+    expect(cruiseQuarter("2026-06-3322")).toBe(3);   // June is summer, not the second calendar quarter
+    expect(cruiseQuarter("1950-12-31CR")).toBe(1);   // December is winter
     expect(cruiseQuarter("x")).toBeNull();
   });
   beforeAll(() => obsEnv(`
@@ -54,19 +59,48 @@ describe("the season is the cruise's quarter (explore#17)", () => {
     (2::BIGINT, 'calcofi_ctd-cast', 2, 'st60-ln93.3',   '093.3 060.0', '2026-07-3322', 34.0, -122.0, TIMESTAMP '2026-07-02 08:00:00', 10, 17.0),
     (3::BIGINT, 'calcofi_ctd-cast', 3, 'st60-ln93.3',   '093.3 060.0', '2026-01-3322', 34.0, -122.0, TIMESTAMP '2025-12-31 20:00:00', 10, 13.0),
     (4::BIGINT, 'calcofi_ctd-cast', 4, 'st60-ln93.3',   '093.3 060.0', 'no-key',       34.0, -122.0, TIMESTAMP '2026-06-30 20:00:00', 10, 15.0)`));
-  it("slice_env: the 30 June station of cruise 2026-07-3322 is in Q3, though the release row says Q2", () => {
-    const r = db.exec(`SELECT obs_id, year, quarter FROM slice ORDER BY obs_id`);
-    expect(r).toEqual([{ obs_id: 1, year: 2026, quarter: 3 }, { obs_id: 2, year: 2026, quarter: 3 },
-      { obs_id: 3, year: 2026, quarter: 1 },                // a January cruise's 31 December station: the cruise's year and Q1
-      { obs_id: 4, year: 2026, quarter: 2 }]);              // a malformed key keeps the release's (calendar) values
+  it("slice_env: the 30 June station of cruise 2026-07-3322 is in JJA (3), though the release row says Q2", () => {
+    const r = db.exec(`SELECT obs_id, year, quarter, cruise_month, season_year FROM slice ORDER BY obs_id`);
+    expect(r).toEqual([{ obs_id: 1, year: 2026, quarter: 3, cruise_month: 7, season_year: 2026 }, { obs_id: 2, year: 2026, quarter: 3, cruise_month: 7, season_year: 2026 },
+      { obs_id: 3, year: 2026, quarter: 1, cruise_month: 1, season_year: 2026 },   // a January cruise's 31 December station: the cruise's year and DJF
+      { obs_id: 4, year: 2026, quarter: 2, cruise_month: null, season_year: null }]); // a malformed key keeps the release's (calendar) values; no cruise month
   });
-  it("the season filter Q3 keeps the inshore 30 June station (it vanished before)", () => {
+  it("slice_env with the release's cruise table (v2026.11+): the cruise's MEDIAN month, its season and season_year; December is the next winter", () => {
+    db.exec(`CREATE OR REPLACE TABLE cruise AS SELECT * FROM (VALUES
+      ('2026-07-3322', DATE '2026-08-02', 8::TINYINT, 2026::SMALLINT),   -- keyed July, centres on August: still JJA
+      ('2026-01-3322', DATE '2025-12-30', 12, 2026),                    -- keyed January, centres on 30 December: DJF of 2026
+      ('2025-04-3322', DATE '2025-03-31', 3, 2025)                      -- keyed April, centres on 31 March: MAM, March
+    ) t(cruise_key, date_median, month_median, season_year)`);
+    obsEnv(`
+      (1::BIGINT, 'calcofi_ctd-cast', 1, 'st26.7-ln93.3', '093.3 026.7', '2026-07-3322', 35.1::DOUBLE, -120.9::DOUBLE, TIMESTAMP '2026-06-30 22:00:00', 10, 14.0::DOUBLE),
+      (2::BIGINT, 'calcofi_ctd-cast', 2, 'st60-ln93.3',   '093.3 060.0', '2026-01-3322', 34.0, -122.0, TIMESTAMP '2026-01-02 08:00:00', 10, 13.0),
+      (3::BIGINT, 'calcofi_ctd-cast', 3, 'st60-ln93.3',   '093.3 060.0', '2025-04-3322', 34.0, -122.0, TIMESTAMP '2025-04-02 08:00:00', 10, 15.0),
+      (4::BIGINT, 'calcofi_ctd-cast', 4, 'st60-ln93.3',   '093.3 060.0', '2024-10-3322', 34.0, -122.0, TIMESTAMP '2024-10-20 08:00:00', 10, 15.0)`, "cruise");
+    expect(db.exec(`SELECT obs_id, year, quarter, cruise_month, season_year FROM slice ORDER BY obs_id`)).toEqual([
+      { obs_id: 1, year: 2026, quarter: 3, cruise_month: 8, season_year: 2026 },
+      { obs_id: 2, year: 2025, quarter: 1, cruise_month: 12, season_year: 2026 },   // the cruise's year is its median date's; its winter is 2026's
+      { obs_id: 3, year: 2025, quarter: 2, cruise_month: 3, season_year: 2025 },
+      { obs_id: 4, year: 2024, quarter: 4, cruise_month: 10, season_year: 2024 }]);  // not in the table: the key rule, SON
+    // the section's month is the median month, so the anomaly matches the August normal for a July-keyed cruise
+    expect(db.exec(render("section", P({ line: 93.3, cruise: "2026-07-3322" }))).map((r) => [r.station, r.month])).toEqual([[26.7, 8]]);
+    // cruise_seasons.sql on that table: season_year × season from the median columns (App.tsx passes cs_* after its probe)
+    expect(db.exec(render("cruise_seasons", { src: "cruise", cs_year: "season_year", cs_quarter: "(CASE WHEN month_median IN (12, 1, 2) THEN 1 WHEN month_median IN (3, 4, 5) THEN 2 WHEN month_median IN (6, 7, 8) THEN 3 ELSE 4 END)" })))
+      .toEqual([{ year: 2025, quarter: 2, cruises: "2025-04-3322" }, { year: 2026, quarter: 1, cruises: "2026-01-3322" }, { year: 2026, quarter: 3, cruises: "2026-07-3322" }]);
+    expect(db.exec(render("cruise_ref", { src: "(SELECT *, NULL AS ship_key, NULL AS ship_name, NULL AS ship_nodc, NULL AS date_min, NULL AS date_max FROM cruise)", cs_month: "month_median" })).map((r) => [r.cruise_key, r.month]))
+      .toEqual([["2026-07-3322", 8], ["2026-01-3322", 12], ["2025-04-3322", 3]]);
+  });
+  it("the season filter JJA keeps the inshore 30 June station (it vanished before)", () => {
+    obsEnv(`
+      (1::BIGINT, 'calcofi_ctd-cast', 1, 'st26.7-ln93.3', '093.3 026.7', '2026-07-3322', 35.1::DOUBLE, -120.9::DOUBLE, TIMESTAMP '2026-06-30 22:00:00', 10, 14.0::DOUBLE),
+      (2::BIGINT, 'calcofi_ctd-cast', 2, 'st60-ln93.3',   '093.3 060.0', '2026-07-3322', 34.0, -122.0, TIMESTAMP '2026-07-02 08:00:00', 10, 17.0),
+      (3::BIGINT, 'calcofi_ctd-cast', 3, 'st60-ln93.3',   '093.3 060.0', '2026-01-3322', 34.0, -122.0, TIMESTAMP '2025-12-31 20:00:00', 10, 13.0),
+      (4::BIGINT, 'calcofi_ctd-cast', 4, 'st60-ln93.3',   '093.3 060.0', 'no-key',       34.0, -122.0, TIMESTAMP '2026-06-30 20:00:00', 10, 15.0)`);
     expect(q("station", { quarter_filter: "quarter IN (3)" }).sort(by("grid_key")).map((r) => [r.grid_key, r.n])).toEqual([["st26.7-ln93.3", 1], ["st60-ln93.3", 1]]);
   });
   it("the month-resolved year filter reads the cruise's month too (a January cruise's 31 December station is in its January)", () => {
     expect(q("station", { ym0: 202601, ym1: 202601 }).map((r) => [r.grid_key, r.n, r.mean])).toEqual([["st60-ln93.3", 1, 13]]);
   });
-  it("slice_cast: a per-cast value of a 30 June cast on a July cruise is quarter 3, and falls back to the calendar on a bad key", () => {
+  it("slice_cast: a per-cast value of a 30 June cast on a July cruise is JJA (3), and falls back to the calendar's season on a bad key", () => {
     db.exec(`CREATE OR REPLACE TABLE root AS SELECT * FROM (VALUES
       (1, 'calcofi_ctd-cast:cast:A', 'calcofi_ctd-cast', 'st26.7-ln93.3', '2026-07-3322', 35.1::DOUBLE, -120.9::DOUBLE, TIMESTAMP '2026-06-30 22:00:00'),
       (2, 'calcofi_ctd-cast:cast:B', 'calcofi_ctd-cast', 'st60-ln93.3',   'bad',          34.0, -122.0, TIMESTAMP '2026-06-30 23:00:00')
@@ -77,38 +111,43 @@ describe("the season is the cruise's quarter (explore#17)", () => {
     ) t(sample_measurement_id, sample_key, dataset_key, measurement_type, measurement_value, measurement_qual)`);
     db.exec(`CREATE OR REPLACE TABLE mt AS SELECT 'mld_x' AS measurement_type, 'm' AS units`);
     db.exec(render("slice_cast", { sm_src: "sm", root_src: "root", mt_src: "mt", type: "mld_x", qual_ok: qualOkSQL("sm"), root_hex7: "NULL::UBIGINT" }));
-    expect(db.exec(`SELECT obs_id, year, quarter FROM slice ORDER BY obs_id`)).toEqual([{ obs_id: 1, year: 2026, quarter: 3 }, { obs_id: 2, year: 2026, quarter: 2 }]);
+    expect(db.exec(`SELECT obs_id, year, quarter, cruise_month, season_year FROM slice ORDER BY obs_id`)).toEqual([
+      { obs_id: 1, year: 2026, quarter: 3, cruise_month: 7, season_year: 2026 }, { obs_id: 2, year: 2026, quarter: 3, cruise_month: 6, season_year: 2026 }]); // June is JJA by the calendar too
+    // with the cruise table: the median month (August) and a December cast on a January-keyed cruise in the next winter
+    db.exec(`CREATE OR REPLACE TABLE cruise AS SELECT * FROM (VALUES ('2026-07-3322', DATE '2026-08-02', 8::TINYINT, 2026::SMALLINT)) t(cruise_key, date_median, month_median, season_year)`);
+    db.exec(render("slice_cast", { sm_src: "sm", root_src: "root", mt_src: "mt", type: "mld_x", qual_ok: qualOkSQL("sm"), root_hex7: "NULL::UBIGINT", cruise_src: "cruise" }));
+    expect(db.exec(`SELECT obs_id, quarter, cruise_month FROM slice WHERE obs_id = 1`)).toEqual([{ obs_id: 1, quarter: 3, cruise_month: 8 }]);
   });
 });
 
 describe("the baseline: monthly (clim_*) or seasonal (season_*), a NULL mean is no baseline", () => {
-  // line 93.3 station 26.7, 10 m: July has its own normal (12); August's month is under the floor (clim_mean NULL) but its
-  // quarter passes — Q3's normal is 12.5 on all three months. Station 60: June only, no Q2 season (NULL).
+  // line 93.3 station 26.7, 10 m: July has its own normal (12); June's month is under the floor (clim_mean NULL) but its
+  // season passes — JJA's normal is 12.5 on all three months (June–August). Station 60: May only, no MAM season (NULL).
   const rows = `
     ('calcofi_ctd-cast', '093.3 026.7', 'st26.7-ln93.3', 7, 10, 12.0::DOUBLE, 0.5::DOUBLE, 40, 8, 12.5::DOUBLE, 90, 15, 'temp_x'),
-    ('calcofi_ctd-cast', '093.3 026.7', 'st26.7-ln93.3', 8, 10, NULL, NULL, NULL, NULL, 12.5, 90, 15, 'temp_x'),
-    ('calcofi_ctd-cast', '093.3 026.7', 'st26.7-ln93.3', 9, 10, 13.0, 0.5, 30, 6, 12.5, 90, 15, 'temp_x'),
-    ('calcofi_ctd-cast', '093.3 060.0', 'st60-ln93.3', 6, 10, 15.5, 0.5, 20, 5, NULL, NULL, NULL, 'temp_x')`;
+    ('calcofi_ctd-cast', '093.3 026.7', 'st26.7-ln93.3', 6, 10, NULL, NULL, NULL, NULL, 12.5, 90, 15, 'temp_x'),
+    ('calcofi_ctd-cast', '093.3 026.7', 'st26.7-ln93.3', 8, 10, 13.0, 0.5, 30, 6, 12.5, 90, 15, 'temp_x'),
+    ('calcofi_ctd-cast', '093.3 060.0', 'st60-ln93.3', 5, 10, 15.5, 0.5, 20, 5, NULL, NULL, NULL, 'temp_x')`;
   beforeAll(() => clim(rows));
   const sectionClim = (base: "month" | "season") => db.exec(render("section_clim", P({ clim_src: climBaseSql("clim", base) })))
     .map((r) => ({ station: r.station, month: r.month, y: r.depth_bin, v: r.v, n: Number(r.n) }));
-  it("monthly: the NULL August mean is left out (not a 0, not a row); July and September keep their own", () => {
+  it("monthly: the NULL June mean is left out (not a 0, not a row); July and August keep their own", () => {
     expect(sectionClim("month")).toEqual([
-      { station: 26.7, month: 7, y: 10, v: 12, n: 40 }, { station: 26.7, month: 9, y: 10, v: 13, n: 30 }, { station: 60, month: 6, y: 10, v: 15.5, n: 20 }]);
+      { station: 26.7, month: 7, y: 10, v: 12, n: 40 }, { station: 26.7, month: 8, y: 10, v: 13, n: 30 }, { station: 60, month: 5, y: 10, v: 15.5, n: 20 }]);
   });
-  it("seasonal: season_mean per quarter, its three repeated month rows counted once; a NULL season_mean is left out", () => {
+  it("seasonal: season_mean per season (JJA = 3), its three repeated month rows counted once; a NULL season_mean is left out", () => {
     expect(sectionClim("season")).toEqual([{ station: 26.7, month: 3, y: 10, v: 12.5, n: 90 }]);
   });
-  it("anomalyOf(): an August cruise has no monthly normal at 26.7 but has the Jul–Sep one", () => {
-    const cell: SectionCell = { station: 26.7, y: 10, v: 14, n: 1, month: 8 };
+  it("anomalyOf(): a June cruise has no monthly normal at 26.7 but has the Jun–Aug one", () => {
+    const cell: SectionCell = { station: 26.7, y: 10, v: 14, n: 1, month: 6 };
     const mon = climLookup(sectionClim("month")), sea = climLookup(sectionClim("season"));
     expect(anomalyOf(cell, mon, "month")).toBeNull();
     expect(anomalyOf(cell, sea, "season")).toBe(1.5);
     expect(anomalyOf({ ...cell, month: 7 }, mon)).toBe(2);   // the default is the month
   });
   it("periodOf() / baselineWord(): the words the captions use", () => {
-    expect(periodOf(8, "season")).toBe(3); expect(periodOf(8, "month")).toBe(8); expect(periodOf(null, "month")).toBeNull();
-    expect(baselineWord("month", 7)).toBe("July"); expect(baselineWord("season", 7)).toBe("Jul–Sep"); expect(baselineWord("season", 12)).toBe("Oct–Dec");
+    expect(periodOf(8, "season")).toBe(3); expect(periodOf(12, "season")).toBe(1); expect(periodOf(8, "month")).toBe(8); expect(periodOf(null, "month")).toBeNull();
+    expect(baselineWord("month", 7)).toBe("July"); expect(baselineWord("season", 7)).toBe("Jun–Aug"); expect(baselineWord("season", 12)).toBe("Dec–Feb"); expect(baselineWord("season", null)).toBe("seasonal (3-month)");
   });
   it("a release before the seasonal baseline (no season_* columns): the probe says so, and the monthly anomaly still draws", () => {
     clim(rows, false);
@@ -136,10 +175,10 @@ describe("anom_slice.sql — the map lenses subtract each observation's own cell
     expect(q("station", { tbl: "slice_anom", val: "anom" }).map((r) => [r.grid_key, r.n, r.mean])).toEqual([["st26.7-ln93.3", 1, 2]]);
     expect(share()).toEqual({ n: 3, n_base: 1 });
   });
-  it("the season toggle chooses season_*: station 60's July cruise finds the Jul–Sep normal it lacks as a month", () => {
-    // station 60's season columns sit on its June (Q2) row, so its July cruise still has none; 26.7's Q3 is 12.5
+  it("the season toggle chooses season_*: station 60's July cruise finds the Jun–Aug normal it lacks as a month", () => {
+    // station 60's season columns sit on its June row — June is JJA, so its July cruise finds the season's 16.0; 26.7's JJA is 12.5
     db.exec(render("anom_slice", anomTokens("clim", "season", "bin")));
-    expect(db.exec(`SELECT obs_id, anom FROM slice_anom ORDER BY obs_id`)).toEqual([{ obs_id: 1, anom: 1.5 }, { obs_id: 2, anom: null }, { obs_id: 3, anom: null }]);
+    expect(db.exec(`SELECT obs_id, anom FROM slice_anom ORDER BY obs_id`)).toEqual([{ obs_id: 1, anom: 1.5 }, { obs_id: 2, anom: 1 }, { obs_id: 3, anom: null }]);
     expect(anomTokens("clim", "season", "bin").clim_src).toContain("season_mean");
     expect(anomTokens("clim", "month", "bin").clim_src).not.toContain("season_");
   });

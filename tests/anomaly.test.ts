@@ -1,5 +1,5 @@
-// the anomaly is matched on the CRUISE's month (the MM of its YYYY-MM-NODC cruise_key), never the calendar month a
-// cast was occupied in. Regression: cruise 2026-07-3322 worked line 93.3's inshore stations on 2026-06-30; matched on
+// the anomaly is matched on the CRUISE's month (the slice's cruise_month: the cruise table's median cast month since
+// v2026.11, the MM of its YYYY-MM-NODC cruise_key before), never the calendar month a cast was occupied in. Regression: cruise 2026-07-3322 worked line 93.3's inshore stations on 2026-06-30; matched on
 // the calendar month they looked up a June baseline (none: no June cruise 1993–2013) and the inshore half of the
 // section went blank although the release holds July baselines for them. sql/section.sql runs in the engine the
 // browser ships, against a small fixture; src/anomaly.ts is the key both renderers use.
@@ -13,11 +13,12 @@ let db: Duck;
 beforeAll(async () => {
   db = await openDuck();
   // two stations of one cruise designated July: station 30 occupied on June 30, station 60 on July 1
+  // the slice as slice_env.sql builds it: year / quarter / cruise_month / season_year are the cruise's (JJA, July, 2026)
   db.exec(`CREATE TABLE slice AS SELECT * FROM (VALUES
-    ('093.3 030.0', 'st30-ln93.3', 93.3::DOUBLE, 30.0::DOUBLE, '2026-07-3322', TIMESTAMP '2026-06-30 22:00:00', 2026::SMALLINT, 2::TINYINT, 10, 14.0::DOUBLE, TRUE),
-    ('093.3 030.0', 'st30-ln93.3', 93.3, 30.0, '2026-07-3322', TIMESTAMP '2026-06-30 22:00:00', 2026, 2, 10, 16.0, TRUE),
-    ('093.3 060.0', 'st60-ln93.3', 93.3, 60.0, '2026-07-3322', TIMESTAMP '2026-07-01 08:00:00', 2026, 3, 10, 17.0, TRUE)
-  ) t(site_key, grid_key, line, station, cruise_key, datetime, year, quarter, depth_bin, value, qual_ok)`);
+    ('093.3 030.0', 'st30-ln93.3', 93.3::DOUBLE, 30.0::DOUBLE, '2026-07-3322', TIMESTAMP '2026-06-30 22:00:00', 2026::SMALLINT, 3::TINYINT, 10, 14.0::DOUBLE, TRUE, 7::TINYINT, 2026::SMALLINT),
+    ('093.3 030.0', 'st30-ln93.3', 93.3, 30.0, '2026-07-3322', TIMESTAMP '2026-06-30 22:00:00', 2026, 3, 10, 16.0, TRUE, 7, 2026),
+    ('093.3 060.0', 'st60-ln93.3', 93.3, 60.0, '2026-07-3322', TIMESTAMP '2026-07-01 08:00:00', 2026, 3, 10, 17.0, TRUE, 7, 2026)
+  ) t(site_key, grid_key, line, station, cruise_key, datetime, year, quarter, depth_bin, value, qual_ok, cruise_month, season_year)`);
   db.exec(`ALTER TABLE slice ADD COLUMN dataset_key VARCHAR DEFAULT 'calcofi_ctd-cast'`);
   db.exec(`ALTER TABLE slice ADD COLUMN obs_id BIGINT DEFAULT 1`); db.exec(`ALTER TABLE slice ADD COLUMN life_stage VARCHAR`);
   db.exec(`ALTER TABLE slice ADD COLUMN depth_min_m DOUBLE`); db.exec(`UPDATE slice SET depth_min_m = depth_bin`);
@@ -28,7 +29,7 @@ afterAll(() => db.close());
 const P = (over: Params = {}): Params => ({ val: "value", y0: 1949, y1: 2026, ym0: 194901, ym1: 202612, quarter_filter: "TRUE", d0: 0, d1: 500,
   stage: null, dataset_filter: datasetFilterSql(null), zeros: true, line: 93.3, cruise: "2026-07-3322", ...over });
 
-describe("cruiseMonth()", () => {
+describe("cruiseMonth() — the key rule, the fallback where the cruise table carries no median month", () => {
   it("reads MM from a YYYY-MM-NODC key", () => { expect(cruiseMonth("2026-07-3322")).toBe(7); expect(cruiseMonth("1950-09-31CR")).toBe(9); });
   it("a malformed key has no month", () => { expect(cruiseMonth("2026-13-3322")).toBeNull(); expect(cruiseMonth("x")).toBeNull(); expect(cruiseMonth(null)).toBeNull(); });
 });

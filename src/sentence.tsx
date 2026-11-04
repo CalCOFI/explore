@@ -22,6 +22,7 @@ export interface SentenceCtx {
   years: [number, number]; yearMax: number; hasDepthAxis: boolean; hasClim: boolean; climWindow: [number, number] | null;
   // the anomaly (anomaly.ts): a baseline exists for this variable; the one in force; whether the release carries the season
   anomAvail?: boolean; climBase?: ClimBase; seasonOk?: boolean | null;
+  cruiseMonthOf?: (k: string | null | undefined) => number | null; // the cruise's month (its median cast month where the release carries it; App.tsx)
   datasetsInSlice: string[]; dsOn: (dk: string) => boolean; toggleDataset: (dk: string) => void; dsColor: (dk: string) => string; short: (dk: string) => string;
   subject: string; unit: string;
   // a derived variable says so right after its name (castgrain.ts): the word, its hover (the registry's definition) and
@@ -109,12 +110,13 @@ export function Sentence(c: SentenceCtx) {
   // the normal in words: on a section, the cruise's own month or quarter ("the 1993–2013 July normal"); on a map, each
   // cruise's ("the 1993–2013 cruise-month normal")
   const base: ClimBase = c.climBase ?? "month";
-  const normalWord = (b: ClimBase) => sel.lens === "section" && cruiseMonth(sel.cruise) != null ? `${climWord} ${baselineWord(b, cruiseMonth(sel.cruise))} normal` : `${climWord} cruise-${b === "season" ? "quarter" : "month"} normal`;
+  const monthOf = c.cruiseMonthOf ?? cruiseMonth;
+  const normalWord = (b: ClimBase) => sel.lens === "section" && monthOf(sel.cruise) != null ? `${climWord} ${baselineWord(b, monthOf(sel.cruise))} normal` : `${climWord} cruise-${b === "season" ? "season" : "month"} normal`;
   const anomWord = sel.anom ? `shown as the difference from the ${normalWord(base)}` : "shown as measured";
-  const anomMenu = () => <ChipMenu label={anomWord} title={`a departure from the release's climatology: the station, the cruise's month (or quarter), ${sel.lens === "section" ? "this 10 m bin" : "each observation's own cell, before it is pooled"}, at least ${CLIM_MIN_CRUISES} cruises`} items={[
+  const anomMenu = () => <ChipMenu label={anomWord} title={`a departure from the release's climatology: the station, the cruise's month (or season), ${sel.lens === "section" ? "this 10 m bin" : "each observation's own cell, before it is pooled"}, at least ${CLIM_MIN_CRUISES} cruises`} items={[
     { label: "as measured", selected: !sel.anom, onSelect: () => setSel({ anom: false }) },
     { label: `the difference from the ${normalWord("month")}`, hint: "red above normal, blue below; no baseline is blank, never 0", selected: sel.anom && base === "month", onSelect: () => setSel({ anom: true, base: "month" }) },
-    { label: `the difference from the ${normalWord("season")}`, hint: c.seasonOk === false ? "this release's climatology has no seasonal baseline (calcofi4db 4.24.0+)" : "the cruise's quarter: Jan–Mar, Apr–Jun, Jul–Sep, Oct–Dec", disabled: c.seasonOk === false, selected: sel.anom && base === "season", onSelect: () => setSel({ anom: true, base: "season" }) }]} />;
+    { label: `the difference from the ${normalWord("season")}`, hint: c.seasonOk === false ? "this release's climatology has no seasonal baseline (calcofi4db 4.24.0+)" : "the cruise's season: Dec–Feb, Mar–May, Jun–Aug, Sep–Nov", disabled: c.seasonOk === false, selected: sel.anom && base === "season", onSelect: () => setSel({ anom: true, base: "season" }) }]} />;
   const yearsPop = () => <ChipPop label={yearsWord} icon="ui-years" title="the year range · or drag on the Years panel">
     <div className="row"><YearRange years={c.years} first={1949} last={c.yearMax} width={62} onChange={(y) => setSel({ years: [y[0], y[1] >= c.yearMax ? YEAR_OPEN : y[1]], months: null })} /></div>
     <div className="row"><button type="button" className="pill act" onClick={() => setSel({ years: [1949, YEAR_OPEN], months: null })}>all years</button><span className="hint">or drag on the Years panel{sel.months ? " · month edges from the brush" : ""}</span></div>

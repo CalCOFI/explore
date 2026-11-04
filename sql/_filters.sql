@@ -1,8 +1,9 @@
 -- shared filter fragment, inlined into every lens template by engine.ts as {{where}}.
 -- every template filters on qual_ok, the year range (month-resolved, D20: {{ym0}}/{{ym1}} = year*100 + month;
--- a row without a datetime counts as mid-year so a whole-year range keeps it; the month is the CRUISE's, like the slice's
--- year, so a January cruise's 31 December stations sit in its January — explore#17), the season ({{quarter_filter}}
--- is TRUE or quarter IN (...), the slice's quarter being the cruise's), the depth band and — for bio — one life stage and one denominator
+-- a row without a datetime counts as mid-year so a whole-year range keeps it; the month is the CRUISE's (its median cast
+-- month, slice column cruise_month), like the slice's year, so a January cruise's 31 December stations sit in its January —
+-- explore#17), the season ({{quarter_filter}} is TRUE or quarter IN (...), the slice's quarter being the cruise's season,
+-- 1 = DJF … 4 = SON), the depth band and — for bio — one life stage and one denominator
 -- ({{val}} = density_per_10m2 | density_per_1000m3 | value).
 -- {{zeros}} is TRUE (a sampled tow with no catch counts as 0, the default) or FALSE (positive tows only).
 -- {{dataset_filter}} is TRUE or dataset_key IN (...) — the dataset pills (rule 4: the picker filters to datasets).

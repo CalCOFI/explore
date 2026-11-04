@@ -18,6 +18,9 @@ beforeAll(async () => {
     (6, 4, NULL, '1998-07-RL', 30.04, -125.01, TIMESTAMP '1998-07-11', 1998, 3, 50.0)
   ) t(obs_id, root_id, grid_key, cruise_key, latitude, longitude, datetime, year, quarter, value)`);
   for (const c of ["qual_ok BOOLEAN DEFAULT TRUE", "depth_bin INTEGER DEFAULT 10", "life_stage VARCHAR", "dataset_key VARCHAR DEFAULT 'calcofi_bottle'"]) db.exec(`ALTER TABLE slice ADD COLUMN ${c}`);
+  // the cruise's month and season year, as slice_env.sql stamps them (the key's MM here)
+  db.exec(`ALTER TABLE slice ADD COLUMN cruise_month TINYINT`); db.exec(`UPDATE slice SET cruise_month = CAST(substr(cruise_key, 6, 2) AS TINYINT)`);
+  db.exec(`ALTER TABLE slice ADD COLUMN season_year SMALLINT`); db.exec(`UPDATE slice SET season_year = year`);
   db.exec(`CREATE TABLE cruise AS SELECT * FROM (VALUES ('1998-01-RL'), ('1998-07-RL'), ('1998-11-NH'), ('2022-04-3322'), ('bad-key')) t(cruise_key)`);
 });
 afterAll(() => db.close());
