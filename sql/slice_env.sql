@@ -5,7 +5,7 @@ CREATE OR REPLACE TABLE slice AS
 -- grid cell: the inshore cells hold 2–4 stations occupied every cruise (st30-ln90 = 90.30, 90.28, 90.27.7,
 -- 88.5/30.1), so a section keyed on the cell averaged casts 15–30 km apart. grid_key stays for hexes and maps.
 -- year / quarter / cruise_month / season_year are the CRUISE's: its median cast month and year from the release's cruise
--- table ({{cruise_src}}: month_median / date_median, v2026.11+, calcofi4db 4.33.0), the YYYY-MM of the cruise_key
+-- table ({{cruise_src}}: month_median / date_median, v2026.11+, calcofi4db 4.34.0), the YYYY-MM of the cruise_key
 -- ({{key_month}} / {{key_year}}) where the table does not carry them, the release's own column only where the key is
 -- missing or malformed. quarter is the season, 1 = DJF … 4 = SON; season_year counts December toward the next winter.
 -- The season filter keeps a July cruise's 30 June stations in JJA (explore#17). The same rule as the release's own columns.

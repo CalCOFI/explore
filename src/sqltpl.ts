@@ -17,7 +17,7 @@ export interface Params { [k: string]: Param }
 const RAW = new Set(["val", "hex", "where", "where_nodepth", "where_noyear", "src", "taxon_src", "root_src", "spatial_src", "clim_src", "dataset_filter", "quarter_filter", "bin", "sm_src", "mt_src", "qual_ok", "root_hex7", "tbl", "clim_loc", "clim_period", "area_filter",
   "cruise_month", "cruise_quarter", "cruise_year", "cruise_src", "key_month", "key_year", "key_quarter", "cs_year", "cs_quarter", "cs_month"]);
 
-// THE CRUISE'S MONTH AND SEASON. Since release v2026.11 (calcofi4db 4.33.0; Rasmus Swalethorp 2026-10-16, Ben Best
+// THE CRUISE'S MONTH AND SEASON. Since release v2026.11 (calcofi4db 4.34.0; Rasmus Swalethorp 2026-10-16, Ben Best
 // 2026-10-20) a cruise's month is its MEDIAN cast month — `cruise.month_median`, with `date_median`, `season` and
 // `season_year` beside it — never the MM its `YYYY-MM-NODC` key designates and never the calendar date a station was worked
 // (a July cruise works its first stations on 30 June: explore#17); the seasons are DJF / MAM / JJA / SON, numbered 1–4

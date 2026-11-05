@@ -32,7 +32,7 @@ function obsEnv(rows: string, cruiseSrc?: string) {
     FROM (VALUES ${rows}) t(obs_id, dataset_key, root_id, grid_key, site_key, cruise_key, latitude, longitude, datetime, depth_bin, value)`);
   db.exec(render("slice_env", cruiseSrc ? { src: "obs_env", cruise_src: cruiseSrc } : { src: "obs_env" }));
 }
-// the climatology object of one type, the release's columns (calcofi4db 4.24.0; quarter 1 = DJF … 4 = SON since 4.33.0);
+// the climatology object of one type, the release's columns (calcofi4db 4.24.0; quarter 1 = DJF … 4 = SON since 4.34.0);
 // `season = false` drops season_*
 function clim(rows: string, season = true) {
   db.exec(`CREATE OR REPLACE TABLE clim AS SELECT dataset_key, site_key, grid_key, month::TINYINT AS month, depth_bin, clim_mean, clim_sd, clim_n, n_cruises,
