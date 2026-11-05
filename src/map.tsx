@@ -10,6 +10,7 @@ import type { Layer, PickingInfo } from "@deck.gl/core";
 import { latLngToCell, cellToLatLng } from "h3-js";
 import type { Lens, Stat } from "./state";
 import type { LineThread } from "./gridkey";
+import type { EffortPath } from "./effort";
 import { baseStyle, composeStyle, warmBaseStyles, type BathyState, type BoundaryState } from "./basemap";
 import { rampColors, rampCss } from "./ramps";
 
@@ -39,6 +40,8 @@ export function quantileDomain(vals: number[], stat: Stat): [number, number] {
   return stat === "n" ? [0, q(0.95)] : [q(0.05), q(0.95)];
 }
 export const viridisCss = rampCss("viridis");
+// the Effort layer's colour (an amber that reads over the sea floor, a surface and either basemap)
+export const EFFORT_RGB: [number, number, number, number] = [255, 167, 38, 230];
 
 // ── layer inputs ──────────────────────────────────────────────────────────────
 export interface GridCell { grid_key: string; line: number; station: number; home: [number, number]; pattern?: string } // pattern: standard | extended | historical (the Area filter, explore#20)
@@ -61,6 +64,7 @@ export interface LayerInputs {
   dataOpacity: number;        // the data layer's opacity 0–1 (`datao=`)
   lines?: LineThread[] | null; // the Lines layer (`lines=on`): each line threaded through its stations, named at both ends; drawn even with Data off
   obs?: { rows: { longitude: number; latitude: number; n: number }[]; color: string } | null; // the Observations layer (`obs=`): every site, drawn even with Data off
+  effort?: EffortPath[] | null; // the Effort layer (`effort=on`): sample_track paths, on-effort segments and sight lines; drawn even with Data off, under the Observations
   beforeId?: string;          // D36: the MapLibre layer the data layer draws UNDER (the boundary above it in the Layers card); undefined = on top
   selectedStation?: string | null;
   area?: any[] | null;        // the Area filter's outline (explore#20): a box or a region's polygons, drawn over the data
@@ -99,7 +103,16 @@ export function buildLayers(inp: LayerInputs): Layer[] {
       getTextAnchor: "middle", getAlignmentBaseline: "center", billboard: true, pickable: false,
     }),
   ] : [];
-  if (!inp.dataOn) return [...lines, ...obs];
+  // the Effort layer: where the observers looked (sample_track, calcofi4db 4.35.0+), whatever the taxon. The on-effort segments
+  // in one solid colour on a dark halo, the sight lines from the ship to each sighted animal thinner and fainter (no dash: that
+  // needs @deck.gl/extensions); over the data and the Lines, under the Observations so a sighting's dot sits on its line
+  const segs = inp.effort?.filter((p) => p.track_type !== "sight_line") ?? [], sights = inp.effort?.filter((p) => p.track_type === "sight_line") ?? [];
+  const effort: Layer[] = inp.effort?.length ? [
+    new PathLayer({ id: "effort-halo", data: segs, getPath: (d: any) => d.path, getColor: [20, 20, 30, 90], widthUnits: "pixels", getWidth: 4, pickable: false }),
+    new PathLayer({ id: "effort", data: segs, getPath: (d: any) => d.path, getColor: EFFORT_RGB, widthUnits: "pixels", getWidth: 2, pickable: true, autoHighlight: true, highlightColor: [255, 255, 255, 200] }),
+    new PathLayer({ id: "effort-sight", data: sights, getPath: (d: any) => d.path, getColor: [...EFFORT_RGB.slice(0, 3), 150] as [number, number, number, number], widthUnits: "pixels", getWidth: 1, pickable: true, autoHighlight: true, highlightColor: [255, 255, 255, 200] }),
+  ] : [];
+  if (!inp.dataOn) return [...lines, ...effort, ...obs];
   // D37 (2026-09-07): the dots TRAVEL only between Stations and Hexagons — the one morph that explains something (pooling);
   // every other lens change is a short cross-fade in place, so nothing flies to a centroid or flickers through a 700 ms tween
   const travel = lens === "station" || lens === "hex";
@@ -257,7 +270,7 @@ export function buildLayers(inp: LayerInputs): Layer[] {
     getLineColor: [255, 214, 10, 230], getLineWidth: 2, lineWidthUnits: "pixels", pickable: false,
   }));
   // interleaved (D36): deck draws inside MapLibre's own layer stack; beforeId puts the whole data layer under one boundary
-  return [...(inp.beforeId ? layers.map((l) => l.clone({ beforeId: inp.beforeId } as any)) : layers), ...lines, ...obs];
+  return [...(inp.beforeId ? layers.map((l) => l.clone({ beforeId: inp.beforeId } as any)) : layers), ...lines, ...effort, ...obs];
 }
 
 // ── the map component ─────────────────────────────────────────────────────────

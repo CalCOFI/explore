@@ -14,7 +14,7 @@ export interface Params { [k: string]: Param }
 // tbl is the table a map lens summarizes: `slice`, or `slice_anom` (sql/anom_slice.sql) when it draws an anomaly;
 // clim_loc is the slice column a baseline cell is found by (anomaly.ts anomLoc()), clim_period the slice's cruise month or
 // quarter ({{cruise_month}} / {{cruise_quarter}}, anomaly.ts anomTokens())
-const RAW = new Set(["val", "hex", "where", "where_nodepth", "where_noyear", "src", "taxon_src", "root_src", "spatial_src", "clim_src", "dataset_filter", "quarter_filter", "bin", "sm_src", "mt_src", "qual_ok", "root_hex7", "tbl", "clim_loc", "clim_period", "area_filter",
+const RAW = new Set(["val", "hex", "where", "where_nodepth", "where_noyear", "src", "taxon_src", "root_src", "spatial_src", "clim_src", "dataset_filter", "quarter_filter", "bin", "sm_src", "mt_src", "qual_ok", "root_hex7", "tbl", "clim_loc", "clim_period", "area_filter", "track_src",
   "cruise_month", "cruise_quarter", "cruise_year"]);
 
 // the CRUISE's month / quarter / year from its `YYYY-MM-NODC` cruise_key — the month SWFSC designates, never the calendar
