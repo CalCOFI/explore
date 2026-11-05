@@ -14,7 +14,7 @@ const LABELS: Record<BathyPart, string> = { relief: "shaded relief", depth: "dep
 // the one-colour strip: mid-tone Material shades in the registry's families — they read on dark and light alike
 const SWATCHES = ["#1565c0", "#42a5f5", "#00838f", "#2e7d32", "#7cb342", "#f57c00", "#8d6e63", "#7b1fa2", "#c2185b", "#546e7a"];
 
-export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; theme: "dark" | "light"; defs: SpatialLayerDef[]; view3d?: boolean; rampHint?: RampHint | null }) {
+export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; theme: "dark" | "light"; defs: SpatialLayerDef[]; view3d?: boolean; rampHint?: RampHint | null; effort?: { avail: boolean; n: number; km: number } }) {
   const parts = p.sel.bathy ?? [...BATHY_PARTS];
   const on = parts.length > 0;
   const def = bathyDefaultOpacity(p.theme);
@@ -110,6 +110,10 @@ export function LayersCard(p: { sel: Sel; setSel: (s: Partial<Sel>) => void; the
       <label className="layers-row layers-opacity">
         <span className="hint">colour</span>
         <input type="color" aria-label="observation dot colour" disabled={!p.sel.obs} value={`#${p.sel.obs ?? OBS_COLOR}`} onChange={(e) => p.setSel({ obs: e.target.value.slice(1).toLowerCase() })} />
+      </label>
+      <label className="layers-row layers-main" title={p.effort?.avail ? "where the observers looked: each survey's on-effort segments (thick) and the line of sight from the ship to each sighted animal (thin), for the selected datasets in the time window and the shown cruise — whatever the taxon, and whether or not Data is on (`effort=on`)" : "this release has no sample_track table (survey effort as paths; first written by the cetacean sightings)"}>
+        <input type="checkbox" disabled={!p.effort?.avail} checked={!!p.effort?.avail && p.sel.effort} onChange={() => p.setSel({ effort: !p.sel.effort })} />
+        <b>Effort</b> <span className="hint">{!p.effort?.avail ? "not in this release" : p.sel.effort ? `${p.effort.n.toLocaleString()} segments · ${Math.round(p.effort.km).toLocaleString()} km` : "survey effort segments and sight lines"}</span>
       </label>
 
       <label className="layers-row layers-main">

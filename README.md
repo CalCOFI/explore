@@ -94,6 +94,10 @@ says what the app does and how to work on it without needing them.
   selection at its own position (to 0.01°, `sql/contour_cast.sql`) as a dot, in any lens and on top of everything.
   It is independent of the *Data* row, so `data=off&obs=on` draws the sampling over the sea floor and the boundaries
   with no summary colour.
+- **Effort is a layer of its own** (`effort=on`): the survey effort in the release's `sample_track` — each on-effort
+  segment as an amber path and the line of sight to each sighted animal as a thinner one — for the selected datasets in
+  the time window (by the cruise's month) and, in the Cruises lens, the shown cruise. It never depends on the taxon: it
+  is where the observers looked. Absent (the row disabled) on a release without `sample_track`.
 - **The data layer has its own rows in the Layers card**: on/off (`data=off` leaves the sea floor and boundaries
   alone), opacity (`datao=`), the **colour ramp** (`ramp=thermal`, `_r` reverses): cmocean's 22 ramps (Thyng et
   al. 2016), viridis and oce's GEBCO ramp, in `src/ramps.ts`; with no `ramp=` the variable picks its cmocean

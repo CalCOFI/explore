@@ -62,6 +62,7 @@ export interface Sel {
   datao: number | null;        // the data layer's opacity 0–1 (`datao=0.6`); null = 1
   lines: boolean;              // `lines=on`: the CalCOFI lines threaded through their stations and named at both ends, with or without Data (Erin, 2026-10-02)
   obs: string | null;          // `obs=on|<hex>`: every site in the selection as a dot of this colour, in any lens and with Data off (Erin, 2026-10-05); null = off
+  effort: boolean;             // `effort=on`: the survey effort (sample_track: on-effort segments and sight lines) of the selected datasets in the time window, whatever the taxon; off by default, and absent from a release with no sample_track
   strip: StripMode | null;     // the years strip's mode (`strip=mean|cruises`); null = observations. A welcome question needs it.
   tbin: "season" | "year";     // the strip's bin in mean ± se (`tbin=year`): a point per season (cruise quarter, the default — explore#21) or per year
   area: string | null;         // the Area filter (`area=std|std,ext|box:w,s,e,n|in:layer|name`, src/area.ts, explore#20); null = everywhere
@@ -224,7 +225,7 @@ export const DEFAULTS: Sel = {
   lens: "station", res: 5, interp: "tps", surface: "value", grain: "site", inputs: null, labels: true, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature",
   stage: null, den: null, zeros: true, years: [1949, YEAR_OPEN], months: null, q: null, yview: null, depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
   line: 90, cruise: null, stat: "mean", anom: false, base: "month", tour: true, tourOn: false, modal: null, theme: null, release: null, station: null, datasets: null,
-  hide: DEFAULT_HIDE, max: null, map: null, bathy: null, bathyo: null, land: true, baseLabels: true, basemapo: null, layers: null, view3d: false, exag: null, cam: null, strip: null, tbin: "season", area: null, ramp: null, data: true, datao: null, lines: false, obs: null,
+  hide: DEFAULT_HIDE, max: null, map: null, bathy: null, bathyo: null, land: true, baseLabels: true, basemapo: null, layers: null, view3d: false, exag: null, cam: null, strip: null, tbin: "season", area: null, ramp: null, data: true, datao: null, lines: false, obs: null, effort: false,
 };
 
 const num = (v: string | null, d: number) => (v != null && v !== "" && !isNaN(+v) ? +v : d);
@@ -316,6 +317,7 @@ export function fromUrl(): Sel {
     data: p.get("data") !== "off",
     lines: p.get("lines") === "on",
     obs: parseObs(p.get("obs")),
+    effort: p.get("effort") === "on",
     datao: (v => v != null && v !== "" && isFinite(+v) && +v >= 0 && +v < 1 ? Math.round(+v * 100) / 100 : null)(p.get("datao")),
   };
 }
@@ -374,6 +376,7 @@ export function toUrl(s: Sel) {
   if (s.datao != null) p.set("datao", s.datao.toFixed(2));
   if (s.lines) p.set("lines", "on");
   if (s.obs) p.set("obs", s.obs === OBS_COLOR ? "on" : s.obs);
+  if (s.effort) p.set("effort", "on");
   // URLSearchParams escapes , and : (%2C %3A) though both are legal in a query string; a link people read and paste
   // keeps them raw — `cam=-121.2,32.6,7.2,40,-60`, `taxon=worms:217452` (Ben, 2026-09-10: "doesn't get so ugly")
   const url = `${location.pathname}?${p.toString().replace(/%2C/g, ",").replace(/%3A/g, ":")}`;
