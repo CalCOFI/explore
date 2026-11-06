@@ -12,12 +12,13 @@ export const DT_PANEL = "depthtime" as const;
  * baseline (null when none of the cell's n_obs had one), and the cruises in it */
 export interface DtRow { year: number; quarter: number; depth_bin: number; anom: number | null; n: number; n_obs: number; cruises: string | null }
 export const DT_BIN_M = 10;
-const Q_MONTHS = ["Jan–Mar", "Apr–Jun", "Jul–Sep", "Oct–Dec"];
-/** a season's place on the time axis: the quarter's midpoint as a fractional year — App.tsx SEASON_BIN's convention, so
- * the card's columns sit under the Time strip's mean ± se points */
+import { SEASON_CODE, SEASON_WORD } from "./anomaly";
+/** a season's place on the time axis: the season's midpoint as a fractional year of its season_year (1 = DJF … 4 = SON; a
+ * December cruise sits in the following year's winter) — App.tsx SEASON_BIN's convention, so the card's columns sit under
+ * the Time strip's mean ± se points */
 export const seasonX = (year: number, quarter: number) => year + (quarter - 0.5) / 4;
-/** "2015 Q3 (Jul–Sep)" */
-export const seasonLabel = (year: number, quarter: number) => `${year} Q${quarter} (${Q_MONTHS[quarter - 1]})`;
+/** "2015 JJA (Jun–Aug)" */
+export const seasonLabel = (year: number, quarter: number) => `${year} ${SEASON_CODE[quarter - 1]} (${SEASON_WORD[quarter - 1]})`;
 /** "50–60 m": a floor bin is labelled by its shallow edge (calcofi4db: floor(depth_min_m / 10) * 10) */
 export const binLabel = (bin: number) => `${bin}–${bin + DT_BIN_M} m`;
 

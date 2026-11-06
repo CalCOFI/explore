@@ -53,6 +53,14 @@ describe("effort_track.sql — sample_track placed by sample_root, filtered with
     expect(keys({ ym0: 202208, ym1: 202208 })).toEqual([`${DS}:sighting:12`]);
   });
   it("the season filter reads the cruise's quarter", () => expect(keys({ quarter_filter: "quarter IN (2)" })).toEqual(["other_ds:transect:9", `${DS}:transect:1`, `${DS}:sighting:11`]));
+  // v2026.11+: the cruise table's median cast month outranks the key's MM, as in the slice (explore#43); the key rule stands
+  // for a cruise the table does not know, and DJF is season 1 of the NEXT year's count only in season_year, not in the window
+  it("the cruise's median cast month places the path when the release's cruise table carries it", () => {
+    const cz = `(SELECT * FROM (VALUES ('2022-04-32SH', DATE '2022-06-15', 6::TINYINT, 2022::SMALLINT)) t(cruise_key, date_median, month_median, season_year))`;
+    expect(keys({ cruise_src: cz, ym0: 202206, ym1: 202206 })).toEqual([`${DS}:transect:1`, `${DS}:sighting:11`]);
+    expect(keys({ cruise_src: cz, ym0: 202204, ym1: 202204 })).toEqual(["other_ds:transect:9"]);
+    expect(keys({ cruise_src: cz, quarter_filter: "quarter IN (3)" })).toEqual([`${DS}:transect:1`, `${DS}:transect:2`, `${DS}:sighting:11`, `${DS}:sighting:12`]);
+  });
   it("the dataset pills filter on dataset_key", () => expect(keys({ dataset_filter: datasetFilterSql(["other_ds"]) })).toEqual(["other_ds:transect:9"]));
   it("the cruise lens keeps one cruise, its sight lines included", () => {
     expect(keys({ cruise: "2022-04-32SH" })).toEqual([`${DS}:transect:1`, `${DS}:sighting:11`]);

@@ -13,21 +13,39 @@ export interface Params { [k: string]: Param }
 // registry and the quality predicate (src/qual.ts qualOkSQL()); root_hex7 is `r.hex7` or `NULL::UBIGINT` (App.tsx castTokens)
 // tbl is the table a map lens summarizes: `slice`, or `slice_anom` (sql/anom_slice.sql) when it draws an anomaly;
 // clim_loc is the slice column a baseline cell is found by (anomaly.ts anomLoc()), clim_period the slice's cruise month or
-// quarter ({{cruise_month}} / {{cruise_quarter}}, anomaly.ts anomTokens())
+// season ({{cruise_month}} / {{cruise_quarter}}, anomaly.ts anomTokens())
 const RAW = new Set(["val", "hex", "where", "where_nodepth", "where_noyear", "src", "taxon_src", "root_src", "spatial_src", "clim_src", "dataset_filter", "quarter_filter", "bin", "sm_src", "mt_src", "qual_ok", "root_hex7", "tbl", "clim_loc", "clim_period", "area_filter", "track_src",
-  "cruise_month", "cruise_quarter", "cruise_year"]);
+  "cruise_month", "cruise_quarter", "cruise_year", "cruise_src", "key_month", "key_year", "key_quarter", "cs_year", "cs_quarter", "cs_month"]);
 
-// the CRUISE's month / quarter / year from its `YYYY-MM-NODC` cruise_key — the month SWFSC designates, never the calendar
-// date a station was worked (a July cruise works its first stations on 30 June: explore#17). NULL for a missing or
-// malformed key, where the caller falls back to the calendar. Built-in tokens: every template may name {{cruise_month}},
-// {{cruise_quarter}}, {{cruise_year}} without the caller passing them; they read the unqualified column `cruise_key`.
-// The same rule as anomaly.ts cruiseMonth() / cruiseQuarter(), and as calcofi4db's build_obs_slim() at release.
+// THE CRUISE'S MONTH AND SEASON. Since release v2026.11 (calcofi4db 4.34.0; Rasmus Swalethorp 2026-10-16, Ben Best
+// 2026-10-20) a cruise's month is its MEDIAN cast month — `cruise.month_median`, with `date_median`, `season` and
+// `season_year` beside it — never the MM its `YYYY-MM-NODC` key designates and never the calendar date a station was worked
+// (a July cruise works its first stations on 30 June: explore#17); the seasons are DJF / MAM / JJA / SON, numbered 1–4
+// (`quarter`), December counting toward the following year's winter (`season_year`). The slice templates join the
+// release's cruise table ({{cruise_src}}, the registered `cruise` object when it carries month_median — App.tsx probes
+// it; the typed empty relation below otherwise, so the join is a no-op) and fall back to the key rule ({{key_month}},
+// {{key_year}}, {{key_quarter}}) on a release before v2026.11 or a cruise the table does not know. Every lens template
+// then reads the slice's own columns through the built-in tokens: {{cruise_month}} = cruise_month, {{cruise_quarter}} =
+// quarter (1 = DJF … 4 = SON), {{cruise_year}} = year. The same rule as calcofi4db's build_obs_slim() at release.
 const CRUISE_KEY_OK = "regexp_matches(cruise_key, '^[0-9]{4}-(0[1-9]|1[0-2])-')";
-export const CRUISE_MONTH_SQL = `(CASE WHEN ${CRUISE_KEY_OK} THEN CAST(substr(cruise_key, 6, 2) AS INTEGER) END)`;
-export const CRUISE_QUARTER_SQL = `((${CRUISE_MONTH_SQL} - 1) // 3 + 1)`;
-export const CRUISE_YEAR_SQL = `(CASE WHEN ${CRUISE_KEY_OK} THEN CAST(substr(cruise_key, 1, 4) AS INTEGER) END)`;
+/** the DJF / MAM / JJA / SON season of a month expression, numbered 1–4 (calcofi4db::cruise_quarter_sql()) */
+export const djfSql = (m: string) => `(CASE WHEN ${m} IN (12, 1, 2) THEN 1 WHEN ${m} IN (3, 4, 5) THEN 2 WHEN ${m} IN (6, 7, 8) THEN 3 WHEN ${m} IN (9, 10, 11) THEN 4 END)`;
+/** the key rule: the cruise's month / year from its YYYY-MM-NODC key, NULL for a malformed key (the fallback) */
+export const KEY_MONTH_SQL = `(CASE WHEN ${CRUISE_KEY_OK} THEN CAST(substr(cruise_key, 6, 2) AS INTEGER) END)`;
+export const KEY_YEAR_SQL = `(CASE WHEN ${CRUISE_KEY_OK} THEN CAST(substr(cruise_key, 1, 4) AS INTEGER) END)`;
+export const KEY_QUARTER_SQL = djfSql(KEY_MONTH_SQL);
+/** the slice's own columns, which every lens template keys on */
+export const CRUISE_MONTH_SQL = "cruise_month";
+export const CRUISE_QUARTER_SQL = "quarter";
+export const CRUISE_YEAR_SQL = "year";
+/** a cruise table with none of the median columns: the slice join finds nothing and the key rule stands */
+export const NO_CRUISE_SRC = "(SELECT NULL::VARCHAR AS cruise_key, NULL::DATE AS date_median, NULL::TINYINT AS month_median, NULL::SMALLINT AS season_year WHERE FALSE)";
 // {{tbl}} defaults to the slice itself; a map lens drawing an anomaly passes slice_anom
-const BUILTIN: Params = { cruise_month: CRUISE_MONTH_SQL, cruise_quarter: CRUISE_QUARTER_SQL, cruise_year: CRUISE_YEAR_SQL, tbl: "slice", area_filter: "TRUE" }; // and the Area filter (src/area.ts) is everywhere unless a caller says
+const BUILTIN: Params = { cruise_month: CRUISE_MONTH_SQL, cruise_quarter: CRUISE_QUARTER_SQL, cruise_year: CRUISE_YEAR_SQL, tbl: "slice", area_filter: "TRUE",
+  cruise_src: NO_CRUISE_SRC, key_month: KEY_MONTH_SQL, key_year: KEY_YEAR_SQL, key_quarter: KEY_QUARTER_SQL,
+  // the cruise table's own month / season / season year (sql/cruise_seasons.sql, cruise_ref.sql): the key rule unless App.tsx
+  // has probed the median columns and passes month_median / season_year
+  cs_month: KEY_MONTH_SQL, cs_year: KEY_YEAR_SQL, cs_quarter: KEY_QUARTER_SQL }; // and the Area filter (src/area.ts) is everywhere unless a caller says
 export const datasetFilterSql = (ds: string[] | null | undefined) => ds?.length ? `dataset_key IN (${ds.map((d) => lit(d)).join(", ")})` : "TRUE";
 
 // an H3 parent as plain bit arithmetic (calcofi4db::h3_parent_sql): resolution in bits 52–55, one

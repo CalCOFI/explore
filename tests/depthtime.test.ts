@@ -122,9 +122,9 @@ describe("depthtime.ts — the grid, the window, the hover, the empty card", () 
     expect(dtTrace(dtGrid([row(2020, 3, 10, 1)]), "degC", "month", "curl").colorscale).toEqual(rampPlotly("curl")); // a `ramp=` link wins, as on the map
   });
   it("the hover names the season, the bin, the anomaly with its unit, n — or why the cell is blank", () => {
-    expect(seasonLabel(2015, 3)).toBe("2015 Q3 (Jul–Sep)"); expect(binLabel(50)).toBe("50–60 m");
+    expect(seasonLabel(2015, 3)).toBe("2015 JJA (Jun–Aug)"); expect(seasonLabel(2026, 1)).toBe("2026 DJF (Dec–Feb)"); expect(binLabel(50)).toBe("50–60 m");
     const h = dtHover({ year: 2015, quarter: 3, depth_bin: 50, anom: 0.42, n: 12, n_obs: 15, cruises: "2015-07-RL" }, [2015, 3], 50, "degC", "month");
-    expect(h).toContain("2015 Q3 (Jul–Sep) · 50–60 m"); expect(h).toContain("+0.42 degC"); expect(h).toContain("n 12 observations (of 15");
+    expect(h).toContain("2015 JJA (Jun–Aug) · 50–60 m"); expect(h).toContain("+0.42 degC"); expect(h).toContain("n 12 observations (of 15");
     expect(h).toContain("cruise 2015-07-RL");
     expect(dtHover({ year: 2015, quarter: 3, depth_bin: 50, anom: -1, n: 1, n_obs: 1, cruises: null }, [2015, 3], 50, "degC", "month")).toContain("−1 degC");
     expect(dtHover({ year: 2015, quarter: 3, depth_bin: 50, anom: null, n: 0, n_obs: 3, cruises: null }, [2015, 3], 50, "degC", "season")).toContain("no seasonal normal for its 3 observations");
