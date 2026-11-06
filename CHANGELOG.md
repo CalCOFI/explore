@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **an Effort layer** (`effort=on`, a row in the Layers card beside Lines and Observations). It draws the release's
+  `sample_track` (calcofi4db 4.35.0+, first written by the cetacean sightings): each survey's on-effort segments as a
+  solid amber path on a dark halo and the line of sight from the ship to each sighted animal thinner and fainter, under
+  the Observations dots and over the data. It follows the dataset pills, the years, the season, the Area and, in the
+  Cruises lens, the shown cruise, but never the taxon, variable or depth band: effort is where the observers looked,
+  whatever they saw (`sql/effort_track.sql`, its own effect in `App.tsx`). Time is the cruise's month, from each path's
+  root sample in `sample_root` (a sight line takes the segment whose span contains it); a path with no cruise falls
+  back to the calendar month. The path is built from the six lon/lat columns (`src/effort.ts`), never from `geom`. A
+  release with no `sample_track` disables the row with a title saying why. Hover a path for its type, time and length;
+  the row reads *N segments · X km* when on. `tests/effort.sql.test.ts` runs the template on a fixture.
 - **fix: the map's data was hidden under the sea** (explore#39, Rasmus Swalethorp: "The explorer app stopped displaying
   temperature"). CARTO moved its basemap tiles from OpenMapTiles to Protomaps (water polygons now carry `kind`, not
   `class`), so the land mask's inland-water copy, filtered on `class != "ocean"`, matched the whole ocean and repainted

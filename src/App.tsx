@@ -8,6 +8,7 @@ import { UNIFIED, members, setUnified, unifiedDefs } from "./variables";
 import { castVariables, derivedFamily, derivedTip, grainCount, grainWord, variableGrain, DERIVED_FAMILY, type CastCensusRow, type RegistryRow, type VarGrain } from "./castgrain";
 import { qualOkSQL } from "./qual";
 import { lineThreads, nearestSectionLine, resolveStation, sectionLines, type CrosswalkRow } from "./gridkey";
+import { effortPaths as toEffortPaths, effortSummary, type EffortPath, type EffortRow } from "./effort";
 import { lit, CRUISE_MONTH_SQL, djfSql, type Params } from "./sqltpl";
 import { buildLayers, MapView, quantileDomain, colorScale, type GridCell, type StatRow, type LayerInputs } from "./map";
 import { computeSurface, surfaceImage, isolines, niceLevels, joinSegments, labelPoints, thinLabels, cellToLonLat, cellValue, landMask, MASK_KM, type Surface as SurfaceResult } from "./contour";
@@ -75,7 +76,7 @@ const native = new URLSearchParams(location.search).get("native") === "1"; // D1
 const phoneQuery = matchMedia("(max-width: 899px)");
 
 // registered buffer names: the SQL templates read these (`{{src}}` etc.), never a URL
-const REG = { obs_bio: "obs_bio.parquet", sample_root: "sample_root.parquet", sample_spatial: "sample_spatial.parquet", taxon: "taxon.parquet", measurement_type: "measurement_type.parquet", dataset: "dataset.parquet", cruise: "cruise.parquet", provider: "provider.parquet", sample_measurement: "sample_measurement.parquet", grid_crosswalk: "grid_crosswalk.parquet" } as const;
+const REG = { obs_bio: "obs_bio.parquet", sample_root: "sample_root.parquet", sample_spatial: "sample_spatial.parquet", taxon: "taxon.parquet", measurement_type: "measurement_type.parquet", dataset: "dataset.parquet", cruise: "cruise.parquet", provider: "provider.parquet", sample_measurement: "sample_measurement.parquet", grid_crosswalk: "grid_crosswalk.parquet", sample_track: "sample_track.parquet" } as const;
 const envReg = (v: string) => `obs_env_${v}.parquet`;
 // does the release hold a per-bin object (an obs_env partition) for any member type of this variable? The per-bin path
 // when it does; a variable with none is per-cast only if the registry says so (castgrain.ts variableGrain())
@@ -89,6 +90,8 @@ const castTokens = (rootHex7 = false) => ({ sm_src: q(REG.sample_measurement), r
 // the release's `climatology` table, one hive object per measurement type like obs_env (calcofi4db::build_climatology())
 const climReg = (v: string) => `climatology_${v}.parquet`;
 const hasClim = (cat: Catalog | null) => !!cat?.tables.some((t) => t.name === "climatology");
+// the release's `sample_track` (calcofi4db 4.35.0+: survey effort as paths); a release without it has no Effort layer, never a throw
+const hasTrack = (cat: Catalog | null) => !!cat?.tables.some((t) => t.name === "sample_track");
 const ZEROS_TIP = `Datasets such as ichthyo record a tow only when it caught the taxon, so a mean over their records alone is a mean over positive tows — biased high, and a surveyed year with no catch looks like a year with no survey.
 By default every tow such a dataset sampled counts as 0 for this taxon (a "zero-filled tow": obs_id NULL in the export; never counted as an observation).
 positive-only turns that off: mean, median and se run over the tows with a catch, as the raw records do. Datasets that record their own zeros (CUFES, ZooScan, ZooDB, phyllosoma) read the same either way.`;
@@ -211,6 +214,7 @@ export function App() {
   const [surf, setSurf] = useState<SurfaceResult | null>(null); // the contour lens's interpolated surface (contour.worker.ts)
   const surfGen = useRef(0);
   const [castRows, setCastRows] = useState<Row[]>([]);          // the site grain: one row per site (contour_cast.sql)
+  const [effortPaths, setEffortPaths] = useState<EffortPath[]>([]);    // the Effort layer (`effort=on`): sql/effort_track.sql → src/effort.ts
   const [land, setLand] = useState<{ key: string; mask: Uint8Array } | null>(null); // the land clip for the surface's grid (Natural Earth land, D42)
   const overlayRef = useRef<MapboxOverlay | null>(null);        // the deck overlay, driven directly by the cruise playback (D37)
   const [lastSql, setLastSql] = useState("");
@@ -692,6 +696,23 @@ export function App() {
     })().catch((e) => { console.error(e); setStatus(`error: ${e.message}`); });
   }, [sliceKey, sel.lens, sel.res, sel.layer, sel.line, sel.cruise, sel.grain, sel.interp === "tps", !!sel.obs, params, anomMap, climBase]);
 
+  // the Effort layer (`effort=on`): sample_track for the selected datasets in the time window, for the shown cruise in the cruise
+  // lens (sql/effort_track.sql). Its own effect on its own parameters, never the taxon, the variable or the depth band: effort
+  // is where the observers looked, whatever they saw. A release with no sample_track has no layer (the row is disabled)
+  const effortAvail = hasTrack(catalog);
+  const effortCruise = sel.lens === "cruise" ? sel.cruise : null;
+  useEffect(() => {
+    if (!sel.effort || !effortAvail || areaPending || (sel.lens === "cruise" && !effortCruise)) { setEffortPaths([]); return; }
+    let live = true;
+    const ep = { track_src: q(REG.sample_track), root_src: q(REG.sample_root), ym0: params.ym0, ym1: params.ym1, quarter_filter: params.quarter_filter, dataset_filter: params.dataset_filter, area_filter: params.area_filter, cruise: effortCruise };
+    Promise.all([ensure(REG.sample_track), ensure(REG.sample_root)])
+      .then(() => engine.query("effort_track", ep))
+      .then((r) => { if (live) setEffortPaths(toEffortPaths(r as unknown as EffortRow[])); })
+      .catch((e) => { console.warn("sample_track:", e.message); if (live) setEffortPaths([]); });
+    return () => { live = false; };
+  }, [sel.effort, effortAvail, areaPending, sel.lens, effortCruise, params.ym0, params.ym1, params.quarter_filter, params.dataset_filter, params.area_filter]);
+  const effortSum = useMemo(() => effortSummary(effortPaths), [effortPaths]);
+
   // cruise playback (D37): the clock lives in a ref and the loop hands deck new layers itself — no App render per frame
   const timeRef = useRef(0);
   const inputsRef = useRef<LayerInputs | null>(null);
@@ -815,8 +836,8 @@ export function App() {
     cruise: { track, samples: cruiseSamples as any, time: timeRef.current },
     section: { line: sel.line, cruiseStations },
     contour: contourInputs,
-    duration, domain, ramp: rampId, dataOn: sel.data, dataOpacity: sel.datao ?? 1, obs: sel.obs ? { rows: castRows as any[], color: sel.obs } : null, lines: sel.lines ? lineThreadsAll : null, beforeId: dataBeforeId, selectedStation: sel.station, area: areaOutline,
-  }), [displayLens, sel.res, stat, preSlice, grid, stationMap, hexRows, layerFeatures, regionStats, regionStation, centroids, sel.region, track, cruiseSamples, sel.line, cruiseStations, domain, sel.station, contourInputs, rampId, sel.data, sel.datao, sel.obs, castRows, sel.lines, lineThreadsAll, dataBeforeId, areaOutline]);
+    duration, domain, ramp: rampId, dataOn: sel.data, dataOpacity: sel.datao ?? 1, obs: sel.obs ? { rows: castRows as any[], color: sel.obs } : null, lines: sel.lines ? lineThreadsAll : null, effort: sel.effort ? effortPaths : null, beforeId: dataBeforeId, selectedStation: sel.station, area: areaOutline,
+  }), [displayLens, sel.res, stat, preSlice, grid, stationMap, hexRows, layerFeatures, regionStats, regionStation, centroids, sel.region, track, cruiseSamples, sel.line, cruiseStations, domain, sel.station, contourInputs, rampId, sel.data, sel.datao, sel.obs, castRows, sel.lines, lineThreadsAll, sel.effort, effortPaths, dataBeforeId, areaOutline]);
   inputsRef.current = layerInputs;
   const layers = useMemo(() => buildLayers(layerInputs), [layerInputs]);
 
@@ -1153,6 +1174,7 @@ export function App() {
     if (id === "hexes") return { text: `${o.hex}\n${mapAnomDrawn ? `${STAT_LABEL[stat]} difference from the cruise-${climBase === "season" ? "season" : "month"} normal ` : `${STAT_LABEL[stat]} `}${fmt(statOf(o))}${mapAnomDrawn ? ` ${unitLabel}` : ""} · ${fmtN(o.n)} ${countWord}${mapAnomDrawn ? " with a baseline" : ""} · ${o.n_samples} samples` };
     if (id === "regions") { const s = regionStats.get(o.properties.spatial_key); return { text: `${o.properties.name}\n${s ? `${STAT_LABEL[stat]} ${fmt(statOf(s))} · ${fmtN(s.n)} observations · ${s.n_samples} samples · ${s.y0}–${s.y1}` : "no data"}` }; }
     if (id === "cruise-samples") return { text: `${o.grid_key ?? "—"} · ${new Date(o.t * 1000).toISOString().slice(0, 10)}\n${STAT_LABEL[stat]} ${fmt(statOf(o))} · ${fmtN(o.n)} observations` };
+    if (id === "effort" || id === "effort-sight") return { text: `${o.track_type === "sight_line" ? "line of sight to a sighting" : "on-effort segment"} · ${short(o.dataset_key)}\n${o.t != null ? new Date(o.t * 1000).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "no time"}${o.length_km != null ? ` · ${fmt(o.length_km, 2)} km` : ""}` };
     return null;
   };
   const onClick = (info: PickingInfo) => {
@@ -1462,7 +1484,7 @@ export function App() {
   </>;
   // D28 reshaped: the Sections lens (env) as a deck-only curtain scene — desktop only, the phone keeps 2-D
   const view3dOn = sel.view3d && displayLens === "section" && sel.realm === "env" && !phone;
-  const layersBody = <LayersCard sel={sel} setSel={setSel} theme={theme} defs={spatialLayers.layers} view3d={view3dOn} rampHint={rampHint} />;
+  const layersBody = <LayersCard sel={sel} setSel={setSel} theme={theme} defs={spatialLayers.layers} view3d={view3dOn} rampHint={rampHint} effort={{ avail: hasTrack(catalog), ...effortSum }} />;
   const seaFloorOn = bathyOn(bathyFromSel(sel));
   const visibleBoundaries = layersEff.map((st) => ({ st, d: spatialLayers.layers.find((d) => d.id === st.id) })).filter((x): x is { st: (typeof x)["st"]; d: SpatialLayerDef } => !!x.d);
   // the legend lists the boundaries drawn, not the reference kinds (labels, a raster): a name layer in the legend is overkill (Ben, 2026-09-09)
