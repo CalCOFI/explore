@@ -38,6 +38,10 @@ export const KEY_QUARTER_SQL = djfSql(KEY_MONTH_SQL);
 export const CRUISE_MONTH_SQL = "cruise_month";
 export const CRUISE_QUARTER_SQL = "quarter";
 export const CRUISE_YEAR_SQL = "year";
+/** the release's cruise table as the slice templates join it ({{cruise_src}}): ONLY the key and the median columns. The
+ * table carries its own year / month / season_year (v2026.11.05), which a bare `year` in a template would make ambiguous
+ * against the slice source's (Binder Error, explore#48) */
+export const cruiseSrcSql = (from: string) => `(SELECT cruise_key, date_median, month_median FROM ${from})`;
 /** a cruise table with none of the median columns: the slice join finds nothing and the key rule stands */
 export const NO_CRUISE_SRC = "(SELECT NULL::VARCHAR AS cruise_key, NULL::DATE AS date_median, NULL::TINYINT AS month_median, NULL::SMALLINT AS season_year WHERE FALSE)";
 // {{tbl}} defaults to the slice itself; a map lens drawing an anomaly passes slice_anom

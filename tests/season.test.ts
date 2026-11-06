@@ -8,7 +8,7 @@
 //   · a per-cast value (depth_bin NULL) finds its baseline NULL-safely, by grid_key; one with none drops out, never 0
 //   · a release whose climatology has no season_* columns (v2026.10.08) still draws the monthly anomaly
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { render, datasetFilterSql, hexExpr, type Params } from "../src/sqltpl";
+import { render, datasetFilterSql, hexExpr, cruiseSrcSql, type Params } from "../src/sqltpl";
 import { qualOkSQL } from "../src/qual";
 import { anomTokens, anomalyOf, baselineWord, climBaseSql, climLookup, cruiseQuarter, hasSeasonCols, periodOf, seasonOf } from "../src/anomaly";
 import type { SectionCell } from "../src/charts";
@@ -88,6 +88,16 @@ describe("the season is the cruise's (explore#17): DJF / MAM / JJA / SON of its 
       .toEqual([{ year: 2025, quarter: 2, cruises: "2025-04-3322" }, { year: 2026, quarter: 1, cruises: "2026-01-3322" }, { year: 2026, quarter: 3, cruises: "2026-07-3322" }]);
     expect(db.exec(render("cruise_ref", { src: "(SELECT *, NULL AS ship_key, NULL AS ship_name, NULL AS ship_nodc, NULL AS date_min, NULL AS date_max FROM cruise)", cs_month: "month_median" })).map((r) => [r.cruise_key, r.month]))
       .toEqual([["2026-07-3322", 8], ["2026-01-3322", 12], ["2025-04-3322", 3]]);
+  });
+  it("slice_env with the release's FULL cruise table (v2026.11.05 carries year / month / season_year): no ambiguous year (explore#48)", () => {
+    db.exec(`CREATE OR REPLACE TABLE cruise AS SELECT cruise_key, date_median, month_median, season_year, year(date_median)::INTEGER AS year,
+        month(date_median)::INTEGER AS month, 'summer' AS season, NULL::BIGINT AS bottle FROM (VALUES
+      ('2026-07-3322', DATE '2026-08-02', 8::TINYINT, 2026::SMALLINT)) t(cruise_key, date_median, month_median, season_year)`);
+    const rows = `(1::BIGINT, 'calcofi_ctd-cast', 1, 'st26.7-ln93.3', '093.3 026.7', '2026-07-3322', 35.1::DOUBLE, -120.9::DOUBLE, TIMESTAMP '2026-06-30 22:00:00', 10, 14.0::DOUBLE)`;
+    // the whole table joined as {{cruise_src}} is what broke the Environment realm on v2026.11.05
+    expect(() => obsEnv(rows, "cruise")).toThrow(/Ambiguous reference to column name "year"/);
+    obsEnv(rows, cruiseSrcSql("cruise"));
+    expect(db.exec(`SELECT obs_id, year, quarter, cruise_month, season_year FROM slice`)).toEqual([{ obs_id: 1, year: 2026, quarter: 3, cruise_month: 8, season_year: 2026 }]);
   });
   it("the season filter JJA keeps the inshore 30 June station (it vanished before)", () => {
     obsEnv(`
