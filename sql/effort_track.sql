@@ -6,10 +6,12 @@
 -- sample_track has no cruise_key, so each path takes its root sample's row in sample_root (cruise_key, grid_key,
 -- root_id): an effort segment is a root sample itself; a sight line is the child of its segment (sample.parent_sample_key,
 -- which sample_root does not carry), so it takes the row of the same dataset's segment whose time span contains it.
--- The time window is then the CRUISE's month and quarter (sqltpl.ts {{cruise_month}}, as _filters.sql, explore#17); a
--- path with no cruise (a misdated segment given none, a sight line off effort) falls back to the calendar month of
--- datetime_beg, and one with no time either is not drawn. {{area_filter}} reads grid_key / root_id / latitude /
--- longitude: the path's midpoint and its root row. {{cruise}} is NULL outside the cruise lens.
+-- The time window is then the CRUISE's month and season, the same rule as the slice (slice_env.sql, explore#17): the
+-- cruise table's median cast month ({{cruise_src}}, v2026.11+), the key's YYYY-MM where the table lacks it ({{key_month}} /
+-- {{key_year}}); a path with no cruise (a misdated segment given none, a sight line off effort) falls back to the calendar
+-- month of datetime_beg, and one with no time either is not drawn. quarter is the season 1 = DJF … 4 = SON.
+-- {{area_filter}} reads grid_key / root_id / latitude / longitude: the path's midpoint and its root row. {{cruise}} is
+-- NULL outside the cruise lens.
 WITH seg AS (
   SELECT t.sample_key, t.dataset_key, t.datetime_beg, t.datetime_end, r.root_id, r.grid_key, r.cruise_key
   FROM {{track_src}} t JOIN {{root_src}} r ON r.root_sample_key = t.sample_key
@@ -30,9 +32,12 @@ WITH seg AS (
   LEFT JOIN within w ON w.sample_key = t.sample_key
   LEFT JOIN seg s ON s.sample_key = w.seg_key
 ), dated AS (
-  SELECT *, COALESCE({{cruise_year}}, year(datetime_beg)) AS c_year, COALESCE({{cruise_month}}, month(datetime_beg)) AS c_month,
-         COALESCE({{cruise_quarter}}, quarter(datetime_beg)) AS quarter
-  FROM placed
+  SELECT p.*,
+         COALESCE(COALESCE(year(cz.date_median), {{key_year}}), year(datetime_beg)) AS c_year,
+         COALESCE(COALESCE(cz.month_median, {{key_month}}), month(datetime_beg)) AS c_month,
+         COALESCE((CASE WHEN COALESCE(cz.month_median, {{key_month}}) IN (12, 1, 2) THEN 1 WHEN COALESCE(cz.month_median, {{key_month}}) IN (3, 4, 5) THEN 2 WHEN COALESCE(cz.month_median, {{key_month}}) IN (6, 7, 8) THEN 3 WHEN COALESCE(cz.month_median, {{key_month}}) IN (9, 10, 11) THEN 4 END),
+                  (CASE WHEN month(datetime_beg) IN (12, 1, 2) THEN 1 WHEN month(datetime_beg) IN (3, 4, 5) THEN 2 WHEN month(datetime_beg) IN (6, 7, 8) THEN 3 WHEN month(datetime_beg) IN (9, 10, 11) THEN 4 END)) AS quarter
+  FROM placed p LEFT JOIN {{cruise_src}} cz USING (cruise_key)
 )
 SELECT sample_key, dataset_key, track_type, cruise_key, epoch(datetime_beg) AS t, length_km,
        longitude_beg, latitude_beg, longitude_mid, latitude_mid, longitude_end, latitude_end

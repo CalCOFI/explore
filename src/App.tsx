@@ -705,8 +705,9 @@ export function App() {
     if (!sel.effort || !effortAvail || areaPending || (sel.lens === "cruise" && !effortCruise)) { setEffortPaths([]); return; }
     let live = true;
     const ep = { track_src: q(REG.sample_track), root_src: q(REG.sample_root), ym0: params.ym0, ym1: params.ym1, quarter_filter: params.quarter_filter, dataset_filter: params.dataset_filter, area_filter: params.area_filter, cruise: effortCruise };
-    Promise.all([ensure(REG.sample_track), ensure(REG.sample_root)])
-      .then(() => engine.query("effort_track", ep))
+    // the path's month is the cruise's median cast month where the release's cruise table carries it, as the slice's
+    Promise.all([ensure(REG.sample_track), ensure(REG.sample_root), probeCruiseMedian()])
+      .then(([, , median]) => engine.query("effort_track", median ? { ...ep, cruise_src: q(REG.cruise) } : ep))
       .then((r) => { if (live) setEffortPaths(toEffortPaths(r as unknown as EffortRow[])); })
       .catch((e) => { console.warn("sample_track:", e.message); if (live) setEffortPaths([]); });
     return () => { live = false; };
