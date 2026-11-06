@@ -1,7 +1,7 @@
 // "the same SQL the browser ran", resolved against the release's own object URLs — what Share › Copy code copies (SQL, R,
 // Python) and what the download bundle writes under query/ and as reproduce.R / .py. Pure: no engine, no worker, so
 // tests/reproduce.test.ts can render the copied SQL and RUN it (it lived in bundle.ts, which imports the engine).
-import { render, type Params } from "./sqltpl";
+import { render, cruiseSrcSql, type Params } from "./sqltpl";
 import { sources, readParquetSql, type Catalog } from "./release";
 import type { Sel } from "./state";
 import { members } from "./variables";
@@ -31,7 +31,7 @@ export function resolvedSql(ctx: Pick<ReproCtx, "sel" | "catalog" | "params" | "
     src: sel.realm === "bio" ? readParquetSql(bioSrc) : envUnion ?? "", // a per-cast slice reads no {{src}}: its sources are sm_src / root_src / mt_src
     taxon_src: readParquetSql(txSrc), root_src: readParquetSql(rootSrc), spatial_src: readParquetSql(spSrc),
     // the cruise table, for the cruise's median month and season (v2026.11+); without it the slice keys on the cruise_key
-    ...(ctx.cruiseMedian ? { cruise_src: readParquetSql(sources(catalog, "cruise")) } : {}),
+    ...(ctx.cruiseMedian ? { cruise_src: cruiseSrcSql(readParquetSql(sources(catalog, "cruise"))) } : {}),
   };
   // a per-cast variable: the same join the browser ran — sample_measurement ⋈ sample_root, units from the registry,
   // the quality predicate qualOkSQL("sm") — against the release's own object URLs (sql/slice_cast.sql)

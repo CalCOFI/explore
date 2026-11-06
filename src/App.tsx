@@ -9,7 +9,7 @@ import { castVariables, derivedFamily, derivedTip, grainCount, grainWord, variab
 import { qualOkSQL } from "./qual";
 import { lineThreads, nearestSectionLine, resolveStation, sectionLines, type CrosswalkRow } from "./gridkey";
 import { effortPaths as toEffortPaths, effortSummary, type EffortPath, type EffortRow } from "./effort";
-import { lit, CRUISE_MONTH_SQL, djfSql, type Params } from "./sqltpl";
+import { lit, CRUISE_MONTH_SQL, cruiseSrcSql, djfSql, type Params } from "./sqltpl";
 import { buildLayers, MapView, quantileDomain, colorScale, type GridCell, type StatRow, type LayerInputs } from "./map";
 import { computeSurface, surfaceImage, isolines, niceLevels, joinSegments, labelPoints, thinLabels, cellToLonLat, cellValue, landMask, MASK_KM, type Surface as SurfaceResult } from "./contour";
 import { LensPicker } from "./lenspicker";
@@ -428,7 +428,7 @@ export function App() {
       const rootHex7 = hex7 ? await hex7 : false;
       if (grain === "cast") setCastHex(rootHex7);
       // the cruise table joins every slice for the cruise's median month and season (v2026.11+); absent, the key rule
-      const cruiseSrc: Params = (await probeCruiseMedian()) ? { cruise_src: q(REG.cruise) } : {};
+      const cruiseSrc: Params = (await probeCruiseMedian()) ? { cruise_src: cruiseSrcSql(q(REG.cruise)) } : {};
       if (g !== gen.current) return;
       setStatus("building slice…");
       const t = performance.now();
@@ -707,7 +707,7 @@ export function App() {
     const ep = { track_src: q(REG.sample_track), root_src: q(REG.sample_root), ym0: params.ym0, ym1: params.ym1, quarter_filter: params.quarter_filter, dataset_filter: params.dataset_filter, area_filter: params.area_filter, cruise: effortCruise };
     // the path's month is the cruise's median cast month where the release's cruise table carries it, as the slice's
     Promise.all([ensure(REG.sample_track), ensure(REG.sample_root), probeCruiseMedian()])
-      .then(([, , median]) => engine.query("effort_track", median ? { ...ep, cruise_src: q(REG.cruise) } : ep))
+      .then(([, , median]) => engine.query("effort_track", median ? { ...ep, cruise_src: cruiseSrcSql(q(REG.cruise)) } : ep))
       .then((r) => { if (live) setEffortPaths(toEffortPaths(r as unknown as EffortRow[])); })
       .catch((e) => { console.warn("sample_track:", e.message); if (live) setEffortPaths([]); });
     return () => { live = false; };

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **fix: Environment variables failed with "Binder Error: Ambiguous reference to column name \"year\""** (explore#48,
+  feedback e0e72761dc). Release v2026.11.05's `cruise` table carries its own `year`, `month` and `season_year` beside
+  `month_median`, and the slice templates joined the whole table as `cz` while reading the slice source's bare `year`.
+  `{{cruise_src}}` is now `cruiseSrcSql()` — only `cruise_key`, `date_median`, `month_median` — in `App.tsx` (slices and
+  the Effort layer) and in Share › Copy code (`reproduce.ts`). `tests/season.test.ts` joins a full-width cruise fixture and
+  asserts the old join throws and the projected one does not.
 - **an Effort layer** (`effort=on`, a row in the Layers card beside Lines and Observations). It draws the release's
   `sample_track` (calcofi4db 4.35.0+, first written by the cetacean sightings): each survey's on-effort segments as a
   solid amber path on a dark halo and the line of sight from the ship to each sighted animal thinner and fainter, under
