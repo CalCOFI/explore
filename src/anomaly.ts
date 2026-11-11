@@ -104,11 +104,32 @@ export function anomalyOf(c: SectionCell, clim: Map<string, number>, base: ClimB
 /** the colour range a section draws (explore#12): the values' min–max, or, as a difference from the normal, a window
  *  symmetric about 0 from the largest departure (at least ±0.1). The section panel's colourbar and the title sentence's
  *  legend both read it, so the legend says what the section shows — not the map's station summary, which the Sections
- *  lens does not refresh (106.31 "per 10 m²" and "degC" alike, whatever the pick). null = nothing drawn yet. */
-export function sectionRange(cells: SectionCell[], clim: SectionCell[] | null, anom: boolean): [number, number] | null {
+ *  lens does not refresh (106.31 "per 10 m²" and "degC" alike, whatever the pick). null = nothing drawn: no rows, or an
+ *  anomaly with no baseline (noBaseline()) — the legend then shows no range, never the map's last one. `base` is the
+ *  baseline the section subtracts: under the seasonal one a baseline row's period is its season (1–4), and keyed on the
+ *  cruise's month the range was a March cruise's departure from the Jun–Aug normal, or none at all. */
+export function sectionRange(cells: SectionCell[], clim: SectionCell[] | null, anom: boolean, base: ClimBase = "month"): [number, number] | null {
   const cm = anom ? climLookup(clim) : null;
-  const v = cells.map((c) => (cm ? anomalyOf(c, cm) : c.v)).filter((x): x is number => x != null && Number.isFinite(x));
+  const v = cells.map((c) => (cm ? anomalyOf(c, cm, base) : c.v)).filter((x): x is number => x != null && Number.isFinite(x));
   if (!v.length) return null;
   if (anom) { const a = Math.max(0.1, ...v.map(Math.abs)); return [-a, a]; }
   return [Math.min(...v), Math.max(...v)];
+}
+
+/** an anomaly section with rows and nothing to draw: not one of its cells has a baseline under the chosen period. Cruise
+ * 2025-04-3322's median cast month is March, and no March reached the floor of 5 cruises in 1993–2013 on line 93.3
+ * (its Mar–May season did): every departure was blank, and the section drew empty axes with no word of why. false for a
+ * section with no rows at all — that is the other empty state ("no rows for this line × cruise × filters"). */
+export function noBaseline(cells: SectionCell[], clim: SectionCell[] | null, base: ClimBase = "month"): boolean {
+  if (!cells.length) return false;
+  const cm = climLookup(clim);
+  return cells.every((c) => anomalyOf(c, cm, base) == null);
+}
+
+/** what that section says instead of drawing: the normal it lacks, in the caption's own words ("1993–2013 March"), and
+ * the ways out — the seasonal normal, where the monthly one is missing and the release carries it (a season with too few
+ * cruises has no month with enough, so the seasonal baseline offers no other), or the values as measured. The app never
+ * switches the baseline itself: the reader chose it. */
+export function noBaselineWhy(base: ClimBase, month: number | null | undefined, climWord: string, seasonOk = true): string {
+  return `no ${climWord} ${baselineWord(base, month)} normal at these stations — ${base === "month" && seasonOk ? "try the seasonal normal, or show as measured" : "show as measured"}`;
 }

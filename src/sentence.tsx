@@ -31,7 +31,8 @@ export interface SentenceCtx {
   // the popover's parts — the definition, how it is computed, the dataset page that holds its methods
   derived?: DerivedNote | null;
   countWord?: string;         // what the count counts: "observations", or "casts" for a per-cast variable
-  domain: [string, string]; bar: string; count: number; status: string; ready: boolean; seaFloor: boolean;
+  domain: [string, string] | null;   // null: nothing is drawn, so there is no range to show (an empty section — App.tsx)
+  bar: string; count: number; status: string; ready: boolean; seaFloor: boolean;
   extra?: ReactNode;          // the boundary-layer legend rows, an empty result's note — under the sentence
   native: boolean; phone: boolean; loading: string | null;
   open: boolean; onToggle: () => void;
@@ -174,9 +175,9 @@ export function Sentence(c: SentenceCtx) {
   // a newcomer waiting on "engine warming…" will see it. The title stands above the legend, never beside it: a mouthful of a
   // sentence squeezed into a column beside an unwrapping legend was the 2026-09-07 bug.
   const legend = <span className="ts-legend" data-tour="legend">
-    {c.sel.data ? <><span>{c.domain[0]}</span><span className="bar" style={{ background: c.bar }} /><span>{c.domain[1]} {c.unit}</span></> : <span className="hint">data off</span>}
+    {!c.sel.data ? <span className="hint">data off</span> : c.domain ? <><span>{c.domain[0]}</span><span className="bar" style={{ background: c.bar }} /><span>{c.domain[1]} {c.unit}</span></> : <span className="hint">nothing drawn</span>}
     {c.sel.obs && <span className="hint" title="the Observations layer (Layers card): every site in the selection as a dot"> · <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: 4, background: `#${c.sel.obs}`, boxShadow: "0 0 0 1px rgba(127,127,127,.6)", verticalAlign: "middle" }} /> every site sampled</span>}
-    <span className="hint">{c.sel.data ? " · 5–95 %" : ""}{c.ready ? ` · ${fmtN(c.count)} ${c.countWord ?? "observations"}` : ""}</span>
+    <span className="hint">{c.sel.data && c.domain ? " · 5–95 %" : ""}{c.ready ? ` · ${fmtN(c.count)} ${c.countWord ?? "observations"}` : ""}</span>
   </span>;
   return (
     <div className={`sentence${c.open ? " open" : ""}`} data-tour="sentence" style={c.band}>

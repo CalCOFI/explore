@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **fix: an anomaly section with no baseline drew empty axes under a legend left over from the map.**
+  `?lens=section&var=temperature&line=93.3&anom=1&cruise=2025-04-3322`: the cruise's median cast month is March, and no
+  March reached 5 cruises in 1993–2013 on line 93.3 (release v2026.11.09 holds no monthly temperature mean there for March,
+  May, June, September or December; the Mar–May season has one). Every departure was blank, so the section drew a heatmap of nothing
+  and the title's legend fell back to the station summary's range ("8.89 … 15.58 degC"), which this lens never refreshes.
+  A section with rows and no baseline for the cruise's period (`anomaly.ts noBaseline()`) is now an empty state that says
+  so — *"no 1993–2013 March normal at these stations — try the seasonal normal, or show as measured"*
+  (`noBaselineWhy()`; the seasonal normal is offered only from the monthly one, and only where the release carries it) —
+  and the legend of a section that draws nothing reads *nothing drawn*, with no range. The baseline is never switched for
+  the reader. `tests/anomaly.test.ts` asserts the rule and the words.
+- **fix: the legend of a section under the seasonal baseline read another season's range.** `sectionRange()` keyed the
+  seasonal baseline on the cruise's month, so a March cruise's legend was its departure from the Jun–Aug normal (period 3)
+  and a July cruise's found nothing and kept the map's range, while the section itself drew the right season. It now takes
+  the baseline in force, as the plot and the 3-D curtain do.
 - **fix: the season filter said "Apr–Jun" for MAM.** The sentence bar's season chip kept the calendar quarters
   (`Q_LABEL = ["Jan–Mar", "Apr–Jun", …]`, buttons Q1–Q4) after release v2026.11 moved `quarter` to DJF / MAM / JJA / SON,
   so a view filtered to spring read three months that were not the ones filtered. `sentence.tsx` now takes its words

@@ -147,7 +147,9 @@ says what the app does and how to work on it without needing them.
   cast's grid cell, with no depth bin, once the release carries per-cast climatology cells. The year, season and depth
   filters do not touch the baseline (that is what makes anomalies comparable across cruises); the datasets in view are
   pooled weighted by their observation counts. Red is above normal, blue below (cmocean *balance*), the scale symmetric
-  about zero; a cell with no baseline is blank, never zero.
+  about zero; a cell with no baseline is blank, never zero. A section where no cell has one (a cruise whose month never
+  reached five cruises at these stations) says so instead of drawing — *"no 1993–2013 March normal at these stations — try
+  the seasonal normal, or show as measured"* — and its legend shows no range; the app never switches the baseline itself.
 - **The season is the cruise's quarter.** The season filter (`q=`) and the year range's month edges read the cruise's
   designated month, so a July cruise's stations worked on 30 June are in Q3 (explore#17).
 - **The URL is the whole view.** Lens, organism or variable, stage, denominator, years, season, depth,
