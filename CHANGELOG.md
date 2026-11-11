@@ -7,6 +7,18 @@
   so a view filtered to spring read three months that were not the ones filtered. `sentence.tsx` now takes its words
   from `anomaly.ts` (`SEASON_WORD`, `SEASON_CODE`), the same as the Time strip's buttons. `tests/season.test.ts` asserts it.
 - **fix: a missing space in the feedback dialog** ("nothing else.It goes to the team …").
+- **a preliminary cruise says so — once the release tells the app** (a no-op on every release to v2026.11.09). The
+  newest cruises are the ship's preliminary CTD series, which [ctd-transects](https://calcofi.io/ctd-transects/) badges
+  *Preliminary — CTD & bottle 1 m-binned* and the Explorer showed with no word of it. The status is the release's
+  `data_stage`, which today sits only on `sample` (28 MB, not an object the app loads; read by range request it cost 52
+  requests and 9 s, so that is not done). The app now reads it from `sample_root` where a release carries it there
+  (calcofi4db 4.37.0+): a column probe on the registered object, then `sql/cruise_stage.sql`, only once a lens that shows
+  one cruise has drawn and only from a `sample_root` the session already holds. A view of one cruise (a depth section, the
+  Cruises lens' shown cruise) whose dataset in view is not `final` on it wears a warn pill beside the cruise in the title
+  sentence, in the provider's wording (ctd-transects' own labels; a stage it does not name reads *Preliminary — <the
+  release's value>*), the section card's title carries it, and the cruise picker's rows say *preliminary*. A finished
+  cruise wears nothing. The stage is the dataset's: a bottle or net-tow series of the same cruise key is not marked.
+  `src/stage.ts`, `tests/stage.test.ts` (the probe on a `sample_root` with and without the column, the query, the rule).
 - **fix: Environment variables failed with "Binder Error: Ambiguous reference to column name \"year\""** (explore#48,
   feedback e0e72761dc). Release v2026.11.05's `cruise` table carries its own `year`, `month` and `season_year` beside
   `month_median`, and the slice templates joined the whole table as `cz` while reading the slice source's bare `year`.
