@@ -152,6 +152,12 @@ says what the app does and how to work on it without needing them.
   the seasonal normal, or show as measured"* — and its legend shows no range; the app never switches the baseline itself.
 - **The season is the cruise's quarter.** The season filter (`q=`) and the year range's month edges read the cruise's
   designated month, so a July cruise's stations worked on 30 June are in Q3 (explore#17).
+- **A preliminary cruise says so, where the release says so.** A view of one cruise (a depth section, the Cruises lens'
+  shown cruise) whose dataset in view is not `final` on that cruise wears a pill beside the cruise in the title sentence —
+  *Preliminary — CTD & bottle 1 m-binned*, the wording [ctd-transects](https://calcofi.io/ctd-transects/) uses — and the
+  cruise picker's rows say *preliminary*; a finished cruise wears nothing. It is the release's `sample_root.data_stage`
+  (calcofi4db 4.37.0+), read once from a `sample_root` the session already holds (`src/stage.ts`, `sql/cruise_stage.sql`):
+  on a release without that column nothing is read and nothing is shown, and no cruise is ever listed in the app.
 - **The URL is the whole view.** Lens, organism or variable, stage, denominator, years, season, depth,
   dataset filter, region, line, cruise, summary statistic, the anomaly and its baseline (`anom=1`, `base=season`), the contour method and surface (`interp=`, `surface=`), the data layer (`data=`, `datao=`, `ramp=`), theme, the sea floor (`bathy=`, `bathyo=`), which panels are folded or maximized (`hide=` · `show=` · `max=`), the years strip's mode (`strip=`),
   the **map extent** (`map=lon,lat,zoom`) and, in the 3-D section, the **camera** (`cam=lon,lat,zoom,pitch,bearing`,

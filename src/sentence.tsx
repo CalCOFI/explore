@@ -18,7 +18,10 @@ export const Q_LABEL = SEASON_WORD;
 export interface SentenceCtx {
   sel: Sel; setSel: (patch: Partial<Sel>) => void; onLens: (l: Lens) => void;
   organismItems: PickerItem[]; organismGroups: GroupOpt[]; variableItems: PickerItem[]; variableGroups: GroupOpt[];
-  sectionCruiseItems: PickerItem[]; cruiseItems: PickerItem[]; lines: number[]; layerNames: string[]; regionName: string | null;
+  sectionCruiseItems: PickerItem[]; cruiseItems: PickerItem[]; lines: number[];
+  // the preliminary mark beside the cruise (stage.ts viewStage()): the provider's wording and, on hover, the release's own
+  // value; null for a finished cruise, a view of more than one cruise, or a release whose sample_root carries no stage
+  cruiseStage?: { label: string; title: string } | null; layerNames: string[]; regionName: string | null;
   stages: [string | null, number][]; denRows: (d: Den) => number; defaultDen: (stage: string | null) => Den;
   areaText: string | null; // the Area filter's clause (src/area.ts areaWord), null = everywhere (explore#20)
   years: [number, number]; yearMax: number; hasDepthAxis: boolean; hasClim: boolean; climWindow: [number, number] | null;
@@ -141,6 +144,12 @@ export function Sentence(c: SentenceCtx) {
   const parts: Part[] = [];
   const w = (s: string) => parts.push(s);
   const chip = (key: string, text: ReactNode, control?: () => ReactNode, bold = false, title?: string) => parts.push({ key, text, control, bold, title });
+  // beside the cruise, when what the view draws of it is preliminary: a pill in the brand's warn state, in both renderings
+  const stageMark = () => {
+    if (!c.cruiseStage) return;
+    const pill = <span className="pill warn" data-stage title={c.cruiseStage.title}>{c.cruiseStage.label}</span>;
+    w(" "); chip("stage", pill, () => pill);
+  };
   if (c.open) chip("realm", sel.realm === "bio" ? "Biology" : "Environment", realmMenu);
   chip("subject", c.subject, subjectPicker, true);
   // a derived variable: "(derived, one value per cast)" — the hover is its definition, the chip opens it with its dataset page
@@ -153,14 +162,14 @@ export function Sentence(c: SentenceCtx) {
   if (sel.lens === "station") chip("lens", "at each station", () => lensMenu("at each station"));
   else if (sel.lens === "hex") { chip("lens", "in hexagons", () => lensMenu("in hexagons")); w(" of "); chip("res", RES_KM[sel.res], resMenu); }
   else if (sel.lens === "contour") { chip("lens", "as a contoured surface", () => lensMenu("as a contoured surface")); w(" by "); chip("interp", INTERP_WORD[sel.interp], interpMenu); w(" over "); chip("grain", sel.interp === "tps" ? "the station grid" : sel.grain === "site" ? "every site" : "the station grid", grainMenu); if (sel.surface !== "value" || c.open) { w(", showing "); chip("surface", SURFACE_WORD[sel.surface] || "the statistic itself", surfaceMenu); } }
-  else if (sel.lens === "cruise") { chip("lens", "along a cruise track", () => lensMenu("along a cruise track")); w(": "); chip("cruise", cruiseLabel(c.cruiseItems), () => cruiseChip(c.cruiseItems, "ts-cruise")); }
+  else if (sel.lens === "cruise") { chip("lens", "along a cruise track", () => lensMenu("along a cruise track")); w(": "); chip("cruise", cruiseLabel(c.cruiseItems), () => cruiseChip(c.cruiseItems, "ts-cruise")); stageMark(); }
   else if (sel.lens === "region") { chip("lens", "within regions", () => lensMenu("within regions")); w(": "); chip("layer", sel.layer, layerMenu); if (c.regionName) { w(" · "); chip("region", c.regionName, regionMenu); } }
   else {
     // the section's y-axis is the realm: env cuts DEPTH on one cruise, bio has no depth (the tows are
     // depth-integrated) and cuts YEARS, so the sentence names the axis rather than saying "a section" twice over
     const sectionWord = sel.realm === "env" ? "as a depth section along line" : "as a station-by-year section along line";
     chip("lens", sectionWord, () => lensMenu(sectionWord)); w(" "); chip("line", String(sel.line), lineMenu);
-    if (sel.realm === "env") { w(" on cruise "); chip("cruise", cruiseLabel(c.sectionCruiseItems), () => cruiseChip(c.sectionCruiseItems, "ts-section-cruise")); if (c.anomAvail ?? c.hasClim) { w(", "); chip("anom", anomWord, anomMenu); } }
+    if (sel.realm === "env") { w(" on cruise "); chip("cruise", cruiseLabel(c.sectionCruiseItems), () => cruiseChip(c.sectionCruiseItems, "ts-section-cruise")); stageMark(); if (c.anomAvail ?? c.hasClim) { w(", "); chip("anom", anomWord, anomMenu); } }
     else w(" across all cruises");
   }
   // the map lenses that pool departures (Hexagons, Contours) say so, for an env variable with a baseline

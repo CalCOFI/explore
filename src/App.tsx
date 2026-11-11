@@ -47,6 +47,7 @@ import { dtEmpty, type DtRow } from "./depthtime";
 import { CLIM_MIN_CRUISES, SEASON_CODE, SEASON_WORD, anomTokens, baselineWord, climBaseSql, cruiseMonth, hasSeasonCols, noBaseline, noBaselineWhy, sectionRange, type ClimBase } from "./anomaly";
 import { PREVIEW, PREVIEW_HOME } from "./preview";
 import { feedbackEndpoint } from "./feedback";
+import { cruiseStage, hasStageCols, stageIndex, stageProbeSql, viewStage, type StageIndex } from "./stage";
 import {
   fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LENS_DESC, LENS_ICON, RES_KM, INTERPS, INTERP_LABEL, INTERP_WORD, INTERP_HOW, SURFACES, SURFACE_LABEL, GRAIN_LABEL, GRAIN_HOW, type Surface, type Grain, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, DEN_HOW, SHF_NOTE, STAT_LABEL, YEAR_OPEN, MAP_HOME,
   type Sel, type Lens, type Den, type Stat, type PickerRow, type PanelId,
@@ -168,6 +169,17 @@ export function App() {
     .then(() => engine.exec(`SELECT count(*) AS n FROM (DESCRIBE SELECT * FROM ${q(REG.cruise)}) WHERE column_name = 'month_median'`, "probe:cruise.month_median"))
     .then((r) => { const ok = Number(r[0]?.n) > 0; setCruiseMedian(ok); return ok; })
     .catch((e) => { console.warn("cruise probe:", e.message); setCruiseMedian(false); return false; }));
+  // the data stage of each cruise's samples (stage.ts): the preliminary mark beside a cruise. Read from the release's
+  // `sample_root`, and only where it carries data_stage (calcofi4db 4.37.0+): a column probe on the registered object, once,
+  // then sql/cruise_stage.sql. On a release without the column (every one to v2026.11.09) the probe says no, nothing is read
+  // and no view wears a mark. It reads only a sample_root the session already holds — the object is never fetched for
+  // this — and nothing the app draws waits on it: any error leaves the index empty, silently.
+  const [stageIdx, setStageIdx] = useState<StageIndex | null>(null);
+  const stageRef = useRef<Promise<StageIndex> | null>(null);
+  const loadStages = (root: Promise<void>): Promise<StageIndex> => root
+    .then(() => engine.exec(stageProbeSql(q(REG.sample_root)), "probe:sample_root.data_stage"))
+    .then((r) => (hasStageCols(r) ? engine.query("cruise_stage", { src: q(REG.sample_root) }).then(stageIndex) : new Map()))
+    .catch(() => new Map());
   // the cruise table's own month / season / season year, for cruise_seasons.sql and cruise_ref.sql (sqltpl.ts cs_* tokens)
   const cruiseTokens = (median: boolean | null): Params => median ? { cs_month: "month_median", cs_year: "season_year", cs_quarter: djfSql("month_median") } : {};
   const rootHex7Ref = useRef<Promise<boolean> | null>(null);
@@ -887,6 +899,10 @@ export function App() {
       : envPills.filter(([dk]) => dsOn(dk)).map(([dk]) => dk);
     return [...new Set(keys as string[])].sort((a, b) => short(a).localeCompare(short(b)));
   }, [sel.realm, sel.den, sel.datasets, sel.stage, picker, envPills]);
+  // the preliminary mark (stage.ts): the view's one cruise, when a dataset in view is not final on it; the hover names the
+  // release's own value and the dataset that carries it
+  const viewStg = useMemo(() => viewStage({ lens: sel.lens, realm: sel.realm, cruise: sel.cruise }, viewDatasetKeys, stageIdx), [sel.lens, sel.realm, sel.cruise, viewDatasetKeys, stageIdx]);
+  const prelimRow = (ck: string): Partial<PickerItem> => (cruiseStage(stageIdx, ck, viewDatasetKeys) ? { badge: "preliminary", badgeWarn: true } : {});
   // ── picker items (D13): organisms from taxa.sql, variables from coverage.json (+ measurement_type labels once loaded), cruises from the lens
   const dsRow = (dk: string) => datasets.find((d) => d.dataset_key === dk);
   const dsColor = (dk: string) => dsRow(dk)?.color ?? "var(--muted)";
@@ -940,8 +956,8 @@ export function App() {
     { key: "category", label: "category", icon: (c) => (c === DERIVED_FAMILY ? "ui-line" : categoryIcon(c)), rank: categoryRank },
     { key: "dataset", label: "dataset", short: short }], []);
   const dateOf = (t: number) => new Date(t * 1000).toISOString().slice(0, 10);
-  const cruiseItems = useMemo<PickerItem[]>(() => cruiseRows.map((c) => ({ key: c.cruise_key, label: c.cruise_key, sub: `${dateOf(c.t0)} → ${dateOf(c.t1)} · ${c.n_sta} stations`, n: c.n, year: +c.cruise_key.slice(0, 4) })), [cruiseRows]);
-  const sectionCruiseItems = useMemo<PickerItem[]>(() => sectionCruises.map((c) => ({ key: c.cruise_key, label: c.cruise_key, sub: `${c.n_sta} stations · ${fmtN(c.n)} observations`, n: c.n_sta, year: c.year })), [sectionCruises]);
+  const cruiseItems = useMemo<PickerItem[]>(() => cruiseRows.map((c) => ({ key: c.cruise_key, label: c.cruise_key, sub: `${dateOf(c.t0)} → ${dateOf(c.t1)} · ${c.n_sta} stations`, n: c.n, year: +c.cruise_key.slice(0, 4), ...prelimRow(c.cruise_key) })), [cruiseRows, stageIdx, viewDatasetKeys]);
+  const sectionCruiseItems = useMemo<PickerItem[]>(() => sectionCruises.map((c) => ({ key: c.cruise_key, label: c.cruise_key, sub: `${c.n_sta} stations · ${fmtN(c.n)} observations`, n: c.n_sta, year: c.year, ...prelimRow(c.cruise_key) })), [sectionCruises, stageIdx, viewDatasetKeys]);
   const envVar = variableItems.find((v) => v.key === sel.var);
   // what the app says about a derived variable, in the title sentence and under the picker: the registry's description
   // and derivation, the grain, and the page of the dataset that publishes it (its methods) — nothing written here
@@ -1094,6 +1110,13 @@ export function App() {
     if (!cruiseRef) probeCruiseMedian().then((m) => engine.query("cruise_ref", { src: q(REG.cruise), ...cruiseTokens(m) })).then((r) => { if (live) setCruiseRef(new Map(r.map((c) => [c.cruise_key, { ship: c.ship_name ?? c.ship_nodc ?? "", nodc: c.ship_nodc ?? "", month: c.month == null ? null : Number(c.month) }]))); }).catch(console.error);
     return () => { live = false; };
   }, [seriesMode, sliceKey, params]);
+  // the preliminary mark: once a lens that shows one cruise has drawn, and once the session holds sample_root (the Cruises
+  // lens loads it for the track; a per-cast variable and the Effort layer do too), probe it and read the stages — once
+  useEffect(() => {
+    if (!lensReady || stageIdx || stageRef.current || (sel.lens !== "section" && sel.lens !== "cruise")) return;
+    const root = loads.current.get(REG.sample_root);
+    if (root) (stageRef.current = loadStages(root)).then(setStageIdx);
+  }, [lensReady, sel.lens, displayLens, status, stageIdx]);
   // the Sections lens names the cruise's month in its caption: load the cruise reference for it too
   useEffect(() => {
     if (sel.lens !== "section" || cruiseRef || !catalog) return;
@@ -1516,7 +1539,8 @@ export function App() {
     <pre>{lastSql}</pre>
   </div>;
   // the section card says WHICH section it is: env cuts depth on one cruise, bio (depth-integrated tows) cuts years
-  const sectionSub = sel.realm === "env" ? `· depth along line ${sel.line}${sel.cruise ? ` · ${sel.cruise}` : ""}` : `· by year along line ${sel.line}`;
+  // (a preliminary cruise says so beside its key: the card's bar, and the stamp of the figure exported from it)
+  const sectionSub = sel.realm === "env" ? `· depth along line ${sel.line}${sel.cruise ? ` · ${sel.cruise}${viewStg ? ` (${viewStg.label})` : ""}` : ""}` : `· by year along line ${sel.line}`;
   const titles: Record<PanelId, ReactNode> = {
     select: "Controls", depth: "Depth", years: "Time", section: <>Section <span className="plain">{sectionSub}</span></>, cruise: "Cruise series", layers: "Layers",
     station: stationCard ? <>{stationCard.grid_key} {stationCard.cell && <span className="plain">· line {stationCard.cell.line} station {stationCard.cell.station}{ownLine(stationCard.cell.line) ? ` · ${OWN_LINE}` : ""}</span>}</> : "Station",
@@ -1661,7 +1685,7 @@ export function App() {
   }, [status, busy]);
   const statusToast = status !== "ready" && status !== "grid (static)" ? <div className={`status-toast${busy ? " busy" : ""}${/error|failed/.test(status) ? " err" : ""}`} role="status" aria-live="polite">{busy && <span className="spin" />}{status}</div> : null;
   const sentence = !phone && <Sentence sel={sel} setSel={setSel} onLens={onLens} cruiseMonthOf={cruiseMonthOf} organismItems={organismItems} organismGroups={organismGroups} variableItems={variableItems} variableGroups={variableGroups}
-    sectionCruiseItems={sectionCruiseItems} cruiseItems={cruiseItems} lines={lines} layerNames={layerNames} regionName={regionName} areaText={area ? areaWord(area) : null} stages={stages} denRows={(d) => denInfo(d).rows} defaultDen={(s) => defaultDen(picker, s)}
+    sectionCruiseItems={sectionCruiseItems} cruiseItems={cruiseItems} cruiseStage={viewStg ? { label: viewStg.label, title: `the release's data_stage for ${short(viewStg.dataset_key)} on this cruise: ${viewStg.stage}` } : null} lines={lines} layerNames={layerNames} regionName={regionName} areaText={area ? areaWord(area) : null} stages={stages} denRows={(d) => denInfo(d).rows} defaultDen={(s) => defaultDen(picker, s)}
     years={years} yearMax={yearMax} hasDepthAxis={depthAvail || noneLeft} hasClim={hasClim(catalog)} anomAvail={anomAvail} climBase={climBase} seasonOk={climSeason} climWindow={climWindow} datasetsInSlice={datasetsInSlice} dsOn={dsOn} toggleDataset={toggleDataset} dsColor={dsColor} short={short}
     subject={subject} derived={derivedNote} countWord={countWord} unit={preSlice ? "root samples" : (legendUnit ?? unitLabel)} domain={sectionBlank ? null : [(legendUnit === "year" ? fmtYear : fmt)(legendDomain[0]), (legendUnit === "year" ? fmtYear : fmt)(legendDomain[1])]} bar={rampCss(rampId)} count={inView} status={status} ready={!!sliceKey} seaFloor={seaFloorOn}
     native={native} phone={phone} loading={status} open={sentenceOpen} onToggle={toggleSentence} extra={legendExtra}

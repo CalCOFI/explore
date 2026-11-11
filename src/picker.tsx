@@ -23,6 +23,7 @@ export interface PickerItem {
   search?: string;                  // extra searchable text
   family?: string | null;           // a second home in the Browse tree, beside its category: "Derived (hydrographic)" (castgrain.ts)
   badge?: string;                   // a word on the row: "derived"
+  badgeWarn?: boolean;              // the word is a caution, in the brand's warn colour: "preliminary" on a cruise (stage.ts)
   tip?: string;                     // the hover: a derived variable's definition, from the registry
 }
 export type SortKey = "az" | "n" | "recent";
@@ -183,7 +184,7 @@ export function Picker(p: {
       <button ref={btn} id={`${p.id}-btn`} type="button" className={chip ? `sc${open ? " open" : ""}` : "picker-btn"} aria-haspopup="listbox" aria-expanded={open} aria-controls={listId} onClick={() => setOpen((v) => !v)} title={selected ? (selected.tip ?? `${selected.label}${selected.sub ? ` — ${selected.sub}` : ""}`) : p.value}>
         {selected?.datasets?.length ? <span className="dots">{selected.datasets.map(dot)}</span> : null}
         {chip ? <span className="sc-val">{selected?.label ?? (p.loading ?? p.value)}</span>
-          : <span className="picker-val">{selected?.label ?? (p.loading ?? p.value)}{(selected?.sub || selected?.badge) && <small className={selected.subItalic ? "i" : ""}>{selected.badge && <i className="badge">{selected.badge}</i>}{selected.sub}</small>}</span>}
+          : <span className="picker-val">{selected?.label ?? (p.loading ?? p.value)}{(selected?.sub || selected?.badge) && <small className={selected.subItalic ? "i" : ""}>{selected.badge && <i className={`badge${selected.badgeWarn ? " warn" : ""}`}>{selected.badge}</i>}{selected.sub}</small>}</span>}
         <Icon name="ui-down" className={chip ? "car" : undefined} />
       </button>
       {open && <div className="picker-pop" role="dialog" aria-label={p.label} style={p.sheet ? undefined : box ?? { visibility: "hidden" }}>
@@ -225,7 +226,7 @@ export function Picker(p: {
               </div>
               {on && <ul role="group">{shown.map((it) => <li key={it.key} role="treeitem" className={`browse-item${it.key === p.value ? " sel" : ""}`} onClick={() => choose(it)} title={it.tip} data-key={it.key}>
                 <span className="dots">{(it.datasets ?? []).map(dot)}</span>
-                <span className="lab">{it.label}{(it.sub || it.badge) && <small className={it.subItalic ? "i" : ""}>{it.badge && <i className="badge">{it.badge}</i>}{it.sub}</small>}</span>
+                <span className="lab">{it.label}{(it.sub || it.badge) && <small className={it.subItalic ? "i" : ""}>{it.badge && <i className={`badge${it.badgeWarn ? " warn" : ""}`}>{it.badge}</i>}{it.sub}</small>}</span>
                 <span className="hint span">{span(it.year0, it.year)}</span>
                 <span className="cnt"><span className="bar" style={{ width: `${Math.max(1, Math.round(44 * Math.log10(it.n + 1) / Math.log10(maxN + 1)))}px` }} /><span>{fmtN(it.n)}</span></span>
               </li>)}
@@ -243,7 +244,7 @@ export function Picker(p: {
                 <li key={it.key} id={`${p.id}-opt-${i}`} data-i={i} role="option" aria-selected={on} className={`${i === active ? "active" : ""}${on ? " sel" : ""}`} title={it.tip}
                   onMouseMove={() => { if (i !== active) setActive(i); }} onMouseDown={(e) => e.preventDefault()} onClick={() => choose(it)}>
                   <span className="dots">{(it.datasets ?? []).map(dot)}</span>
-                  <span className="lab">{it.label}{(it.sub || it.badge) && <small className={it.subItalic ? "i" : ""}>{it.badge && <i className="badge">{it.badge}</i>}{it.sub}</small>}</span>
+                  <span className="lab">{it.label}{(it.sub || it.badge) && <small className={it.subItalic ? "i" : ""}>{it.badge && <i className={`badge${it.badgeWarn ? " warn" : ""}`}>{it.badge}</i>}{it.sub}</small>}</span>
                   <span className="cnt" title={`${fmtN(it.n)} ${p.countLabel ?? "observations"}`}><span className="bar" style={{ width: `${Math.max(1, Math.round(44 * Math.log10(it.n + 1) / Math.log10(maxN + 1)))}px` }} /><span>{fmtN(it.n)}</span></span>
                 </li>); })}
             </ul>
