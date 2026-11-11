@@ -7,11 +7,13 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "./icons";
 import { IconButton, Menu, NumInput, YearRange, useAnchor, type MenuItem } from "./ui";
 import { Picker, type PickerItem, type GroupOpt } from "./picker";
-import { CLIM_MIN_CRUISES, baselineWord, cruiseMonth, type ClimBase } from "./anomaly";
+import { CLIM_MIN_CRUISES, SEASON_CODE, SEASON_WORD, baselineWord, cruiseMonth, type ClimBase } from "./anomaly";
 import { DEN_LABEL, DEN_HOW, LENSES, LENS_SHORT, LENS_DESC, LENS_ICON, RES_KM, STAT_WORD, STAT_LABEL, YEAR_OPEN, INTERPS, INTERP_LABEL, INTERP_WORD, INTERP_HOW, SURFACES, SURFACE_LABEL, SURFACE_WORD, GRAIN_LABEL, GRAIN_HOW, type Sel, type Den, type Stat, type Lens, type Grain } from "./state";
 
 const fmtN = (v: number) => v.toLocaleString();
-export const Q_LABEL = ["Jan–Mar", "Apr–Jun", "Jul–Sep", "Oct–Dec"];
+// the season filter in words: 1 = DJF … 4 = SON since release v2026.11 (the season of the cruise, by its median cast
+// month). These were the calendar quarters until then, and the sentence went on saying "Apr–Jun" for MAM.
+export const Q_LABEL = SEASON_WORD;
 
 export interface SentenceCtx {
   sel: Sel; setSel: (patch: Partial<Sel>) => void; onLens: (l: Lens) => void;
@@ -121,9 +123,9 @@ export function Sentence(c: SentenceCtx) {
     <div className="row"><YearRange years={c.years} first={1949} last={c.yearMax} width={62} onChange={(y) => setSel({ years: [y[0], y[1] >= c.yearMax ? YEAR_OPEN : y[1]], months: null })} /></div>
     <div className="row"><button type="button" className="pill act" onClick={() => setSel({ years: [1949, YEAR_OPEN], months: null })}>all years</button><span className="hint">or drag on the Years panel{sel.months ? " · month edges from the brush" : ""}</span></div>
   </ChipPop>;
-  const seasonPop = () => <ChipPop label={seasonWord} icon="ui-calendar" title="season: keep only these quarters" width={240}>
-    <span className="seg">{[1, 2, 3, 4].map((x) => <button key={x} type="button" className={!sel.q || sel.q.includes(x) ? "on" : ""} onClick={() => toggleQ(x)} title={Q_LABEL[x - 1]}>Q{x}</button>)}</span>
-    <div className="hint">{sel.q ? sel.q.map((x) => Q_LABEL[x - 1]).join(", ") : "every quarter"}</div>
+  const seasonPop = () => <ChipPop label={seasonWord} icon="ui-calendar" title="season: keep only these seasons (a cruise's season, by its median cast month)" width={240}>
+    <span className="seg">{[1, 2, 3, 4].map((x) => <button key={x} type="button" className={!sel.q || sel.q.includes(x) ? "on" : ""} onClick={() => toggleQ(x)} title={Q_LABEL[x - 1]}>{SEASON_CODE[x - 1]}</button>)}</span>
+    <div className="hint">{sel.q ? sel.q.map((x) => Q_LABEL[x - 1]).join(", ") : "every season"}</div>
   </ChipPop>;
   const depthPop = () => <ChipPop label={depthWord} icon="ui-tune" title="the depth band · or drag on the Depth panel">
     <div className="row"><NumInput value={sel.depth[0]} min={0} max={sel.depth[1] - 10} step={10} width={62} label="top of the depth band (m)" onCommit={(v) => setSel({ depth: [v, sel.depth[1]] })} />–<NumInput value={sel.depth[1]} min={sel.depth[0] + 10} max={6500} step={10} width={62} label="bottom of the depth band (m)" onCommit={(v) => setSel({ depth: [sel.depth[0], v] })} /> m</div>

@@ -117,7 +117,7 @@ export function FeedbackDialog(p: { url: string; release: string; kind?: Feedbac
           <button type="button" className="pill act" disabled={capturing} onClick={take}><Icon name="ui-capture" /> retake</button>
         </div>
       </div>
-      <p className="hint">What is sent: your {product ? "entry" : "text"}, this view's URL, the release ({p.release}){datasets.length ? `, the datasets in view (${datasets.join(", ")})` : ""}, the viewport ({viewport}) and theme ({theme}), and the screenshot{include ? "" : " (off)"} — nothing else.
+      <p className="hint">What is sent: your {product ? "entry" : "text"}, this view's URL, the release ({p.release}){datasets.length ? `, the datasets in view (${datasets.join(", ")})` : ""}, the viewport ({viewport}) and theme ({theme}), and the screenshot{include ? "" : " (off)"} — nothing else.{" "}
         {PREVIEW ? <>This is a private preview: it goes to the CalCOFI data team only and is listed on the preview's landing page. Nothing is posted publicly.</>
                  : <>It goes to the team by mail and lands in a Sheet they read and, <b>without your email</b>, as a public issue in <code>CalCOFI/explore</code> labelled <code>{KIND_LABEL[kind]}</code>; with an email you get the same report back.</>}</p>
       {!endpoint && <p className="hint warn">This build has no feedback endpoint yet — use <i>Open as GitHub issue myself</i> (it copies the screenshot for you to paste).</p>}

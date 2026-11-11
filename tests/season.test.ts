@@ -11,6 +11,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { render, datasetFilterSql, hexExpr, cruiseSrcSql, type Params } from "../src/sqltpl";
 import { qualOkSQL } from "../src/qual";
 import { anomTokens, anomalyOf, baselineWord, climBaseSql, climLookup, cruiseQuarter, hasSeasonCols, periodOf, seasonOf } from "../src/anomaly";
+import { SEASON_WORD } from "../src/anomaly";
+import { Q_LABEL } from "../src/sentence";
 import type { SectionCell } from "../src/charts";
 import { openDuck, type Duck, type Row } from "./helpers/duck";
 
@@ -127,6 +129,16 @@ describe("the season is the cruise's (explore#17): DJF / MAM / JJA / SON of its 
     db.exec(`CREATE OR REPLACE TABLE cruise AS SELECT * FROM (VALUES ('2026-07-3322', DATE '2026-08-02', 8::TINYINT, 2026::SMALLINT)) t(cruise_key, date_median, month_median, season_year)`);
     db.exec(render("slice_cast", { sm_src: "sm", root_src: "root", mt_src: "mt", type: "mld_x", qual_ok: qualOkSQL("sm"), root_hex7: "NULL::UBIGINT", cruise_src: "cruise" }));
     expect(db.exec(`SELECT obs_id, quarter, cruise_month FROM slice WHERE obs_id = 1`)).toEqual([{ obs_id: 1, quarter: 3, cruise_month: 8 }]);
+  });
+});
+
+describe("the season filter says the seasons, not the calendar quarters", () => {
+  // regression: the sentence bar kept ["Jan–Mar", "Apr–Jun", …] after release v2026.11 moved `quarter` to DJF … SON,
+  // so a view filtered to season 2 (MAM) read "Apr–Jun" (found before the 2026-11-12 tour)
+  it("the sentence's words are the season's months", () => {
+    expect(Q_LABEL).toEqual(SEASON_WORD);
+    expect(Q_LABEL[1]).toBe("Mar–May");
+    expect(Q_LABEL.join(" ")).not.toMatch(/Jan–Mar|Apr–Jun|Jul–Sep|Oct–Dec/);
   });
 });
 

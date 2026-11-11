@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **fix: the season filter said "Apr–Jun" for MAM.** The sentence bar's season chip kept the calendar quarters
+  (`Q_LABEL = ["Jan–Mar", "Apr–Jun", …]`, buttons Q1–Q4) after release v2026.11 moved `quarter` to DJF / MAM / JJA / SON,
+  so a view filtered to spring read three months that were not the ones filtered. `sentence.tsx` now takes its words
+  from `anomaly.ts` (`SEASON_WORD`, `SEASON_CODE`), the same as the Time strip's buttons. `tests/season.test.ts` asserts it.
+- **fix: a missing space in the feedback dialog** ("nothing else.It goes to the team …").
 - **fix: Environment variables failed with "Binder Error: Ambiguous reference to column name \"year\""** (explore#48,
   feedback e0e72761dc). Release v2026.11.05's `cruise` table carries its own `year`, `month` and `season_year` beside
   `month_median`, and the slice templates joined the whole table as `cz` while reading the slice source's bare `year`.
