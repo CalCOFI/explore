@@ -5,7 +5,7 @@
 // browser ships, against a small fixture; src/anomaly.ts is the key both renderers use.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { render, datasetFilterSql, type Params } from "../src/sqltpl";
-import { anomalyOf, climLookup, cruiseMonth, sectionRange } from "../src/anomaly";
+import { anomalyOf, climLookup, cruiseMonth, noBaseline, noBaselineWhy, sectionRange } from "../src/anomaly";
 import type { SectionCell } from "../src/charts";
 import { openDuck, type Duck } from "./helpers/duck";
 
@@ -67,4 +67,43 @@ describe("sectionRange — the legend of the Sections lens", () => {
     expect(sectionRange(cells, clim, true)).toEqual([-3, 3]);
   });
   it("null when nothing is drawn", () => { expect(sectionRange([], null, false)).toBeNull(); expect(sectionRange(cells, [], true)).toBeNull(); });
+});
+
+// the tour rehearsal, 2026-11-11: ?lens=section&var=temperature&line=93.3&anom=1&cruise=2025-04-3322 drew empty axes under
+// a legend left over from the map ("8.89 … 15.58 degC"). The cruise's median cast month is March; release v2026.11.09 holds
+// no March normal on line 93.3 (no March reached 5 cruises in 1993–2013) though it holds the Mar–May one. The section has
+// rows and no baseline: it says so, offers the ways out, and has no range — and it never switches the baseline itself.
+describe("noBaseline — an anomaly section with rows and no normal for the cruise's period", () => {
+  // two stations of a cruise whose month is March (season 2, Mar–May)
+  const cells: SectionCell[] = [{ station: 30, y: 10, v: 14, n: 1, month: 3 }, { station: 30, y: 20, v: 13, n: 1, month: 3 }, { station: 60, y: 10, v: 15, n: 1, month: 3 }];
+  // the monthly baseline as section_clim.sql hands it: the line's other months, none for March
+  const monthly: SectionCell[] = [{ station: 30, y: 10, v: 12, n: 40, month: 2 }, { station: 30, y: 10, v: 13, n: 40, month: 4 }, { station: 60, y: 10, v: 14, n: 40, month: 4 }];
+  // the seasonal one: `month` is the PERIOD, the season 1–4 (2 = Mar–May, 3 = Jun–Aug)
+  const seasonal: SectionCell[] = [{ station: 30, y: 10, v: 12.5, n: 90, month: 2 }, { station: 60, y: 10, v: 14, n: 90, month: 2 }, { station: 30, y: 10, v: 16, n: 90, month: 3 }];
+
+  it("is true when no cell has a baseline for the cruise's month", () => expect(noBaseline(cells, monthly)).toBe(true));
+  it("the seasonal baseline of the same cruise draws: not empty", () => expect(noBaseline(cells, seasonal, "season")).toBe(false));
+  it("one cell with a baseline is enough to draw", () => expect(noBaseline(cells, [...monthly, { station: 60, y: 10, v: 14, n: 40, month: 3 }])).toBe(false));
+  it("a baseline table with no row at all is no baseline", () => { expect(noBaseline(cells, [])).toBe(true); expect(noBaseline(cells, null)).toBe(true); });
+  it("a section with no rows is the other empty state, not this one", () => expect(noBaseline([], monthly)).toBe(false));
+
+  it("the legend has no range then — never one left over from another draw", () => expect(sectionRange(cells, monthly, true)).toBeNull());
+  it("as measured, the same cells have their own range", () => expect(sectionRange(cells, monthly, false)).toEqual([13, 15]));
+  // regression: sectionRange() keyed a seasonal baseline on the cruise's MONTH, so a March cruise read period 3 — the
+  // Jun–Aug normal (14 − 16 = −2 → ±2) — and a July cruise (period 7) found nothing and kept the map's range
+  it("under the seasonal baseline the range is the departure from the cruise's own season", () => {
+    expect(sectionRange(cells, seasonal, true, "season")).toEqual([-1.5, 1.5]);
+    expect(sectionRange(cells.map((c) => ({ ...c, month: 7 })), [{ station: 30, y: 10, v: 12, n: 90, month: 3 }], true, "season")).toEqual([-2, 2]);
+  });
+});
+
+describe("noBaselineWhy — what the empty section says", () => {
+  it("names the normal it lacks and the ways out", () =>
+    expect(noBaselineWhy("month", 3, "1993–2013")).toBe("no 1993–2013 March normal at these stations — try the seasonal normal, or show as measured"));
+  it("does not offer a seasonal normal the release does not carry", () =>
+    expect(noBaselineWhy("month", 3, "1993–2013", false)).toBe("no 1993–2013 March normal at these stations — show as measured"));
+  it("under the seasonal baseline there is no other normal to try", () =>
+    expect(noBaselineWhy("season", 3, "1993–2013")).toBe("no 1993–2013 Mar–May normal at these stations — show as measured"));
+  it("without a cruise month, the kind of normal", () =>
+    expect(noBaselineWhy("month", null, "1993–2013")).toBe("no 1993–2013 monthly normal at these stations — try the seasonal normal, or show as measured"));
 });

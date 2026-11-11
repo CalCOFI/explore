@@ -44,7 +44,7 @@ import { track as trackEvent } from "./track";
 import { BRAND, LOGO, DEFAULT_THEME, fontEmbedCss } from "./brand";
 import { categoryRank, categoryIcon, envCategory, DATASET_CATEGORY_FALLBACK } from "./categories";
 import { dtEmpty, type DtRow } from "./depthtime";
-import { CLIM_MIN_CRUISES, SEASON_CODE, SEASON_WORD, anomTokens, baselineWord, climBaseSql, cruiseMonth, hasSeasonCols, sectionRange, type ClimBase } from "./anomaly";
+import { CLIM_MIN_CRUISES, SEASON_CODE, SEASON_WORD, anomTokens, baselineWord, climBaseSql, cruiseMonth, hasSeasonCols, noBaseline, noBaselineWhy, sectionRange, type ClimBase } from "./anomaly";
 import { PREVIEW, PREVIEW_HOME } from "./preview";
 import { feedbackEndpoint } from "./feedback";
 import {
@@ -800,7 +800,14 @@ export function App() {
   }, [surfValsRaw, land, gridKey]);
   // the Sections lens: the range the section draws, never the map's station rows (explore#12 — those are not
   // refreshed in this lens, so the legend kept the first pick's numbers under every variable's unit)
-  const sectionDomain = useMemo(() => displayLens === "section" ? sectionRange(sectionCells, climCells, sel.anom && sel.realm === "env" && !!climCells) : null, [displayLens, sectionCells, climCells, sel.anom, sel.realm]);
+  // (under the baseline in force: keyed on the month, a seasonal anomaly's range was another season's, or none)
+  const sectionAnom = sel.anom && sel.realm === "env" && !!climCells;
+  const sectionDomain = useMemo(() => displayLens === "section" ? sectionRange(sectionCells, climCells, sectionAnom, climBase) : null, [displayLens, sectionCells, climCells, sectionAnom, climBase]);
+  // rows, but no baseline for the cruise's month (or season): the section says so instead of drawing (anomaly.ts)
+  const sectionNoBase = useMemo(() => sectionAnom && noBaseline(sectionCells, climCells, climBase), [sectionCells, climCells, sectionAnom, climBase]);
+  // a section that draws nothing has no range: the legend says so, never the station summary's last one (this lens does
+  // not refresh it, and colours nothing on the map by it)
+  const sectionBlank = displayLens === "section" && !sectionDomain;
   const legendDomain: [number, number] = useMemo(() => {
     if (sectionDomain) return sectionDomain;
     if (displayLens !== "contour" || sel.surface === "value" || !surfVals) return domain;
@@ -1461,8 +1468,9 @@ export function App() {
   const depthBody = (wide: boolean) => <DepthStrip rows={depthRows} band={sel.depth} theme={theme} unit={unitLabel} empty={depthEmpty} onBand={(b) => setSel({ depth: b ?? [0, 500] })} byDataset={wide && depthDs.length ? { rows: depthDs, color: dsColor, short } : null} />;
   const yearsBody = <YearStrip rows={yearRows} monthRows={monthRows} seasonRows={seasonRows} cruiseSeasons={cruiseSeasons} quarters={sel.q} onNeedMonths={setNeedMonths} years={years} months={sel.months} yearMax={yearMax} theme={theme} mode={seriesMode} unit={unitLabel} stat={stat} log={ylog} ramp={seriesRampId} countWord={countWord}
     view={sel.yview} onView={(v) => setSel({ yview: v })} onYears={(y, m) => setSel({ years: y ?? [1949, YEAR_OPEN], months: y ? m ?? null : null })} gantt={gantt} />;
-  const sectionBody = <SectionPlot cells={sectionCells} clim={climCells} anom={sel.anom && sel.realm === "env" && !!climCells} base={climBase} yLabel={sel.realm === "env" ? "depth (m)" : "year"} theme={theme} unit={unitLabel} ramp={rampId}
-    empty={isCast ? "a section cuts the water column —<br>a per-cast variable is one value for the whole cast" : null}
+  const sectionBody = <SectionPlot cells={sectionCells} clim={climCells} anom={sectionAnom} base={climBase} yLabel={sel.realm === "env" ? "depth (m)" : "year"} theme={theme} unit={unitLabel} ramp={rampId}
+    empty={isCast ? "a section cuts the water column —<br>a per-cast variable is one value for the whole cast"
+      : sectionNoBase ? noBaselineWhy(climBase, cruiseMonthOf(sel.cruise), climWord, climSeason === true).replace(" — ", " —<br>") : null}
     title={`line ${sel.line} · ${sel.realm === "env" ? `depth section · cruise ${sel.cruise ?? "—"}${sel.anom && climCells ? ` · the difference from the ${climWord} ${baselineWord(climBase, cruiseMonthOf(sel.cruise))} normal` : ""}` : "station by year · all cruises · the tows are depth-integrated, so the axis is year"}`} />;
   // the depth × time anomaly card (explore#28): why it is empty (an organism, a per-cast variable, no baseline, the filters),
   // the plot, and a note of the baseline and of what a blank cell means
@@ -1655,7 +1663,7 @@ export function App() {
   const sentence = !phone && <Sentence sel={sel} setSel={setSel} onLens={onLens} cruiseMonthOf={cruiseMonthOf} organismItems={organismItems} organismGroups={organismGroups} variableItems={variableItems} variableGroups={variableGroups}
     sectionCruiseItems={sectionCruiseItems} cruiseItems={cruiseItems} lines={lines} layerNames={layerNames} regionName={regionName} areaText={area ? areaWord(area) : null} stages={stages} denRows={(d) => denInfo(d).rows} defaultDen={(s) => defaultDen(picker, s)}
     years={years} yearMax={yearMax} hasDepthAxis={depthAvail || noneLeft} hasClim={hasClim(catalog)} anomAvail={anomAvail} climBase={climBase} seasonOk={climSeason} climWindow={climWindow} datasetsInSlice={datasetsInSlice} dsOn={dsOn} toggleDataset={toggleDataset} dsColor={dsColor} short={short}
-    subject={subject} derived={derivedNote} countWord={countWord} unit={preSlice ? "root samples" : (legendUnit ?? unitLabel)} domain={[(legendUnit === "year" ? fmtYear : fmt)(legendDomain[0]), (legendUnit === "year" ? fmtYear : fmt)(legendDomain[1])]} bar={rampCss(rampId)} count={inView} status={status} ready={!!sliceKey} seaFloor={seaFloorOn}
+    subject={subject} derived={derivedNote} countWord={countWord} unit={preSlice ? "root samples" : (legendUnit ?? unitLabel)} domain={sectionBlank ? null : [(legendUnit === "year" ? fmtYear : fmt)(legendDomain[0]), (legendUnit === "year" ? fmtYear : fmt)(legendDomain[1])]} bar={rampCss(rampId)} count={inView} status={status} ready={!!sliceKey} seaFloor={seaFloorOn}
     native={native} phone={phone} loading={status} open={sentenceOpen} onToggle={toggleSentence} extra={legendExtra}
     band={{ left: selectOpen ? 340 : 48, right: Math.max(displayLens === "section" && sel.realm === "env" ? 200 : 160, rightBand + (stationUp ? 350 : 0) + (cardOpen.timing && !minCards.timing ? 430 : cardOpen.layers && !minCards.layers ? 280 : 0)) }} />;
 
