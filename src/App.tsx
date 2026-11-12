@@ -48,6 +48,7 @@ import { CLIM_MIN_CRUISES, SEASON_CODE, SEASON_WORD, anomTokens, baselineWord, c
 import { PREVIEW, PREVIEW_HOME } from "./preview";
 import { feedbackEndpoint } from "./feedback";
 import { cruiseStage, hasStageCols, stageIndex, stageProbeSql, viewStage, type StageIndex } from "./stage";
+import { shipAfter, shipLead, shipOfCruise } from "./ship";
 import {
   fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LENS_DESC, LENS_ICON, RES_KM, INTERPS, INTERP_LABEL, INTERP_WORD, INTERP_HOW, SURFACES, SURFACE_LABEL, GRAIN_LABEL, GRAIN_HOW, type Surface, type Grain, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, DEN_HOW, SHF_NOTE, STAT_LABEL, YEAR_OPEN, MAP_HOME,
   type Sel, type Lens, type Den, type Stat, type PickerRow, type PanelId,
@@ -956,8 +957,8 @@ export function App() {
     { key: "category", label: "category", icon: (c) => (c === DERIVED_FAMILY ? "ui-line" : categoryIcon(c)), rank: categoryRank },
     { key: "dataset", label: "dataset", short: short }], []);
   const dateOf = (t: number) => new Date(t * 1000).toISOString().slice(0, 10);
-  const cruiseItems = useMemo<PickerItem[]>(() => cruiseRows.map((c) => ({ key: c.cruise_key, label: c.cruise_key, sub: `${dateOf(c.t0)} → ${dateOf(c.t1)} · ${c.n_sta} stations`, n: c.n, year: +c.cruise_key.slice(0, 4), ...prelimRow(c.cruise_key) })), [cruiseRows, stageIdx, viewDatasetKeys]);
-  const sectionCruiseItems = useMemo<PickerItem[]>(() => sectionCruises.map((c) => ({ key: c.cruise_key, label: c.cruise_key, sub: `${c.n_sta} stations · ${fmtN(c.n)} observations`, n: c.n_sta, year: c.year, ...prelimRow(c.cruise_key) })), [sectionCruises, stageIdx, viewDatasetKeys]);
+  const cruiseItems = useMemo<PickerItem[]>(() => cruiseRows.map((c) => ({ key: c.cruise_key, label: c.cruise_key, sub: `${shipLead(cruiseRef, c.cruise_key)}${dateOf(c.t0)} → ${dateOf(c.t1)} · ${c.n_sta} stations`, n: c.n, year: +c.cruise_key.slice(0, 4), ...prelimRow(c.cruise_key) })), [cruiseRows, stageIdx, viewDatasetKeys, cruiseRef]);
+  const sectionCruiseItems = useMemo<PickerItem[]>(() => sectionCruises.map((c) => ({ key: c.cruise_key, label: c.cruise_key, sub: `${shipLead(cruiseRef, c.cruise_key)}${c.n_sta} stations · ${fmtN(c.n)} observations`, n: c.n_sta, year: c.year, ...prelimRow(c.cruise_key) })), [sectionCruises, stageIdx, viewDatasetKeys, cruiseRef]);
   const envVar = variableItems.find((v) => v.key === sel.var);
   // what the app says about a derived variable, in the title sentence and under the picker: the registry's description
   // and derivation, the grain, and the page of the dataset that publishes it (its methods) — nothing written here
@@ -1117,9 +1118,10 @@ export function App() {
     const root = loads.current.get(REG.sample_root);
     if (root) (stageRef.current = loadStages(root)).then(setStageIdx);
   }, [lensReady, sel.lens, displayLens, status, stageIdx]);
-  // the Sections lens names the cruise's month in its caption: load the cruise reference for it too
+  // the Sections lens names the cruise's month in its caption, and it and the Cruises lens name the cruise's ship: load
+  // the cruise reference for both
   useEffect(() => {
-    if (sel.lens !== "section" || cruiseRef || !catalog) return;
+    if ((sel.lens !== "section" && sel.lens !== "cruise") || cruiseRef || !catalog) return;
     let live = true;
     probeCruiseMedian().then((m) => engine.query("cruise_ref", { src: q(REG.cruise), ...cruiseTokens(m) })).then((r) => { if (live) setCruiseRef(new Map(r.map((c) => [c.cruise_key, { ship: c.ship_name ?? c.ship_nodc ?? "", nodc: c.ship_nodc ?? "", month: c.month == null ? null : Number(c.month) }]))); }).catch(console.error);
     return () => { live = false; };
@@ -1128,8 +1130,7 @@ export function App() {
     if (seriesMode !== "cruises") return null;
     const rows = (sel.lens === "cruise" && cruiseRows.length ? cruiseRows : ganttRows).filter((c) => c.t0 && c.t1);
     // the ship from the cruise reference (title case), for the hover; a key with no reference row shows its NODC code
-    const shipOf = (k: string) => { const ref = cruiseRef?.get(k); const nodc = k.split("-")[2] ?? k; return ref?.ship ? ref.ship.replace(/\b\w+/g, (w) => w[0] + w.slice(1).toLowerCase()) : nodc; };
-    const gr: GanttRow[] = rows.map((c) => ({ ...c, ship: shipOf(c.cruise_key) }));
+    const gr: GanttRow[] = rows.map((c) => ({ ...c, ship: shipOfCruise(cruiseRef, c.cruise_key) || c.cruise_key }));
     return { rows: gr, selected: sel.cruise, onPick: (k: string) => setSel({ cruise: k }) };
   }, [seriesMode, cruiseRows, ganttRows, cruiseRef, sel.lens, sel.cruise]);
   const yearsSpark = useMemo(() => { const m = new Map(yearRows.map((r) => [r.year, r.n])); const out: number[] = []; for (let y = 1949; y <= yearMax; y++) out.push(m.get(y) ?? 0); return out; }, [yearRows, yearMax]);
@@ -1494,7 +1495,7 @@ export function App() {
   const sectionBody = <SectionPlot cells={sectionCells} clim={climCells} anom={sectionAnom} base={climBase} yLabel={sel.realm === "env" ? "depth (m)" : "year"} theme={theme} unit={unitLabel} ramp={rampId}
     empty={isCast ? "a section cuts the water column —<br>a per-cast variable is one value for the whole cast"
       : sectionNoBase ? noBaselineWhy(climBase, cruiseMonthOf(sel.cruise), climWord, climSeason === true).replace(" — ", " —<br>") : null}
-    title={`line ${sel.line} · ${sel.realm === "env" ? `depth section · cruise ${sel.cruise ?? "—"}${sel.anom && climCells ? ` · the difference from the ${climWord} ${baselineWord(climBase, cruiseMonthOf(sel.cruise))} normal` : ""}` : "station by year · all cruises · the tows are depth-integrated, so the axis is year"}`} />;
+    title={`line ${sel.line} · ${sel.realm === "env" ? `depth section · cruise ${sel.cruise ?? "—"}${shipAfter(cruiseRef, sel.cruise)}${sel.anom && climCells ? ` · the difference from the ${climWord} ${baselineWord(climBase, cruiseMonthOf(sel.cruise))} normal` : ""}` : "station by year · all cruises · the tows are depth-integrated, so the axis is year"}`} />;
   // the depth × time anomaly card (explore#28): why it is empty (an organism, a per-cast variable, no baseline, the filters),
   // the plot, and a note of the baseline and of what a blank cell means
   const dtWhy = dtEmpty({ realm: sel.realm, cast: isCast, anomAvail, anomWhyNot, rows: dtRows, filters: filterWords });
