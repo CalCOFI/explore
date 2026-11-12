@@ -14,7 +14,7 @@ export interface Params { [k: string]: Param }
 // tbl is the table a map lens summarizes: `slice`, or `slice_anom` (sql/anom_slice.sql) when it draws an anomaly;
 // clim_loc is the slice column a baseline cell is found by (anomaly.ts anomLoc()), clim_period the slice's cruise month or
 // season ({{cruise_month}} / {{cruise_quarter}}, anomaly.ts anomTokens())
-const RAW = new Set(["val", "hex", "where", "where_nodepth", "where_noyear", "src", "taxon_src", "root_src", "spatial_src", "clim_src", "dataset_filter", "quarter_filter", "bin", "sm_src", "mt_src", "qual_ok", "root_hex7", "tbl", "clim_loc", "clim_period", "area_filter", "track_src",
+const RAW = new Set(["val", "hex", "where", "where_nodepth", "where_noyear", "src", "taxon_src", "root_src", "spatial_src", "clim_src", "dataset_filter", "quarter_filter", "bin", "sm_src", "mt_src", "qual_ok", "root_hex7", "tbl", "clim_loc", "clim_period", "area_filter", "cruise_filter", "net_key", "track_src",
   "cruise_month", "cruise_quarter", "cruise_year", "cruise_src", "key_month", "key_year", "key_quarter", "cs_year", "cs_quarter", "cs_month"]);
 
 // THE CRUISE'S MONTH AND SEASON. Since release v2026.11 (calcofi4db 4.34.0; Rasmus Swalethorp 2026-10-16, Ben Best
@@ -45,11 +45,15 @@ export const cruiseSrcSql = (from: string) => `(SELECT cruise_key, date_median, 
 /** a cruise table with none of the median columns: the slice join finds nothing and the key rule stands */
 export const NO_CRUISE_SRC = "(SELECT NULL::VARCHAR AS cruise_key, NULL::DATE AS date_median, NULL::TINYINT AS month_median, NULL::SMALLINT AS season_year WHERE FALSE)";
 // {{tbl}} defaults to the slice itself; a map lens drawing an anomaly passes slice_anom
-const BUILTIN: Params = { cruise_month: CRUISE_MONTH_SQL, cruise_quarter: CRUISE_QUARTER_SQL, cruise_year: CRUISE_YEAR_SQL, tbl: "slice", area_filter: "TRUE",
+const BUILTIN: Params = { cruise_month: CRUISE_MONTH_SQL, cruise_quarter: CRUISE_QUARTER_SQL, cruise_year: CRUISE_YEAR_SQL, tbl: "slice", area_filter: "TRUE", cruise_filter: "TRUE",
+  // sql/slice_bio.sql zero-fills per net: sample_key where obs_bio carries it (App.tsx probes), else per visit
+  net_key: "root_id",
   cruise_src: NO_CRUISE_SRC, key_month: KEY_MONTH_SQL, key_year: KEY_YEAR_SQL, key_quarter: KEY_QUARTER_SQL,
   // the cruise table's own month / season / season year (sql/cruise_seasons.sql, cruise_ref.sql): the key rule unless App.tsx
   // has probed the median columns and passes month_median / season_year
   cs_month: KEY_MONTH_SQL, cs_year: KEY_YEAR_SQL, cs_quarter: KEY_QUARTER_SQL }; // and the Area filter (src/area.ts) is everywhere unless a caller says
+/** the When step's cruise list: the cruises picked, by cruise_key (2025-04-33RL); none = TRUE */
+export const cruiseFilterSql = (cs: string[] | null | undefined) => cs?.length ? `cruise_key IN (${cs.map((c) => lit(c)).join(", ")})` : "TRUE";
 export const datasetFilterSql = (ds: string[] | null | undefined) => ds?.length ? `dataset_key IN (${ds.map((d) => lit(d)).join(", ")})` : "TRUE";
 
 // an H3 parent as plain bit arithmetic (calcofi4db::h3_parent_sql): resolution in bits 52–55, one

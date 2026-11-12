@@ -7,6 +7,12 @@
 -- a dataset that ships its own zeros (cufes, zooscan, zoodb, phyllosoma) is left as it is. zero rows have
 -- obs_id NULL and qual_ok TRUE; every template counts n = count(obs_id) (records) and n_samples = tows, so the
 -- counts shown stay the records and only the statistics (mean, se, median) see the zeros.
+-- THE ZERO IS PER NET (Betty 2026-11-11, to confirm with Ben): {{net_key}} is the dataset's own sample (sample_key — one
+-- net of a station visit; root_id on a release without it). A station visit (root_id) often holds 2–3 ichthyo nets, and
+-- the zero used to be one per visit: a visit's empty second net was never a 0 (means too high), and a visit whose nets
+-- were sorted for eggs only still got a larva 0 (too low). Now each net gets a 0 for a life stage only when that net
+-- recorded that stage for some taxon — proof it was sorted for it. A net with no record at all is not in the data, so
+-- it is never zero-filled. Catches were always per net, so zeros and catches are now the same unit.
 -- site_key rides along (same column set as slice_env.sql) so a template shared by both realms can name it; it is
 -- NULL for datasets with no station (cufes, bird-mammal, phytoplankton). line / station stay the grid cell's here.
 -- year / quarter / cruise_month / season_year are the CRUISE's, as in slice_env.sql: the median cast month from the
@@ -27,16 +33,17 @@ positive_only AS (
   WHERE dataset_key IN (SELECT DISTINCT dataset_key FROM pos)
   GROUP BY dataset_key HAVING count(*) FILTER (WHERE value = 0) = 0),
 tow AS (
-  SELECT dataset_key, root_id, any_value(grid_key) AS grid_key, any_value(site_key) AS site_key, any_value(cruise_key) AS cruise_key,
+  SELECT dataset_key, {{net_key}} AS net, any_value(root_id) AS root_id, any_value(grid_key) AS grid_key, any_value(site_key) AS site_key, any_value(cruise_key) AS cruise_key,
          any_value(latitude) AS latitude, any_value(longitude) AS longitude, any_value(datetime) AS datetime,
          any_value(COALESCE(COALESCE(year(cz.date_median), {{key_year}}), year))::SMALLINT AS year, any_value(COALESCE((CASE WHEN COALESCE(cz.month_median, {{key_month}}) IN (12, 1, 2) THEN 1 WHEN COALESCE(cz.month_median, {{key_month}}) IN (3, 4, 5) THEN 2 WHEN COALESCE(cz.month_median, {{key_month}}) IN (6, 7, 8) THEN 3 WHEN COALESCE(cz.month_median, {{key_month}}) IN (9, 10, 11) THEN 4 END), quarter))::TINYINT AS quarter, any_value(depth_min_m) AS depth_min_m,
          any_value(depth_max_m) AS depth_max_m, any_value(depth_bin) AS depth_bin, any_value(tow_type) AS tow_type,
          any_value(effort_class) AS effort_class, any_value(hex7) AS hex7,
          any_value(COALESCE(cz.month_median, {{key_month}}))::TINYINT AS cruise_month, any_value((CASE WHEN COALESCE(cz.month_median, {{key_month}}) = 12 THEN COALESCE(year(cz.date_median), {{key_year}}) + 1 ELSE COALESCE(year(cz.date_median), {{key_year}}) END))::SMALLINT AS season_year,
-         bool_or(density_per_10m2 IS NOT NULL) AS has_10m2, bool_or(density_per_1000m3 IS NOT NULL) AS has_1000m3
+         bool_or(density_per_10m2 IS NOT NULL) AS has_10m2, bool_or(density_per_1000m3 IS NOT NULL) AS has_1000m3,
+         list(DISTINCT life_stage) AS stages
   FROM {{src}} o LEFT JOIN {{cruise_src}} cz USING (cruise_key)
   WHERE dataset_key IN (SELECT dataset_key FROM positive_only)
-  GROUP BY dataset_key, root_id),
+  GROUP BY dataset_key, {{net_key}}),
 stage AS (
   SELECT dataset_key, life_stage, any_value(measurement_type) AS measurement_type, any_value(units) AS units
   FROM pos GROUP BY dataset_key, life_stage)
@@ -51,4 +58,6 @@ SELECT NULL AS obs_id, t.dataset_key, t.root_id, t.grid_key, t.site_key,
        t.effort_class, t.hex7,
        t.cruise_month, t.season_year
 FROM tow t JOIN stage s USING (dataset_key)
-WHERE NOT EXISTS (SELECT 1 FROM pos p WHERE p.dataset_key = t.dataset_key AND p.root_id = t.root_id AND p.life_stage IS NOT DISTINCT FROM s.life_stage)
+WHERE (s.life_stage IS NULL OR list_contains(t.stages, s.life_stage))
+  AND NOT EXISTS (SELECT 1 FROM {{src}} p WHERE p.taxon_key = {{taxon}} AND p.dataset_key = t.dataset_key AND p.{{net_key}} = t.net
+                  AND p.life_stage IS NOT DISTINCT FROM s.life_stage)

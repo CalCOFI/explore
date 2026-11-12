@@ -21,6 +21,7 @@ export interface Sel {
   realm: Realm;
   taxon: string;               // bio: worms:217452
   var: string;                 // env: temperature | oxygen_ml_l
+  var2: string | null;         // "Add a variable" (Ben's #3, Betty 2026-11-11): a second env variable, averaged into the same hexagons (`var2=`)
   stage: string | null;        // bio life stage; null = "let the picker default it" (D8 rule 4)
   den: Den | null;             // bio denominator; null = default per rule 4
   zeros: boolean;              // bio: a tow a positive-only dataset sampled with no catch counts as 0 (default); zeros=0 = positive tows only
@@ -33,6 +34,7 @@ export interface Sel {
   region: string | null;       // selected polygon
   line: number;                // section lens: CalCOFI line
   cruise: string | null;       // cruise + section lens
+  cruises: string[] | null;    // the When step's cruise filter (`cr=2025-04-33RL,2019-01-33RL`, cruise keys); null = every cruise
   stat: Stat;
   anom: boolean;               // env, on ANOM_LENSES (section · hex · contour): the difference from the climatology (`anom=1`)
   base: ClimBase;              // the normal it subtracts: the cruise's month (default) or its quarter (`base=season`; anomaly.ts)
@@ -147,7 +149,7 @@ export function hideFromUrl(p: URLSearchParams): PanelId[] {
   return [...new Set([...DEFAULT_HIDE.filter((x) => !show.has(x)), ...hide])];
 }
 
-export const LENSES: Lens[] = ["station", "hex", "contour", "cruise", "region", "section"];
+export const LENSES: Lens[] = ["station", "hex", "region", "contour", "cruise", "section"];
 /** the lenses that can draw an env variable as the difference from its climatology (`anom=1`): the depth section, and
  *  the two map lenses that pool departures per cell (sql/anom_slice.sql) */
 export const ANOM_LENSES: Lens[] = ["section", "hex", "contour"];
@@ -189,6 +191,12 @@ export const DEN_HOW: Record<Den, string> = {
   per_1000m3: "count ÷ proportion sorted ÷ volume strained × 1000 — volumetric: manta tows and any tow with a flowmeter",
   raw: "as counted — not standardized, so not comparable across gear or datasets",
 };
+// the one-line plain-words version the panel shows beside each choice (DEN_HOW, with its formula, is folded under "How these are calculated")
+export const DEN_SHORT: Record<Den, string> = {
+  per_10m2: "area: oblique and vertical tows",
+  per_1000m3: "volumetric: manta tows and any tow with a flowmeter",
+  raw: "as counted — not standardized, so not comparable across gear or datasets",
+};
 export const SHF_NOTE = "standard haul factor = 10 × tow depth (m) ÷ volume strained (m³): SWFSC's per-tow multiplier, carried per tow in the release (obs_bio.std_haul_factor) and kept in the download bundle's observations";
 export const STAT_LABEL: Record<Stat, string> = { mean: "mean", med: "median", n: "observations" }; // "rows" is database-speak (D12)
 // H3 mean edge length per resolution (km) — what "hexagon size" shows; `res` stays in the URL (D12)
@@ -222,9 +230,9 @@ export const DEFAULT_TAXON = "worms:217452"; // Pacific sardine
 export const YEAR_OPEN = 9999; // "through the latest year in the release" until coverage.json says which
 
 export const DEFAULTS: Sel = {
-  lens: "station", res: 5, interp: "tps", surface: "value", grain: "site", inputs: null, labels: true, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature",
+  lens: "station", res: 5, interp: "tps", surface: "value", grain: "site", inputs: null, labels: true, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature", var2: null,
   stage: null, den: null, zeros: true, years: [1949, YEAR_OPEN], months: null, q: null, yview: null, depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
-  line: 90, cruise: null, stat: "mean", anom: false, base: "month", tour: true, tourOn: false, modal: null, theme: null, release: null, station: null, datasets: null,
+  line: 90, cruise: null, cruises: null, stat: "mean", anom: false, base: "month", tour: true, tourOn: false, modal: null, theme: null, release: null, station: null, datasets: null,
   hide: DEFAULT_HIDE, max: null, map: null, bathy: null, bathyo: null, land: true, baseLabels: true, basemapo: null, layers: null, view3d: false, exag: null, cam: null, strip: null, tbin: "season", area: null, ramp: null, data: true, datao: null, lines: false, obs: null, effort: false,
 };
 
@@ -277,6 +285,7 @@ export function fromUrl(): Sel {
     realm: v ? "env" : "bio",
     taxon: p.get("taxon") ?? DEFAULTS.taxon,
     var: v ?? DEFAULTS.var,
+    var2: p.get("var2") || null,
     stage: p.get("stage"),
     den: den && (den in VAL_COL) ? (den as Den) : null,
     zeros: p.get("zeros") !== "0",
@@ -313,6 +322,7 @@ export function fromUrl(): Sel {
     strip: p.get("strip") === "mean" || p.get("strip") === "cruises" ? (p.get("strip") as StripMode) : null,
     tbin: p.get("tbin") === "year" ? "year" : "season",
     area: p.get("area") || null,
+    cruises: (() => { const v = (p.get("cr") ?? "").split(",").filter((c) => /^\d{4}-\d{2}-[A-Za-z0-9]+$/.test(c)); return v.length ? v : null; })(),
     ramp: p.get("ramp") || null,
     data: p.get("data") !== "off",
     lines: p.get("lines") === "on",
@@ -328,6 +338,7 @@ export function toUrl(s: Sel) {
   if (s.lens === "hex") p.set("res", String(s.res));
   if (s.lens === "contour") { if (s.interp !== DEFAULTS.interp) p.set("interp", s.interp); if (s.surface !== DEFAULTS.surface) p.set("surface", s.surface); if (s.grain !== DEFAULTS.grain) p.set("grain", s.grain); if (s.inputs != null) p.set("inputs", s.inputs ? "on" : "off"); if (!s.labels) p.set("labels", "off"); }
   if (s.realm === "env") p.set("var", s.var);
+  if (s.var2) p.set("var2", s.var2);
   else {
     p.set("taxon", s.taxon);
     if (s.stage) p.set("stage", s.stage);
@@ -371,6 +382,7 @@ export function toUrl(s: Sel) {
   if (s.strip) p.set("strip", s.strip);
   if (s.tbin !== "season") p.set("tbin", s.tbin);
   if (s.area) p.set("area", s.area);
+  if (s.cruises?.length) p.set("cr", s.cruises.join(","));
   if (s.ramp) p.set("ramp", s.ramp);
   if (!s.data) p.set("data", "off");
   if (s.datao != null) p.set("datao", s.datao.toFixed(2));

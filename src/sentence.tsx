@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "./icons";
 import { IconButton, Menu, NumInput, YearRange, useAnchor, type MenuItem } from "./ui";
+import { shownName } from "./spatial_registry";
 import { Picker, type PickerItem, type GroupOpt } from "./picker";
 import { CLIM_MIN_CRUISES, baselineWord, cruiseMonth, type ClimBase } from "./anomaly";
 import { DEN_LABEL, DEN_HOW, LENSES, LENS_SHORT, LENS_DESC, LENS_ICON, RES_KM, STAT_WORD, STAT_LABEL, YEAR_OPEN, INTERPS, INTERP_LABEL, INTERP_WORD, INTERP_HOW, SURFACES, SURFACE_LABEL, SURFACE_WORD, GRAIN_LABEL, GRAIN_HOW, type Sel, type Den, type Stat, type Lens, type Grain } from "./state";
@@ -23,6 +24,10 @@ export interface SentenceCtx {
   // the anomaly (anomaly.ts): a baseline exists for this variable; the one in force; whether the release carries the season
   anomAvail?: boolean; climBase?: ClimBase; seasonOk?: boolean | null;
   cruiseMonthOf?: (k: string | null | undefined) => number | null; // the cruise's month (its median cast month where the release carries it; App.tsx)
+  onSources?: () => void;  // opens Data Sources & Attribution (every dataset: provider, licence, DOI, citation)
+  sources?: { key: string; name: string; long?: string; url: string; raw?: boolean }[]; // the datasets actually plotted, each linked to its page
+  // the other datasets that hold this pick (one shown at a time): the Source line offers them as a switch (Betty 2026-11-10)
+  dsSwitch?: { dk: string; nm: string; st: string; go: (() => void) | null }[];
   datasetsInSlice: string[]; dsOn: (dk: string) => boolean; toggleDataset: (dk: string) => void; dsColor: (dk: string) => string; short: (dk: string) => string;
   subject: string; unit: string;
   // a derived variable says so right after its name (castgrain.ts): the word, its hover (the registry's definition) and
@@ -30,9 +35,12 @@ export interface SentenceCtx {
   derived?: DerivedNote | null;
   countWord?: string;         // what the count counts: "observations", or "casts" for a per-cast variable
   domain: [string, string]; bar: string; count: number; status: string; ready: boolean; seaFloor: boolean;
+  countLabel?: string | null; // the count in words, when it is more than "N observations" ("1,204 samples · found in 31", App.tsx countText)
+  countNote?: string | null;  // lean: a side note on the count (observations left out by the standardization), as its tooltip rather than a line of its own
   extra?: ReactNode;          // the boundary-layer legend rows, an empty result's note — under the sentence
-  native: boolean; phone: boolean; loading: string | null;
+  native: boolean; phone: boolean; loading: string | null; busy?: boolean;   // busy: a query is running — the title card shows a moving bar along its foot
   open: boolean; onToggle: () => void;
+  lean?: boolean;             // the lean layout: a compact title (name · what it shows · scale · Details) and the filters as a second line
   band?: React.CSSProperties;  // the free band between the panels (left · right insets), set by the app
 }
 
@@ -41,7 +49,7 @@ export function ChipMenu(p: { label: ReactNode; items: MenuItem[]; title?: strin
   return <Menu className="sc-menu" label={p.label} items={p.items} icon={p.icon} title={p.title} data-tour={p["data-tour"]} />;
 }
 /** a chip that opens custom content (a year range, the seasons, the depth band, the dataset pills) */
-export function ChipPop(p: { label: ReactNode; title?: string; icon?: IconName; width?: number; children: ReactNode }) {
+export function ChipPop(p: { label: ReactNode; title?: string; icon?: IconName; width?: number; children: ReactNode; className?: string; closeOnPick?: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
   const btn = useRef<HTMLButtonElement>(null);
@@ -54,11 +62,11 @@ export function ChipPop(p: { label: ReactNode; title?: string; icon?: IconName; 
     return () => { document.removeEventListener("mousedown", off); document.removeEventListener("keydown", key); };
   }, [open]);
   return (
-    <span ref={ref} className="sc-pop">
+    <span ref={ref} className={`sc-pop${p.className ? ` ${p.className}` : ""}`}>
       <button ref={btn} type="button" className={`sc${open ? " open" : ""}`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((v) => !v)} title={p.title}>
         {p.icon && <Icon name={p.icon} />}{p.label}<Icon name="ui-down" className="car" size="0.9em" />
       </button>
-      {open && <div className="menu-list sc-pop-body" role="dialog" style={box ?? undefined}>{p.children}</div>}
+      {open && <div className="menu-list sc-pop-body" role="dialog" style={box ?? undefined} onClick={p.closeOnPick ? (e) => { if ((e.target as HTMLElement).closest("button")) setOpen(false); } : undefined}>{p.children}</div>}
     </span>);
 }
 
@@ -78,12 +86,33 @@ type Part = string | { key: string; text: ReactNode; control?: () => ReactNode; 
 
 export function Sentence(c: SentenceCtx) {
   const { sel, setSel } = c;
+  // lean: the title card is centred and can be dragged anywhere (grab any empty part of it; double-click it to re-centre)
+  const card = useRef<HTMLDivElement>(null);
+  const [off, setOff] = useState<{ x: number; y: number }>(() => {
+    try { const j = JSON.parse(localStorage.getItem("explore.titlepos") || "null"); if (j && isFinite(j.x) && isFinite(j.y)) return j; } catch { /* no storage */ }
+    return { x: 0, y: 0 };
+  });
+  const saveOff = (o: { x: number; y: number }) => { try { localStorage.setItem("explore.titlepos", JSON.stringify(o)); } catch { /* no storage */ } };
+  const grab = (e: React.PointerEvent) => {
+    const el = card.current, par = (el?.parentElement?.offsetParent ?? null) as HTMLElement | null; // the card sits in .sentence (a thin absolute strip): the limits are the map area around it
+    if (!c.lean || c.open || !el || !par || (e.target as HTMLElement).closest("button, input, select, a, label, [role=button], [role=menu]")) return;
+    e.preventDefault();
+    const sx = e.clientX, sy = e.clientY, o0 = off, r0 = el.getBoundingClientRect(), pr = par.getBoundingClientRect();
+    let cur = o0;
+    const move = (ev: PointerEvent) => {
+      const dx = Math.min(Math.max(ev.clientX - sx, pr.left + 4 - r0.left), pr.right - 4 - r0.right);
+      const dy = Math.min(Math.max(ev.clientY - sy, pr.top + 4 - r0.top), pr.bottom - 4 - r0.bottom);
+      cur = { x: o0.x + dx, y: o0.y + dy }; setOff(cur);
+    };
+    const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); saveOff(cur); };
+    window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+  };
   const yearsSet = sel.years[0] !== 1949 || sel.years[1] !== YEAR_OPEN || !!sel.months;
   const pad = (m: number) => String(m).padStart(2, "0");
   const yearsWord = yearsSet ? (sel.months ? `${c.years[0]}-${pad(sel.months[0])} to ${c.years[1]}-${pad(sel.months[1])}` : `${c.years[0]}–${c.years[1]}`) : "all years";
   const seasonWord = sel.q?.length && sel.q.length < 4 ? sel.q.map((x) => Q_LABEL[x - 1]).join(", ") : "all seasons";
   const depthWord = `${sel.depth[0]}–${sel.depth[1]} m`;
-  const nDs = c.datasetsInSlice.length, nOn = c.datasetsInSlice.filter(c.dsOn).length;
+  const nDs = c.datasetsInSlice.length;
   const climWord = c.climWindow ? `${c.climWindow[0]}–${c.climWindow[1]}` : "1993–2013";
   const cruiseLabel = (items: PickerItem[]) => items.find((i) => i.key === sel.cruise)?.label ?? sel.cruise ?? "…";
   const toggleQ = (x: number) => { const cur = sel.q ?? [1, 2, 3, 4]; const next = cur.includes(x) ? cur.filter((y) => y !== x) : [...cur, x].sort(); setSel({ q: next.length === 0 || next.length === 4 ? null : next }); };
@@ -103,7 +132,7 @@ export function Sentence(c: SentenceCtx) {
   const interpMenu = () => <ChipMenu label={INTERP_WORD[sel.interp]} title="the interpolator" items={INTERPS.map((m) => ({ label: INTERP_LABEL[m], hint: INTERP_HOW[m], selected: m === sel.interp, onSelect: () => setSel({ interp: m }) }))} />;
   const surfaceMenu = () => <ChipMenu label={SURFACE_WORD[sel.surface] || "the statistic itself"} title="which surface is drawn" items={SURFACES.map((s) => ({ label: SURFACE_LABEL[s], disabled: s === "se" && sel.interp === "idw", selected: s === sel.surface, onSelect: () => setSel({ surface: s }) }))} />;
   const grainMenu = () => <ChipMenu label={sel.interp === "tps" ? "the station grid" : sel.grain === "site" ? "every site" : "the station grid"} title="the points the surface is fitted to" items={(["site", "station"] as Grain[]).map((g) => ({ label: GRAIN_LABEL[g], hint: GRAIN_HOW[g], disabled: g === "site" && sel.interp === "tps", selected: g === (sel.interp === "tps" ? "station" : sel.grain), onSelect: () => setSel({ grain: g }) }))} />;
-  const layerMenu = () => <ChipMenu label={sel.layer} title="the boundary layer" items={c.layerNames.map((n) => ({ label: n, selected: n === sel.layer, onSelect: () => setSel({ layer: n, region: null }) }))} />;
+  const layerMenu = () => <ChipMenu label={shownName(sel.layer)} title="the boundary layer" items={c.layerNames.map((n) => ({ label: shownName(n), selected: n === sel.layer, onSelect: () => setSel({ layer: n, region: null }) }))} />;
   const regionMenu = () => <ChipMenu label={c.regionName ?? ""} title="the selected region — click a polygon on the map to pick another" items={[{ label: "every region", hint: "clear the selection", onSelect: () => setSel({ region: null }) }]} />;
   const lineMenu = () => <ChipMenu label={String(sel.line)} title="the CalCOFI line" items={c.lines.map((l) => ({ label: `line ${l}`, selected: l === sel.line, onSelect: () => setSel({ line: l, cruise: null }) }))} />;
   const cruiseChip = (items: PickerItem[], id: string) => <Picker variant="chip" id={id} label="cruise" hint="newest first" value={sel.cruise ?? ""} items={items} onChange={(k) => setSel({ cruise: k })} sorts={["recent", "n"]} countLabel={id === "ts-section-cruise" ? "stations" : undefined} placeholder="search YYYY-MM-NODC…" loading={items.length ? null : "…"} native={c.native} sheet={c.phone} />;
@@ -129,9 +158,11 @@ export function Sentence(c: SentenceCtx) {
     <div className="row"><NumInput value={sel.depth[0]} min={0} max={sel.depth[1] - 10} step={10} width={62} label="top of the depth band (m)" onCommit={(v) => setSel({ depth: [v, sel.depth[1]] })} />–<NumInput value={sel.depth[1]} min={sel.depth[0] + 10} max={6500} step={10} width={62} label="bottom of the depth band (m)" onCommit={(v) => setSel({ depth: [sel.depth[0], v] })} /> m</div>
     <div className="row"><button type="button" className="pill act" onClick={() => setSel({ depth: [0, 500] })}>0–500 m</button><span className="hint">or drag on the Depth panel</span></div>
   </ChipPop>;
-  const datasetsPop = () => <ChipPop label={nOn === nDs ? `${nDs} datasets` : `${nOn} of ${nDs} datasets`} icon="ui-data" title="the datasets this view pools — click one to leave it out" width={300}>
+  // one dataset at a time (never pooled): the chip names the one shown, the pop switches to another
+  const shownDs = c.datasetsInSlice.find(c.dsOn);
+  const dsLabel = nDs > 1 && shownDs ? `1 of ${nDs} datasets` : `${nDs} dataset${nDs === 1 ? "" : "s"}`;
+  const datasetsPop = () => <ChipPop label={dsLabel} icon="ui-data" title="the dataset shown — click another to switch" width={300}>
     <div className="pills">{c.datasetsInSlice.map((dk) => <button key={dk} type="button" className={`pill act${c.dsOn(dk) ? "" : " off"}`} onClick={() => c.toggleDataset(dk)}><i className="dot" style={{ background: c.dsColor(dk) }} />{c.short(dk)}</button>)}</div>
-    {sel.datasets && <button type="button" className="linkish" onClick={() => setSel({ datasets: null })}>all datasets</button>}
   </ChipPop>;
 
   // ── the sentence, one grammar for both renderings ─────────────────────────────────────────────
@@ -151,7 +182,7 @@ export function Sentence(c: SentenceCtx) {
   else if (sel.lens === "hex") { chip("lens", "in hexagons", () => lensMenu("in hexagons")); w(" of "); chip("res", RES_KM[sel.res], resMenu); }
   else if (sel.lens === "contour") { chip("lens", "as a contoured surface", () => lensMenu("as a contoured surface")); w(" by "); chip("interp", INTERP_WORD[sel.interp], interpMenu); w(" over "); chip("grain", sel.interp === "tps" ? "the station grid" : sel.grain === "site" ? "every site" : "the station grid", grainMenu); if (sel.surface !== "value" || c.open) { w(", showing "); chip("surface", SURFACE_WORD[sel.surface] || "the statistic itself", surfaceMenu); } }
   else if (sel.lens === "cruise") { chip("lens", "along a cruise track", () => lensMenu("along a cruise track")); w(": "); chip("cruise", cruiseLabel(c.cruiseItems), () => cruiseChip(c.cruiseItems, "ts-cruise")); }
-  else if (sel.lens === "region") { chip("lens", "within regions", () => lensMenu("within regions")); w(": "); chip("layer", sel.layer, layerMenu); if (c.regionName) { w(" · "); chip("region", c.regionName, regionMenu); } }
+  else if (sel.lens === "region") { chip("lens", "within regions", () => lensMenu("within regions")); w(": "); chip("layer", shownName(sel.layer), layerMenu); }
   else {
     // the section's y-axis is the realm: env cuts DEPTH on one cruise, bio has no depth (the tows are
     // depth-integrated) and cuts YEARS, so the sentence names the axis rather than saying "a section" twice over
@@ -163,26 +194,56 @@ export function Sentence(c: SentenceCtx) {
   // the map lenses that pool departures (Hexagons, Contours) say so, for an env variable with a baseline
   if ((sel.lens === "hex" || sel.lens === "contour") && sel.realm === "env" && c.anomAvail && (sel.anom || c.open)) { w(", "); chip("anom", anomWord, anomMenu); }
   w(", "); chip("years", yearsWord, yearsPop); w(" · "); chip("season", seasonWord, seasonPop);
+  if (sel.cruises?.length) { const cw = sel.cruises.length <= 3 ? `cruise ${sel.cruises.join(", ")}` : `${sel.cruises.length} cruises`; w(" · "); chip("cruises", cw, () => <ChipMenu label={cw} title="the cruise filter — set in When" items={[{ label: "every cruise (clear)", selected: false, onSelect: () => setSel({ cruises: null }) }]} />); }
   if (c.hasDepthAxis) { w(" · "); chip("depth", depthWord, depthPop); }
   if (c.areaText) { w(" · "); chip("area", c.areaText, () => <ChipMenu label={c.areaText!} title="the Area filter — set in Refine" items={[{ label: "everywhere (clear the area)", selected: false, onSelect: () => setSel({ area: null }) }]} />, false, "only samples inside this area count — Refine › Area"); }
-  if (sel.datasets || c.open) { w(" · "); chip("datasets", nOn === nDs ? `all ${nDs} datasets` : `${nOn} of ${nDs} datasets`, datasetsPop); }
+  if (nDs > 1 && c.open) { // "1 of 2 datasets" left the top card (Betty 2026-11-10): one dataset is always shown; the Source names it
+    w(" · "); chip("datasets", dsLabel, datasetsPop); }
   w(".");
 
   // the legend reads the scale and the count; the STATUS is not here any more — it has its own toast over the map (App.tsx), where
   // a newcomer waiting on "engine warming…" will see it. The title stands above the legend, never beside it: a mouthful of a
   // sentence squeezed into a column beside an unwrapping legend was the 2026-09-07 bug.
   const legend = <span className="ts-legend" data-tour="legend">
-    {c.sel.data ? <><span>{c.domain[0]}</span><span className="bar" style={{ background: c.bar }} /><span>{c.domain[1]} {c.unit}</span></> : <span className="hint">data off</span>}
+    {!c.ready ? null : c.sel.data ? <><span>{c.domain[0]}</span><span className="bar" style={{ background: c.bar }} /><span>{c.domain[1]} {c.unit}</span></> : <span className="hint">data off</span>}
     {c.sel.obs && <span className="hint" title="the Observations layer (Layers card): every site in the selection as a dot"> · <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: 4, background: `#${c.sel.obs}`, boxShadow: "0 0 0 1px rgba(127,127,127,.6)", verticalAlign: "middle" }} /> every site sampled</span>}
-    <span className="hint">{c.sel.data ? " · 5–95 %" : ""}{c.ready ? ` · ${fmtN(c.count)} ${c.countWord ?? "observations"}` : ""}</span>
+    <span className="hint">{c.sel.data ? " · 5–95 %" : ""}{c.ready ? ` · ${c.countLabel ?? `${fmtN(c.count)} ${c.countWord ?? "observations"}`}` : ""}</span>
   </span>;
   return (
     <div className={`sentence${c.open ? " open" : ""}`} data-tour="sentence" style={c.band}>
-      <div className="ts" role="group" aria-label="what the map shows">
+      <div className={`ts${c.lean && !c.open ? " draggable" : ""}`} ref={card} role="group" aria-label="what the map shows" onPointerDown={grab}
+        onDoubleClick={(e) => { if (c.lean && !(e.target as HTMLElement).closest("button, input, select, a, label")) { const z = { x: 0, y: 0 }; setOff(z); saveOff(z); } }}
+        style={c.lean && !c.open && (off.x || off.y) ? { transform: `translate(${off.x}px, ${off.y}px)` } : undefined} title={c.lean && !c.open ? "Drag to move · double-click to re-centre" : undefined}>
+        {c.busy && <span className="ts-load" aria-hidden="true"><i /></span>}
         {c.open ? <>
           <div className="ts-sent">{parts.map((p, i) => typeof p === "string" ? <span key={i} className="w">{p}</span> : <span key={p.key} className="ts-chip">{p.control ? p.control() : <span className="sc static">{p.text}</span>}</span>)}</div>
           <div className="ts-foot">{legend}<span className="sp" /><span className="hint">the same pickers as the Controls panel — change a part, the map follows</span><IconButton icon="ui-up" label="Done — back to the title" className="ts-toggle" onClick={c.onToggle} data-tour="sentence-toggle" /></div>
-        </> : <>
+        </> : c.lean ? (() => {
+          // head = the name and what is shown; filters = years · season · depth · area · datasets (the chips from "years" on)
+          const iy = parts.findIndex((x) => typeof x !== "string" && x.key === "years");
+          const head0 = parts.slice(0, Math.max(0, iy - 1)), filt0 = parts.slice(iy).filter((x, i, a) => !(i === a.length - 1 && x === "."));
+          // the life stage is a filter, not part of the name: it moves off the title and leads the line below ("all life stages · all years · …")
+          const is = head0.findIndex((x) => typeof x !== "string" && x.key === "stage");
+          const head = is >= 0 ? head0.filter((_, i) => i !== is && i !== is - 1) : head0;
+          const filt: Part[] = is >= 0 ? [head0[is], " · ", ...filt0] : filt0;
+          const draw = (ps: Part[]) => ps.map((p, i) => typeof p === "string" ? (p === ", the " ? " · " : p) : p.bold ? <b key={p.key}>{p.text}</b> : <span key={p.key} className={p.key === "derived" ? "derived" : undefined} title={p.title}>{p.text}</span>);
+          return <>
+            <div className="ts-row lean-title">
+              <span className="ts-text">{draw(head)}</span>
+              <span className="ts-legend lt-scale" data-tour="legend">{!c.ready ? null : c.sel.data ? <><span>{c.domain[0]}</span><span className="bar" style={{ background: c.bar }} /><span>{c.domain[1]} {c.unit}</span></> : <span className="hint">data off</span>}</span>
+              <button type="button" className="lt-details" onClick={c.onToggle} data-tour="sentence-toggle" title="change what the map shows">Details <Icon name="ui-down" size="0.9em" /></button>
+            </div>
+            <div className="lt-bottom">
+              <div className="lt-filters">{draw(filt)}{c.ready ? <>{" · "}<span className={c.countNote ? "ct-note" : undefined} title={c.countNote ?? undefined}>{c.countLabel ?? `${fmtN(c.count)} ${c.countWord ?? "observations"}`}</span></> : ""}</div>
+              {c.sources && c.sources.length > 0 && <div className="lt-source"><span>Source</span>
+                {c.sources.map((x, i) => <span key={x.key}>{i > 0 && <span className="sep"> · </span>}<a href={x.url} target="_blank" rel="noopener" title={x.raw ? `${x.long ?? x.name} — the original source of the data` : `${x.long ?? x.name} — the dataset page, with its methods and citation`}>{x.name} <Icon name="ui-open" size="0.85em" /></a></span>)}
+                {c.dsSwitch && c.dsSwitch.length > 1 && <ChipPop className="lt-switch" closeOnPick label={`${c.dsSwitch.length - 1} other${c.dsSwitch.length > 2 ? "s" : ""}`} title="show this from another dataset" width={300}>
+                  {c.dsSwitch.map((d) => <button key={d.dk} type="button" className={`menu-item${d.go ? "" : " on"}`} disabled={!d.go} onClick={() => d.go?.()}>
+                    <i className="dot" style={{ background: c.dsColor(d.dk) }} /><span>{d.nm}</span>{d.st && <span className="hint"> {d.st}</span>}</button>)}
+                </ChipPop>}
+                {c.onSources && <button type="button" className="lt-all" onClick={c.onSources} title="who collected the data, how to cite it, licences and contacts — for every dataset"><Icon name="ui-cite" size="0.95em" /> Attribution</button>}</div>}
+            </div>
+          </>; })() : <>
           <div className="ts-row">
             <span className="ts-text">{parts.map((p, i) => typeof p === "string" ? p : p.bold ? <b key={p.key}>{p.text}</b> : <span key={p.key} className={p.key === "derived" ? "derived" : undefined} title={p.title}>{p.text}</span>)}</span>
             <IconButton icon="ui-down" label="Change what the map shows" className="ts-toggle" onClick={c.onToggle} data-tour="sentence-toggle" />

@@ -13,6 +13,7 @@ export interface ReproCtx {
   sel: Sel; version: string; catalog: Catalog; params: Params; lensParams: Params; lensTemplate: string;
   grain?: VarGrain | null;     // an env variable's grain: "cast" reads sample_measurement ⋈ sample_root (sql/slice_cast.sql); absent / "bin" = obs_env
   rootHex7?: boolean;          // the release's sample_root carries hex7 (v2026.10.04+): the per-cast slice takes the cast's H3 cell from it
+  bioNet?: boolean;            // obs_bio carries sample_key: sql/slice_bio.sql zero-fills per net (else per visit)
   cruiseMedian?: boolean;      // the release's cruise table carries month_median (v2026.11+): the slices join it for the cruise's month and season
   // the depth × time anomaly card is open (explore#28): hand over its two statements too — the per-observation subtraction
   // (sql/anom_slice.sql, over the variable's climatology objects `clim`, the member types that have one) and the card's grid
@@ -21,7 +22,7 @@ export interface ReproCtx {
 export const isCast = (ctx: Pick<ReproCtx, "sel" | "grain">) => ctx.sel.realm === "env" && ctx.grain === "cast";
 
 /** the SQL the view ran, in order, with the browser's registered file names replaced by the release's URLs */
-export function resolvedSql(ctx: Pick<ReproCtx, "sel" | "catalog" | "params" | "lensParams" | "lensTemplate" | "grain" | "rootHex7" | "cruiseMedian" | "depthTime">): [string, string][] {
+export function resolvedSql(ctx: Pick<ReproCtx, "sel" | "catalog" | "params" | "lensParams" | "lensTemplate" | "grain" | "rootHex7" | "cruiseMedian" | "bioNet" | "depthTime">): [string, string][] {
   const { sel, catalog } = ctx;
   const cast = isCast(ctx);
   const bioSrc = sources(catalog, "obs_bio"), envSrc = sources(catalog, "obs_env"), rootSrc = sources(catalog, "sample_root"), spSrc = sources(catalog, "sample_spatial"), txSrc = sources(catalog, "taxon");
@@ -33,18 +34,21 @@ export function resolvedSql(ctx: Pick<ReproCtx, "sel" | "catalog" | "params" | "
     // the cruise table, for the cruise's median month and season (v2026.11+); without it the slice keys on the cruise_key
     ...(ctx.cruiseMedian ? { cruise_src: cruiseSrcSql(readParquetSql(sources(catalog, "cruise"))) } : {}),
   };
+  // a region's Area filter reads the browser's registered sample_spatial file: point it at the release's own object instead
+  const area = ctx.params.area_filter;
+  const params: Params = typeof area === "string" ? { ...ctx.params, area_filter: area.split("'sample_spatial.parquet'").join(readParquetSql(spSrc)) } : ctx.params;
   // a per-cast variable: the same join the browser ran — sample_measurement ⋈ sample_root, units from the registry,
   // the quality predicate qualOkSQL("sm") — against the release's own object URLs (sql/slice_cast.sql)
-  const sliceSql = sel.realm === "bio" ? render("slice_bio", { ...tokens, taxon: sel.taxon })
+  const sliceSql = sel.realm === "bio" ? render("slice_bio", { ...tokens, taxon: sel.taxon, net_key: ctx.bioNet ? "sample_key" : "root_id" })
     : cast ? render("slice_cast", { ...tokens, sm_src: readParquetSql(sources(catalog, "sample_measurement")), mt_src: readParquetSql(sources(catalog, "measurement_type")), type: sel.var, qual_ok: qualOkSQL("sm"), root_hex7: ctx.rootHex7 ? "r.hex7" : "NULL::UBIGINT" })
     : render("slice_env", tokens);
   return [
     ["01_slice.sql", sliceSql],
-    [`02_${ctx.lensTemplate}.sql`, render(ctx.lensTemplate, { ...ctx.params, ...ctx.lensParams, ...tokens })],
+    [`02_${ctx.lensTemplate}.sql`, render(ctx.lensTemplate, { ...params, ...ctx.lensParams, ...tokens })],
     // a per-cast variable has no depth axis: no depth-strip query to hand over (it would return nothing)
-    ...(cast ? [] : [["03_depth_strip.sql", render("depth_strip", { ...ctx.params, ...tokens })] as [string, string]]),
-    ["04_years.sql", render("years", { ...ctx.params, ...tokens })],
-    ...depthTimeSql(ctx, tokens),
+    ...(cast ? [] : [["03_depth_strip.sql", render("depth_strip", { ...params, ...tokens })] as [string, string]]),
+    ["04_years.sql", render("years", { ...params, ...tokens })],
+    ...depthTimeSql({ ...ctx, params }, tokens),
   ];
 }
 /** the depth × time anomaly card's statements (explore#28), when it is open on a per-bin env variable with a baseline:
@@ -61,12 +65,13 @@ function depthTimeSql(ctx: Pick<ReproCtx, "sel" | "catalog" | "params" | "grain"
   ];
 }
 /** the shared filter as the lens applied it, for the observation rows behind a view (the bundle's data/observations) */
-export const whereSql = (ctx: Pick<ReproCtx, "params">) => render("depth_strip", { ...ctx.params }).split("WHERE")[1].split("GROUP BY")[0].replace(/depth_bin IS NOT NULL AND/, "");
+// the FULL filter — years, season, depth band, stage, datasets, area — read off the count template (the depth strip's own `where_nodepth` left the depth band out of the download)
+export const whereSql = (ctx: Pick<ReproCtx, "params">) => { const s = render("count", { ...ctx.params }); return s.slice(s.indexOf("WHERE") + 5).trim(); }; // everything after the FIRST WHERE: a region's Area filter has a WHERE of its own
 // a per-cast variable hands over no depth-strip query (resolvedSql()), so reproduce.R / .py run one only when it is there
 const hasDepthSql = (sqls: [string, string][]) => sqls.some(([f]) => f === "03_depth_strip.sql");
 const hasDtSql = (sqls: [string, string][]) => sqls.some(([f]) => f === "06_anom_depth_time.sql");
 // a statement that builds a table (the slice, slice_anom) is executed; every other one returns a table, named by its file
-const isCreate = (s: string) => /^\s*(--.*\n)*\s*CREATE/.test(s);
+const isCreate = (s: string) => /^\s*(--[^\n]*\n)*\s*CREATE/.test(s); // [^\n], not ".": a Windows checkout has CRLF line ends, and "." stops at the \r
 const stem = (f: string) => f.replace(/^\d+_/, "").replace(/\.sql$/, "");
 const CAST_NOTE = "a per-cast variable: one value per cast, from sample_measurement joined to the cast's row in sample_root (root_sample_key = sample_key); the same value joins to `sample` on sample_key";
 export const rBody = (version: string, lens: string, sqls: [string, string][], inline: boolean, cast = false) => `# CalCOFI Explorer · ${lens} · release ${version} — the same SQL the browser ran${cast ? `\n# ${CAST_NOTE}` : ""}
@@ -109,7 +114,7 @@ ${lens === "contour" ? `# the Contours lens: the same surface the map drew (calc
 # s = cc.interpolate(summary.rename(columns={"longitude": "lon", "latitude": "lat", "mean": "z"}), method="ok"); s.values
 ` : ""}${inline ? "" : "print(summary.head())\n"}`;
 /** "Copy as…": the whole reproduction as one pasteable text */
-export function copyAs(kind: "sql" | "r" | "py", ctx: Pick<ReproCtx, "sel" | "catalog" | "params" | "lensParams" | "lensTemplate" | "version" | "grain" | "rootHex7" | "cruiseMedian" | "depthTime">): string {
+export function copyAs(kind: "sql" | "r" | "py", ctx: Pick<ReproCtx, "sel" | "catalog" | "params" | "lensParams" | "lensTemplate" | "version" | "grain" | "rootHex7" | "cruiseMedian" | "bioNet" | "depthTime">): string {
   const sqls = resolvedSql(ctx), cast = isCast(ctx);
   if (kind === "sql") return sqls.map(([f, s]) => `-- ${f}\n${s};`).join("\n\n") + "\n";
   return kind === "r" ? rBody(ctx.version, ctx.sel.lens, sqls, true, cast) : pyBody(ctx.version, ctx.sel.lens, sqls, true, cast);

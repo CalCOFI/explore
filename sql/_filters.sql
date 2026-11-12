@@ -7,6 +7,7 @@
 -- ({{val}} = density_per_10m2 | density_per_1000m3 | value).
 -- {{zeros}} is TRUE (a sampled tow with no catch counts as 0, the default) or FALSE (positive tows only).
 -- {{dataset_filter}} is TRUE or dataset_key IN (...) — the dataset pills (rule 4: the picker filters to datasets).
+-- {{cruise_filter}} is TRUE or the cruises typed in When (YYYYMM, the cruise_key's year and month: 202504 = 2025-04-*).
 -- {{area_filter}} is TRUE or the Area predicate (src/area.ts, explore#20): a station pattern, a lon/lat box or a region's
 -- sample_spatial membership — on grid_key, latitude/longitude or root_id, never on a joined table's columns.
 -- a NULL {{val}} is a row the chosen denominator cannot be derived for (e.g. manta tows per 10 m2):
@@ -20,3 +21,4 @@ qual_ok
   AND {{val}} IS NOT NULL
   AND {{dataset_filter}}
   AND {{area_filter}}
+  AND {{cruise_filter}}

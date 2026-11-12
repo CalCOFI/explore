@@ -47,13 +47,13 @@ export function Modal(p: { id: string; title: ReactNode; icon?: IconName; onClos
 /** a welcome question: a real view, as the URL query the app already understands */
 export interface WelcomeQuestion { q: string; how: string; icon: IconName; query: (yearMax: number) => string }
 export const QUESTIONS: WelcomeQuestion[] = [
-  { q: "How did the water along line 90 compare with normal on the latest cruise?", how: "Sections · a depth section of temperature · line 90 · the newest cruise · vs the 1993–2013 normal", icon: "lens-sections",
+  { q: "How did the water along line 90 compare with normal on the latest cruise?", how: "Cross-section · a depth section of temperature · line 90 · the newest cruise · vs the 1993–2013 normal", icon: "lens-sections",
     query: () => "lens=section&var=temperature&line=90&anom=1" },
-  { q: "Where do sardine larvae turn up in spring?", how: "Hexagons · Pacific sardine · larvae · April–June · all years", icon: "lens-hexagons",
+  { q: "Where do sardine larvae turn up in spring?", how: "Hexagon · Pacific sardine · larvae · April–June · all years", icon: "lens-hexagons",
     query: () => "lens=hex&res=5&taxon=worms:217452&stage=larva&den=per_10m2&q=2" },
   { q: "Has oxygen at 300 m changed since the 1950s?", how: "Stations · dissolved oxygen · 250–350 m · the years as mean ± se", icon: "lens-stations",
     query: () => "lens=station&var=oxygen_ml_l&depth=250-350&strip=mean" },
-  { q: "Which cruises went out last year, and where did they go?", how: "Cruises · last year · the year × month calendar", icon: "lens-cruises",
+  { q: "Which cruises went out last year, and where did they go?", how: "By cruise · last year · the year × month calendar", icon: "lens-cruises",
     query: (yearMax) => `lens=cruise&years=${yearMax - 1}-${yearMax - 1}&strip=cruises` },
 ];
 const fmtN = (v: number) => v.toLocaleString();
@@ -85,7 +85,7 @@ export function Welcome(p: { release: string; yearMax: number; nOrganisms: numbe
       <div className="foot">
         <button type="button" className="btn cta" onClick={p.onStart} data-tour="welcome-start">Start exploring <Icon name="ui-arrow-right" /></button>
         <button type="button" className="btn quiet" onClick={p.onTour} data-tour="welcome-tour"><Icon name="ui-play" /> Take the tour</button>
-        <p className="norm">These data are free to use and are cited when used: every view names its datasets, and <button type="button" className="linkish" onClick={p.onCite}>Share → Cite</button> writes the citation for you.</p>
+        <p className="norm">These data are free to use and are cited when used: every view names its datasets, and <button type="button" className="linkish" onClick={p.onCite}>How to cite</button> shows how.</p>
       </div>
     </section>
   );
@@ -104,8 +104,8 @@ export function About(p: { release: string; nTables?: number; datasets: Row[]; c
       actions={<><button type="button" className="btn" onClick={p.onSources} data-tour="about-sources"><Icon name="ui-cite" /> Data Sources &amp; Attribution</button><button type="button" className="btn" onClick={p.onTour}><Icon name="ui-help" /> Tour</button><button type="button" className="btn primary" onClick={p.onClose}>Close</button></>}>
       <p>The explorer is one browser-native app over the <a href="https://calcofi.io/docs/" target="_blank" rel="noopener">integrated CalCOFI database</a>: sixteen datasets —
         hydrography, ichthyoplankton, zooplankton, seabirds and mammals, carbonate chemistry, weather — projected into one <code>obs</code> / <code>sample</code>
-        core and read here through six <b>lenses</b> (stations, hexagons, contours, cruises, regions, sections). The SQL runs in your browser (DuckDB-WASM), so no server
-        stands between you and the release. A <b>section</b> cuts one CalCOFI line: for an ocean variable it is a <b>depth section</b> down the water column on one cruise
+        core and read here through six <b>views</b> (Stations, Hexagon, By region, Contour, By cruise, Cross-section). The SQL runs in your browser (DuckDB-WASM), so no server
+        stands between you and the release. A <b>cross-section</b> cuts one CalCOFI line: for an ocean variable it is a <b>depth section</b> down the water column on one cruise
         (with the 3-D curtain beside it); for an organism the tows are depth-integrated, so it is a <b>station-by-year</b> section across all cruises.</p>
       <h5 id="about-layers"><Icon name="ui-map-layers" /> Map layers</h5>
       <p>The sea floor under every lens is <a href="https://www.gebco.net/" target="_blank" rel="noopener">GEBCO 2025</a> — shaded
@@ -123,7 +123,7 @@ export function About(p: { release: string; nTables?: number; datasets: Row[]; c
       <p>Every value on the page comes from this one <b>frozen</b> release: content-addressed objects that never change, so a link you share today draws the
         same picture next year, and <code>calcofi4r</code> / <code>calcofi4py</code> read the very same bytes. A new release is a new version; the header
         chip picks one. A statistic is <b>averaged across datasets that share this life stage and denominator; never across denominators
-        or life stages</b> — the pills say which datasets are in view, and the <b>Sources</b> line under them says who to cite for each.</p>
+        or life stages</b> — the title card names the datasets in view, and <b>Data Sources &amp; Attribution</b> says who to cite for each.</p>
       <h5 id="about-datasets"><Icon name="ui-layers" /> Datasets</h5>
       <p className="hint">Citations, licences, DOIs and how to reach each dataset's curators are in <button type="button" className="linkish" onClick={p.onSources}>Data Sources &amp; Attribution</button>.</p>
       <table className="about-datasets"><tbody>
