@@ -119,7 +119,11 @@ export function YearStrip(p: {
   const cw = p.countWord ?? "observations";
   const [handle, setHandle] = useState<number | null>(null);
   const full: [number, number] = [1948, p.yearMax + 1];
-  const view = p.view ?? full;
+  // with no zoom set, the strip opens on the years the picked data covers (padded a little), not the whole 1949+ record,
+  // so the bars fill the panel; double-click / "zoom out" returns here
+  const ys = p.rows.filter((r) => (r.n ?? 0) > 0).map((r) => r.year);
+  const dflt: [number, number] = ys.length ? (() => { let lo = Math.min(...ys), hi = Math.max(...ys); if (hi - lo < 3) { const mid = (lo + hi) / 2; lo = Math.floor(mid - 1.5); hi = Math.ceil(mid + 1.5); } return [Math.max(full[0], lo - 0.5), Math.min(full[1], hi + 1.25)] as [number, number]; })() : full;
+  const view = p.view ?? dflt;
   const span = view[1] - view[0];
   const wantMonths = p.mode !== "cruises" && span <= MONTH_LOD_YEARS;
   useEffect(() => { p.onNeedMonths?.(wantMonths); }, [wantMonths]);
@@ -271,14 +275,17 @@ export function YearStrip(p: {
     if (!d.__ccDbl) { d.__ccDbl = true; div.addEventListener("dblclick", () => d.__ccOnDbl?.()); }
     d.__ccOnDbl = () => p.onView(null);
     d.on("plotly_selected", (ev: any) => {
-      if (!ev?.range?.x) return;
-      const [a, c] = (ev.range.x as any[]).map(Number).sort((x, y) => x - y);
+      // a drag gives a range; a plain click on a bar gives just that bar's point, so one click picks that year (or month)
+      let a: number, c: number;
+      if (ev?.range?.x) [a, c] = (ev.range.x as any[]).map(Number).sort((x, y) => x - y);
+      else if (p.mode !== "cruises" && ev?.points?.length) { const xs = ev.points.map((q: any) => +q.x).filter(Number.isFinite); if (!xs.length) return; a = Math.min(...xs); c = Math.max(...xs) + (monthRes ? 1 / 12 - 1e-6 : 0); }
+      else return;
       if (monthRes) { // month resolution: the brush edges snap to month bounds
         const y0 = Math.floor(a), m0 = Math.min(12, Math.floor((a - y0) * 12) + 1), y1 = Math.floor(c), m1 = Math.min(12, Math.floor((c - y1) * 12) + 1);
         const whole = m0 === 1 && m1 === 12;
         p.onYears([y0, Math.max(y0, y1)], whole ? null : [m0, m1]);
       } else if (seasonal) { const a2 = Math.floor(a), c2 = Math.ceil(c) - 1; p.onYears([a2, Math.max(a2, c2)], null); } // season points sit inside [y, y + 1)
-      else { const a2 = Math.round(a), c2 = Math.round(c); p.onYears([a2, Math.max(a2, c2)], null); }
+      else { const a2 = Math.ceil(a - 0.425), c2 = Math.floor(c + 0.425); p.onYears([a2, Math.max(a2, c2)], null); } // every bar the drag touches counts (a bar spans x ± 0.425)
     });
     d.on("plotly_deselect", () => p.onYears(null, null));
     d.on("plotly_relayout", (ev: any) => {
@@ -390,7 +397,7 @@ export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | nul
     }] : [];
     Plotly.react(div, traces, {
       // t holds the panel title AND the station axis; pinning the title to the container top keeps them apart
-      ...b, title: { text: p.title, font: { size: 12 }, x: 0.02, xanchor: "left", yref: "container", y: 0.985, yanchor: "top" },
+      ...b, ...(p.title ? { title: { text: p.title, font: { size: 12 }, x: 0.02, xanchor: "left", yref: "container", y: 0.985, yanchor: "top" } } : {}),
       xaxis: { ...b.xaxis, title: { text: "distance offshore (km)", standoff: 4 }, type: "linear",
                range: xs.length ? [Math.max(...xs), Math.min(...xs)] : undefined },
       /* The same ruler on the other scale — a REAL linear axis in station units, not a fixed list of ticks at
@@ -406,7 +413,7 @@ export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | nul
                 range: xs.length ? [kmToSta(Math.max(...xs)), kmToSta(Math.min(...xs))] : undefined },
       yaxis: { ...b.yaxis, title: { text: p.yLabel, standoff: 4 }, autorange: isDepth ? "reversed" : true },
       yaxis2: { overlaying: "y", visible: false, range: [0, 1], fixedrange: true },
-      margin: { l: 50, r: 10, t: 62, b: 36 },
+      margin: { l: 50, r: 10, t: p.title ? 62 : 38, b: 36 },
       // the env section is one cruise's cut, the bio section every cruise's — so the empty note names the right axes
       // (a per-cast variable hands its own reason: a section cuts depth, and it has none — App.tsx)
       annotations: xs.length ? [] : [{ text: p.empty ?? (blank ? "no normal at these stations for this cruise" : isDepth ? "no rows for this line × cruise × filters" : "no rows for this line × filters"), xref: "paper", yref: "paper", x: 0.5, y: 0.5, showarrow: false }],

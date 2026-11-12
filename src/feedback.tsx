@@ -40,7 +40,7 @@ export function FeedbackDialog(p: { url: string; release: string; kind?: Feedbac
   const [title, setTitle] = useState("");
   const [link, setLink] = useState("");
   const [email, setEmail] = useState("");
-  const [include, setInclude] = useState(!product);   // a product registration is about the paper, not the view
+  const [include, setInclude] = useState(true);   // the screenshot goes along by default, for feedback and for a registered product
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; issue_url?: string; id?: string; error?: string; opaque?: boolean } | null>(null);
   const endpoint = feedbackEndpoint();
@@ -88,6 +88,8 @@ export function FeedbackDialog(p: { url: string; release: string; kind?: Feedbac
         {!PREVIEW && <a className="btn" href={issueUrl} target="_blank" rel="noopener" onClick={copyImage} title={`for developers: a prefilled public issue (label ${KIND_LABEL[kind]}); the screenshot is copied to your clipboard to paste`}><Icon name="ui-github" /> Open as GitHub issue myself</a>}
         <button type="button" className="btn primary" disabled={!endpoint || !ready || sending || capturing} onClick={send} data-tour="feedback-send"><Icon name="ui-send" /> {sending ? "Sending…" : product ? "Register" : "Send"}</button>
       </>}>
+      <div className="fb-grid">
+      <div className="fb-main">
       {product ? <>
         <p>Used CalCOFI data in a paper, a thesis, a model, a map, a class? Tell us — it becomes a public issue the team reads, and it
           is how the program shows what the time series is for. Nothing here is verified or endorsed; it is a record that the data were used.</p>
@@ -98,29 +100,30 @@ export function FeedbackDialog(p: { url: string; release: string; kind?: Feedbac
         <label className="f">Anything else we should know? <span className="hint">(optional)</span>
           <textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder="uses the per-10 m² larval densities, 1985–2020, lines 80–93 …" data-tour="feedback-text" /></label>
         <div className="row f-datasets" data-tour="product-datasets">
-          <span className="hint">Datasets in this view</span>
-          {datasets.length ? datasets.map((d) => <span key={d} className="chip tiny">{d}</span>) : <span className="hint">— none in view</span>}
+          <span className="fd-lab">Datasets in this view</span>
+          {datasets.length ? <span className="fd-names">{datasets.join(", ")}</span> : <span className="hint">— none in view</span>}
         </div>
       </> : (
         <label className="f">Your feedback <span className="hint">(what happened, what you expected, or an idea)</span>
-          <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="that spike at 1,144 m looks wrong — the station shows 2.2 ml/L in 1955 …" autoFocus data-tour="feedback-text" /></label>
+          <textarea rows={5} value={text} onChange={(e) => setText(e.target.value)} placeholder="that spike at 1,144 m looks wrong — the station shows 2.2 ml/L in 1955 …" autoFocus data-tour="feedback-text" /></label>
       )}
       <div className="row feedback-row">
-        <label className="f" style={{ flex: 1 }}>email <span className="hint">(optional — you get a copy of this report and any reply; never public)</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.org" /></label>
+        <label className="f" style={{ flex: 1 }}>Email <span className="hint">(optional — you get a copy and any reply; never public)</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.org" /></label>
         <input type="text" name="website" tabIndex={-1} autoComplete="off" style={{ position: "absolute", left: -9999, width: 1, height: 1 }} aria-hidden="true" />
       </div>
-      <div className="feedback-shot" data-tour="feedback-shot">
-        {capturing ? <div className="hint pad">capturing the view…</div> : thumb ? <img src={thumb} alt="the captured view" className={include ? "" : "off"} /> : <div className="hint pad">no screenshot</div>}
-        <div className="row">
-          <label className="row"><input type="checkbox" checked={include} onChange={(e) => setInclude(e.target.checked)} /> include screenshot</label>
-          <button type="button" className="pill act" disabled={!shot || capturing} onClick={() => setAnnotating(true)} data-tour="feedback-edit"><Icon name="ui-pen" /> edit</button>
-          <button type="button" className="pill act" disabled={capturing} onClick={take}><Icon name="ui-capture" /> retake</button>
-        </div>
       </div>
-      <p className="hint">What is sent: your {product ? "entry" : "text"}, this view's URL, the release ({p.release}){datasets.length ? `, the datasets in view (${datasets.join(", ")})` : ""}, the viewport ({viewport}) and theme ({theme}), and the screenshot{include ? "" : " (off)"} — nothing else.{" "}
-        {PREVIEW ? <>This is a private preview: it goes to the CalCOFI data team only and is listed on the preview's landing page. Nothing is posted publicly.</>
-                 : <>It goes to the team by mail and lands in a Sheet they read and, <b>without your email</b>, as a public issue in <code>CalCOFI/explore</code> labelled <code>{KIND_LABEL[kind]}</code>; with an email you get the same report back.</>}</p>
-      {!endpoint && <p className="hint warn">This build has no feedback endpoint yet — use <i>Open as GitHub issue myself</i> (it copies the screenshot for you to paste).</p>}
+      <div className="feedback-shot fb-side" data-tour="feedback-shot">
+        {capturing ? <div className="hint pad">capturing the view…</div> : thumb ? <img src={thumb} alt="the captured view" className={include ? "" : "off"} /> : <div className="hint pad">no screenshot</div>}
+        <div className="fb-shot-acts">
+          <button type="button" className="btn fb-draw" disabled={!shot || capturing} onClick={() => setAnnotating(true)} data-tour="feedback-edit" title="circle, point to or write on the screenshot to show what you mean"><Icon name="ui-pen" /> Annotate screenshot</button>
+          <button type="button" className="btn" disabled={capturing} onClick={take} title="take the screenshot again"><Icon name="ui-capture" /> Retake</button>
+        </div>
+        <label className="row fb-inc"><input type="checkbox" checked={include} onChange={(e) => setInclude(e.target.checked)} /> Include screenshot</label>
+      </div>
+      </div>
+      <p className="hint fb-note">Sent with your {product ? "entry" : "message"}: this view's link, the release ({p.release}){datasets.length ? ", the datasets in view" : ""}{include ? " and the screenshot" : ""}.
+        {PREVIEW ? " Private preview: goes to the CalCOFI data team only." : <> It goes to the CalCOFI team and, <b>without your email</b>, is also posted as a public GitHub issue.</>}</p>
+      {!endpoint && import.meta.env.DEV && <p className="hint warn">No feedback endpoint in this build — use <i>Open as GitHub issue myself</i> (it copies the screenshot to paste).</p>}
       {result && !result.ok && <p className="hint warn">Not sent: {result.error}. Try again, or open the issue yourself.</p>}
     </Modal>);
 }

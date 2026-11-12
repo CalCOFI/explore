@@ -14,7 +14,7 @@ describe("parseArea / areaToUrl", () => {
   it("keeps a region name that contains the separator", () => expect(parseArea("in:L|A|B")).toEqual({ kind: "region", layer: "L", names: ["A|B"] }));
   it("rounds a frozen map view to 0.001°", () => expect(areaToUrl({ kind: "box", bbox: [-121.123456, 32.98765, -117, 35] })).toBe("box:-121.123,32.988,-117,35"));
   it("words each kind for the title sentence", () => {
-    expect(areaWord(parseArea("std"))).toBe("within the standard station pattern");
+    expect(areaWord(parseArea("std"))).toBe("on the 75-station grid");
     expect(areaWord(parseArea("in:National Marine Sanctuaries|Channel Islands"))).toBe("within Channel Islands (National Marine Sanctuaries)");
     expect(areaWord(parseArea("box:-121.5,32,-117,35"))).toBe("within 121.5°W–117°W, 32°N–35°N");
   });

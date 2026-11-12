@@ -6,22 +6,40 @@ import { commitNum, ordered, stepYears, yearComplete } from "./ranges";
 
 /** a popover's fixed-position box under (or, when the room is short, over) its anchor — so a rail's or a
  *  card's overflow never clips it; re-measured on resize and on any scroll */
-export function useAnchor(open: boolean, ref: RefObject<HTMLElement | null>, minWidth = 0, maxHeight = 560) {
+export function useAnchor(open: boolean, ref: RefObject<HTMLElement | null>, minWidth = 0, maxHeight = 560, popRef?: RefObject<HTMLElement | null>) {
   const [box, setBox] = useState<React.CSSProperties | null>(null);
   useLayoutEffect(() => {
     if (!open) { setBox(null); return; }
-    const measure = () => {
-      const r = ref.current?.getBoundingClientRect(); if (!r) return;
+    // the panel the anchor scrolls in: when the anchor scrolls out of it, the popover hides instead of floating over the header
+    let sc: HTMLElement | null = ref.current?.parentElement ?? null;
+    while (sc && !/(auto|scroll)/.test(getComputedStyle(sc).overflowY)) sc = sc.parentElement;
+    const place = (): React.CSSProperties | null => {
+      const r = ref.current?.getBoundingClientRect(); if (!r) return null;
       const vw = innerWidth, vh = innerHeight, gap = 3, pad = 8;
       const width = Math.min(Math.max(r.width, minWidth), vw - 2 * pad);
       const left = Math.min(Math.max(pad, r.left), vw - pad - width);
       const below = vh - r.bottom - pad, above = r.top - pad;
-      if (below >= Math.min(maxHeight, 260) || below >= above) setBox({ position: "fixed", top: r.bottom + gap, left, width, maxHeight: Math.min(maxHeight, below - gap) });
-      else setBox({ position: "fixed", bottom: vh - r.top + gap, left, width, maxHeight: Math.min(maxHeight, above - gap) });
+      const sr = sc?.getBoundingClientRect(), gone = !!sr && (r.bottom < sr.top || r.top > sr.bottom);
+      const vis = gone ? "hidden" as const : "visible" as const;
+      if (below >= Math.min(maxHeight, 260) || below >= above) return { position: "fixed", top: r.bottom + gap, bottom: "auto", left, width, maxHeight: Math.min(maxHeight, below - gap), visibility: vis };
+      return { position: "fixed", top: "auto", bottom: vh - r.top + gap, left, width, maxHeight: Math.min(maxHeight, above - gap), visibility: vis };
     };
-    measure();
-    addEventListener("resize", measure); addEventListener("scroll", measure, true);
-    return () => { removeEventListener("resize", measure); removeEventListener("scroll", measure, true); };
+    setBox(place());
+    // on scroll the popover is moved directly, in the same frame as the scroll (a React re-render of a long list lagged
+    // a frame or more behind, so the list trailed the box it belongs to); the state catches up once the scrolling stops
+    let settle = 0;
+    const follow = () => {
+      const b = place(); if (!b) return;
+      const el = popRef?.current;
+      if (el) {
+        const px = (v: unknown) => (typeof v === "number" ? `${v}px` : String(v));
+        el.style.top = px(b.top); el.style.bottom = px(b.bottom); el.style.left = px(b.left); el.style.width = px(b.width);
+        el.style.maxHeight = px(b.maxHeight); el.style.visibility = String(b.visibility);
+        clearTimeout(settle); settle = window.setTimeout(() => setBox(place()), 150);
+      } else setBox(b);
+    };
+    addEventListener("resize", follow); addEventListener("scroll", follow, true);
+    return () => { clearTimeout(settle); removeEventListener("resize", follow); removeEventListener("scroll", follow, true); };
   }, [open]);
   return box;
 }
@@ -103,12 +121,34 @@ export function NumInput(p: { value: number; min: number; max: number; step?: nu
 /** the year window as two boxes with ‹ › either side that step it by its own width (explore#27: 1973 → 1974,
  *  1974–1987 → 1988–2001), so the map can be flipped through the record; the Refine panel and the title sentence's
  *  year chip both draw it */
-export function YearRange(p: { years: [number, number]; first: number; last: number; onChange: (y: [number, number]) => void; width?: number }) {
-  const [a, b] = p.years, back = stepYears(p.years, -1, p.first, p.last), fwd = stepYears(p.years, 1, p.first, p.last);
+export function YearRange(p: { years: [number, number]; first: number; last: number; onChange: (y: [number, number]) => void; width?: number; arrows?: boolean }) {
+  const [a, b] = p.years, back0 = stepYears(p.years, -1, p.first, p.last), fwd0 = stepYears(p.years, 1, p.first, p.last);
+  // the window is the whole record, so there is nothing to slide: each arrow jumps to the end it points at, one year, and from there steps
+  const whole = !back0 && !fwd0;
+  const back = whole ? ([p.first, p.first] as [number, number]) : back0, fwd = whole ? ([p.last, p.last] as [number, number]) : fwd0;
   const span = b - a + 1, unit = span === 1 ? "year" : `${span} years`;
   return <span className="year-range">
-    <button type="button" className="pill act step" disabled={!back} onClick={() => back && p.onChange(back)} title={back ? `back ${unit}: ${back[0] === back[1] ? back[0] : back.join("–")}` : "at the start of the record"} aria-label="earlier years">‹</button>
+    {p.arrows !== false && <button type="button" className="pill act step" disabled={!back} onClick={() => back && p.onChange(back)} title={whole ? `show just ${p.first}, then step on with ›` : back ? `back ${unit}: ${back[0] === back[1] ? back[0] : back.join("–")}` : "at the start of the record"} aria-label="earlier years">‹</button>}
     <NumInput value={a} min={p.first} max={p.last} width={p.width} label="first year" live={(t) => yearComplete(t, p.first, p.last)} onCommit={(v) => p.onChange(ordered(v, b))} />–<NumInput value={b} min={p.first} max={p.last} width={p.width} label="last year" live={(t) => yearComplete(t, p.first, p.last)} onCommit={(v) => p.onChange(ordered(a, v))} />
-    <button type="button" className="pill act step" disabled={!fwd} onClick={() => fwd && p.onChange(fwd)} title={fwd ? `forward ${unit}: ${fwd[0] === fwd[1] ? fwd[0] : fwd.join("–")}` : "at the end of the record"} aria-label="later years">›</button>
+    {p.arrows !== false && <button type="button" className="pill act step" disabled={!fwd} onClick={() => fwd && p.onChange(fwd)} title={whole ? `show just ${p.last}, then step back with ‹` : fwd ? `forward ${unit}: ${fwd[0] === fwd[1] ? fwd[0] : fwd.join("–")}` : "at the end of the record"} aria-label="later years">›</button>}
   </span>;
+}
+
+
+/** a two-handle slider for the years: grab either end and slide; applies when you let go. The track is the span the data covers. */
+export function YearSlider(p: { min: number; max: number; value: [number, number]; onCommit: (y: [number, number]) => void; left?: ReactNode; right?: ReactNode }) {
+  const clamp = (v: number) => Math.min(p.max, Math.max(p.min, v));
+  const [v, setV] = useState<[number, number]>([clamp(p.value[0]), clamp(p.value[1])]);
+  useEffect(() => { setV([clamp(p.value[0]), clamp(p.value[1])]); }, [p.value[0], p.value[1], p.min, p.max]);
+  const span = Math.max(1, p.max - p.min), l = ((v[0] - p.min) / span) * 100, r = ((v[1] - p.min) / span) * 100;
+  const commit = () => p.onCommit(v);
+  const common = { type: "range" as const, min: p.min, max: p.max, step: 1, onPointerUp: commit, onKeyUp: commit, onBlur: commit };
+  const slider = (
+    <div className="year-slider" aria-label="years">
+      <div className="ys-track"><div className="ys-fill" style={{ left: `${l}%`, width: `${Math.max(0, r - l)}%` }} /></div>
+      <input {...common} value={v[0]} aria-label="first year" onChange={(e) => setV([Math.min(+e.target.value, v[1]), v[1]])} />
+      <input {...common} value={v[1]} aria-label="last year" onChange={(e) => setV([v[0], Math.max(+e.target.value, v[0])])} />
+      {!(p.left || p.right) && <div className="ys-ends"><span>{p.min}</span><span>{p.max}</span></div>}
+    </div>);
+  return p.left || p.right ? <div className="year-bar">{p.left}{slider}{p.right}</div> : slider;
 }

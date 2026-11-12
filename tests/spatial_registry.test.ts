@@ -124,7 +124,7 @@ describe("boundaryTooltip — name, layer, then the popup_fields the feature car
   const wind = resolveSlug(BUNDLED.layers, "boem_wind_planning")!;
   it("OCS-P 0561: lease name + status + status_date", () => {
     expect(boundaryTooltip({ name: "OCS-P 0561", status: "relinquished", status_date: "2026-09-03" }, wind))
-      .toBe("OCS-P 0561 · BOEM Wind Leases\nStatus: relinquished\nStatus date: 2026-09-03");
+      .toBe("OCS-P 0561 · Wind Energy Areas (WEAs, BOEM leases)\nStatus: relinquished\nStatus date: 2026-09-03");
   });
   it("the layer's dated status follows its name (the sidecar's status_label, else worded from status)", () => {
     expect(boundaryTooltip({ name: "Oregon PSN 0567", status: "rescinded", status_date: "2025-07-30" }, resolveSlug(BUNDLED.layers, "boem_wind_planning_rescinded")!))
@@ -132,8 +132,8 @@ describe("boundaryTooltip — name, layer, then the popup_fields the feature car
     expect(boundaryTooltip({ name: "x" }, row({ id: "t", name: "T", status: { value: "under_review", date: "2026-01-02" } }))).toBe("x · T (under review 2026-01-02)");
   });
   it("a missing or empty field is skipped; a row without popup_fields keeps the old 'name · layer' line", () => {
-    expect(boundaryTooltip({ name: "OCS-P 0561", status: "active", status_date: "" }, wind)).toBe("OCS-P 0561 · BOEM Wind Leases\nStatus: active");
-    expect(boundaryTooltip({ name: "Alaska", status: "x" }, row({ id: "t", name: "12NM Territorial Sea" }))).toBe("Alaska · 12NM Territorial Sea");
+    expect(boundaryTooltip({ name: "OCS-P 0561", status: "active", status_date: "" }, wind)).toBe("OCS-P 0561 · Wind Energy Areas (WEAs, BOEM leases)\nStatus: active");
+    expect(boundaryTooltip({ name: "Alaska", status: "x" }, row({ id: "t", name: "12NM Territorial Sea" }))).toBe("Alaska · Territorial Sea (12 NM)");
     expect(boundaryTooltip({}, row({ id: "t", name: "T" }))).toBe("T");
   });
 });
@@ -151,7 +151,7 @@ describe("status attribution — layer and region labels", () => {
   });
   it("layerLabel: the plain name on v2026.10.13; name (status_label) when the sidecar has one; worded from status otherwise", () => {
     expect(layerLabel(V1013)).toBe("SoCal Aquaculture AOAs");
-    expect(layerLabel(NEW)).toBe("BOEM Wind Leases");
+    expect(layerLabel(NEW)).toBe("Wind Energy Areas (WEAs, BOEM leases)");
     expect(layerLabel(row({ id: "r", name: "BOEM Wind Planning Areas", status_label: "rescinded 2025-07-30", status: { value: "x", date: "y" } }))).toBe("BOEM Wind Planning Areas (rescinded 2025-07-30)");
     expect(layerLabel(row({ id: "r", name: "R", status: { value: "rescinded", date: "2025-07-30" } }))).toBe("R (rescinded 2025-07-30)");
     expect(layerLabel(null)).toBe("");

@@ -14,26 +14,34 @@ export interface PickerItem {
   key: string;
   year0?: number | null;            // first year (Browse shows the span)
   label: string;                    // organism: common name (or scientific) · variable: description · cruise: key
-  sub?: string;                     // organism: scientific name · variable: units · cruise: ship + dates
+  sub?: string;                     // organism: scientific name · variable: units · cruise: dates + stations
+  right?: string;                   // shown at the right end of the label line (a cruise's ship)
   subItalic?: boolean;
   n: number;                        // the bar (observations; stations for a section's cruises)
   year?: number | null;             // "most recent" sort key
   datasets?: string[];              // colour dots
+  dsN?: Record<string, number>;     // observations per dataset (the "Also in" counts)
+  inDs?: string;                    // the lean picker's By-dataset tab: the dataset this copy of the row is listed under
   groups?: Record<string, string>;  // group key -> value (category · dataset · class)
   search?: string;                  // extra searchable text
   family?: string | null;           // a second home in the Browse tree, beside its category: "Derived (hydrographic)" (castgrain.ts)
   badge?: string;                   // a word on the row: "derived"
   badgeWarn?: boolean;              // the word is a caution, in the brand's warn colour: "preliminary" on a cruise (stage.ts)
   tip?: string;                     // the hover: a derived variable's definition, from the registry
+  unnamed?: boolean;                // a bare dataset-local code with no name in the source: listed after the named ones
+  desc?: string;                    // the registry's description, shown under the name in the lean What picker
+  variants?: { key: string; datasets: string[] }[];  // a folded row's measurement keys by dataset (one per distinct dataset set) — the station app's "choose a dataset"
+  alt?: string[];                   // other measurement keys folded into this row (sensor / correction / unit variants; names.ts)
 }
-export type SortKey = "az" | "n" | "recent";
+export type SortKey = "az" | "n" | "recent" | "old" | "ship";
 export interface GroupOpt { key: string; label: string; icon?: (v: string) => IconName | undefined; rank?: (v: string) => number; short?: (v: string) => string }
 
 const fmtN = (v: number) => v.toLocaleString();
 const norm = (s: string | null | undefined) => (s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 /** the sort key of a display name: case-, accent- and article-insensitive (the station app's sortKey) */
 export const sortKey = (s: string | null | undefined) => norm(s).replace(/^(the|a|an)\s+/, "").replace(/^[^a-z0-9]+/, "");
-const SORT_LABEL: Record<SortKey, [string, IconName]> = { az: ["A–Z", "ui-sort-az"], n: ["most observations", "ui-sort-n"], recent: ["most recent", "ui-sort-recent"] };
+const PLAIN_SORT: Record<SortKey, string> = { az: "A to Z", n: "Most data", recent: "Newest", old: "Oldest", ship: "Ship" };
+const SORT_LABEL: Record<SortKey, [string, IconName]> = { az: ["A–Z", "ui-sort-az"], n: ["most observations", "ui-sort-n"], recent: ["most recent", "ui-sort-recent"], old: ["oldest", "ui-sort-recent"], ship: ["ship", "ui-sort-az"] };
 
 function remember<T>(id: string, k: string, v: T | undefined): T | undefined {
   const key = `explore.picker.${id}.${k}`;
@@ -43,12 +51,14 @@ function remember<T>(id: string, k: string, v: T | undefined): T | undefined {
 
 export function Picker(p: {
   id: string; label: string; hint?: string; value: string; items: PickerItem[]; onChange: (key: string) => void;
+  plain?: string; // a calm list: no bars, no sort buttons — "N <plain>" and one sort link (the cruise picker)
   sorts?: SortKey[]; defaultSort?: SortKey; groups?: GroupOpt[]; defaultGroup?: string; countLabel?: string; placeholder?: string;
   dsColor?: (dk: string) => string; dsShort?: (dk: string) => string; loading?: string | null; letters?: boolean; native?: boolean; "data-tour"?: string;
   sheet?: boolean; // phone: the popover fills the viewport
   browse?: boolean; // the Browse tab (D14): the whole holding by category or by dataset, click -> select
   variant?: "chip"; // the title sentence's chip: the same popover under a chip-shaped trigger, no label
   openSignal?: number; // bump to open the popover from outside (a welcome door)
+  onHover?: (key: string | null) => void; // the row under the pointer (null when it leaves the list or the list closes)
 }) {
   const sorts = p.sorts ?? ["az", "n", "recent"];
   const [open, setOpen] = useState(false);
@@ -70,7 +80,12 @@ export function Picker(p: {
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLUListElement>(null);
   const btn = useRef<HTMLButtonElement>(null);
-  const box = useAnchor(open && !p.sheet, btn, p.browse ? 400 : 300, 560); // the tree needs the width for a category name + span + bar
+  const pop = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (!open) p.onHover?.(null); }, [open]);
+  // a plain list (the cruise lists) hangs from its box inside the panel — absolutely placed, so it scrolls with the panel in the
+  // same frame, joined to the box's bottom edge and never wider than it; the other pickers float (fixed) beside a rail or a card
+  const anchored = !!p.plain && !p.sheet && p.variant !== "chip";
+  const box = useAnchor(open && !p.sheet && !anchored, btn, p.browse ? 400 : 300, 560, pop); // the tree needs the width for a category name + span + bar
   const setSort = (s: SortKey) => { setSortRaw(s); remember(p.id, "sort", s); };
   const setGroup = (g: string) => { setGroupRaw(g); remember(p.id, "group", g); };
   const selected = p.items.find((it) => it.key === p.value);
@@ -85,6 +100,9 @@ export function Picker(p: {
     let vis = toks.length ? p.items.filter(matches) : p.items.slice();
     const cmp = sort === "az" ? (a: PickerItem, b: PickerItem) => sortKey(a.label).localeCompare(sortKey(b.label)) || a.key.localeCompare(b.key)
       : sort === "n" ? (a: PickerItem, b: PickerItem) => b.n - a.n || sortKey(a.label).localeCompare(sortKey(b.label))
+      : sort === "old" ? (a: PickerItem, b: PickerItem) => (a.year ?? 9999) - (b.year ?? 9999) || a.key.localeCompare(b.key)
+      // the ship: the first part of the cruise's second line ("Reuben Lasker · Jan 7–25 · …"), then newest first
+      : sort === "ship" ? (a: PickerItem, b: PickerItem) => (a.right ?? "").localeCompare(b.right ?? "") || b.key.localeCompare(a.key)
       : (a: PickerItem, b: PickerItem) => (b.year ?? -1) - (a.year ?? -1) || b.key.localeCompare(a.key);
     vis.sort(cmp);
     if (!groupOpt) return [{ title: null as string | null, icon: undefined as IconName | undefined, items: vis, n: vis.reduce((a, it) => a + it.n, 0) }];
@@ -179,7 +197,7 @@ export function Picker(p: {
   let idx = 0;
   const chip = p.variant === "chip";
   return (
-    <div ref={root} className={`picker${open ? " open" : ""}${p.sheet ? " fullscreen" : ""}${chip ? " picker-chip" : ""}`} data-tour={p["data-tour"]}>
+    <div ref={root} className={`picker${open ? " open" : ""}${p.sheet ? " fullscreen" : ""}${chip ? " picker-chip" : ""}${anchored ? " anchored" : ""}`} data-tour={p["data-tour"]}>
       {!chip && <label className="f" htmlFor={`${p.id}-btn`}>{p.label}{p.hint && <span className="hint"> {p.hint}</span>}</label>}
       <button ref={btn} id={`${p.id}-btn`} type="button" className={chip ? `sc${open ? " open" : ""}` : "picker-btn"} aria-haspopup="listbox" aria-expanded={open} aria-controls={listId} onClick={() => setOpen((v) => !v)} title={selected ? (selected.tip ?? `${selected.label}${selected.sub ? ` — ${selected.sub}` : ""}`) : p.value}>
         {selected?.datasets?.length ? <span className="dots">{selected.datasets.map(dot)}</span> : null}
@@ -187,7 +205,7 @@ export function Picker(p: {
           : <span className="picker-val">{selected?.label ?? (p.loading ?? p.value)}{(selected?.sub || selected?.badge) && <small className={selected.subItalic ? "i" : ""}>{selected.badge && <i className={`badge${selected.badgeWarn ? " warn" : ""}`}>{selected.badge}</i>}{selected.sub}</small>}</span>}
         <Icon name="ui-down" className={chip ? "car" : undefined} />
       </button>
-      {open && <div className="picker-pop" role="dialog" aria-label={p.label} style={p.sheet ? undefined : box ?? { visibility: "hidden" }}>
+      {open && <div ref={pop} onMouseLeave={() => p.onHover?.(null)} className={`picker-pop${p.plain ? " plain" : ""}`} role="dialog" aria-label={p.label} style={p.sheet || anchored ? undefined : box ?? { visibility: "hidden" }}>
         <div className="picker-head">
           {p.browse && <div className="picker-tabs" role="tablist">
             <button type="button" role="tab" aria-selected={tab === "search"} className={tab === "search" ? "on" : ""} onClick={() => setTab("search")}><Icon name="ui-search" /> Search</button>
@@ -202,14 +220,21 @@ export function Picker(p: {
             {p.sheet && !p.browse && <button type="button" className="cc-icon-button" aria-label="Close" onClick={() => setOpen(false)}><Icon name="ui-close" size="1.25rem" /></button>}
           </div>
           {tab === "browse" ? <div className="hint picker-count">{toks.length ? `${fmtN(treeMatches)} of ${fmtN(p.items.length)}` : `${fmtN(p.items.length)} in ${fmtN(browseGroups.length)} ${browseBy === "category" ? "categories" : "datasets"}`} · {p.countLabel ?? "observations"}, log scale</div> : <>
-          <div className="row picker-tools">
+          {p.plain ? <div className="picker-bar"><span>{fmtN(flat.length)}{flat.length !== p.items.length ? ` of ${fmtN(p.items.length)}` : ""} {p.plain}</span>
+            {/* every order in view, the current one in dark text: no hidden cycling through one link */}
+            {/* the order, short: one date link that flips Newest ↓ / Oldest ↑, then any other order (Ship) — the current one dark */}
+            {sorts.length > 1 && <span className="pb-sorts" role="group" aria-label="order">
+              {sorts.includes("recent") && <button type="button" className={`linkish${sort === "recent" || sort === "old" ? " on" : ""}`} aria-pressed={sort === "recent" || sort === "old"} title="by date — click again to flip"
+                onClick={() => setSort(sort === "recent" && sorts.includes("old") ? "old" : "recent")}>{sort === "old" ? "Oldest ↑" : "Newest ↓"}</button>}
+              {sorts.filter((s) => s !== "recent" && s !== "old").map((s) => <button key={s} type="button" className={`linkish${sort === s ? " on" : ""}`} aria-pressed={sort === s} onClick={() => setSort(s)}>{PLAIN_SORT[s]}</button>)}
+            </span>}</div> : <div className="row picker-tools">
             <span className="seg" role="group" aria-label="sort">
               {sorts.map((s) => <button key={s} type="button" className={sort === s ? "on" : ""} title={`sort: ${SORT_LABEL[s][0]}`} aria-pressed={sort === s} onClick={() => setSort(s)}><Icon name={SORT_LABEL[s][1]} /></button>)}
             </span>
             {p.groups?.length ? <label className="row hint">group<select value={group} onChange={(e) => setGroup(e.target.value)} aria-label="group by">
               <option value="none">none</option>{p.groups.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}</select></label> : null}
             <span className="hint picker-count">{fmtN(flat.length)} of {fmtN(p.items.length)} · {p.countLabel ?? "observations"}, log scale</span>
-          </div>
+          </div>}
           {letters && <div className="letters" aria-label="jump to letter">{letters.map(({ l, on }) => <button key={l} type="button" disabled={!on} onClick={() => jump(l)}>{l}</button>)}</div>}
           </>}
         </div>
@@ -226,7 +251,7 @@ export function Picker(p: {
               </div>
               {on && <ul role="group">{shown.map((it) => <li key={it.key} role="treeitem" className={`browse-item${it.key === p.value ? " sel" : ""}`} onClick={() => choose(it)} title={it.tip} data-key={it.key}>
                 <span className="dots">{(it.datasets ?? []).map(dot)}</span>
-                <span className="lab">{it.label}{(it.sub || it.badge) && <small className={it.subItalic ? "i" : ""}>{it.badge && <i className={`badge${it.badgeWarn ? " warn" : ""}`}>{it.badge}</i>}{it.sub}</small>}</span>
+                <span className="lab">{it.right ? <span className="lab-line"><span>{it.label}</span><span className="lab-rt">{it.right}</span></span> : it.label}{(it.sub || it.badge) && <small className={it.subItalic ? "i" : ""}>{it.badge && <i className={`badge${it.badgeWarn ? " warn" : ""}`}>{it.badge}</i>}{it.sub}</small>}</span>
                 <span className="hint span">{span(it.year0, it.year)}</span>
                 <span className="cnt"><span className="bar" style={{ width: `${Math.max(1, Math.round(44 * Math.log10(it.n + 1) / Math.log10(maxN + 1)))}px` }} /><span>{fmtN(it.n)}</span></span>
               </li>)}
@@ -242,9 +267,9 @@ export function Picker(p: {
             <ul role="group" aria-label={s.title ?? undefined}>
               {s.items.map((it) => { const i = idx++; const on = it.key === p.value; return (
                 <li key={it.key} id={`${p.id}-opt-${i}`} data-i={i} role="option" aria-selected={on} className={`${i === active ? "active" : ""}${on ? " sel" : ""}`} title={it.tip}
-                  onMouseMove={() => { if (i !== active) setActive(i); }} onMouseDown={(e) => e.preventDefault()} onClick={() => choose(it)}>
+                  onMouseMove={() => { if (i !== active) setActive(i); }} onMouseEnter={() => p.onHover?.(it.key)} onMouseDown={(e) => e.preventDefault()} onClick={() => choose(it)}>
                   <span className="dots">{(it.datasets ?? []).map(dot)}</span>
-                  <span className="lab">{it.label}{(it.sub || it.badge) && <small className={it.subItalic ? "i" : ""}>{it.badge && <i className={`badge${it.badgeWarn ? " warn" : ""}`}>{it.badge}</i>}{it.sub}</small>}</span>
+                  <span className="lab">{it.right ? <span className="lab-line"><span>{it.label}</span><span className="lab-rt">{it.right}</span></span> : it.label}{(it.sub || it.badge) && <small className={it.subItalic ? "i" : ""}>{it.badge && <i className={`badge${it.badgeWarn ? " warn" : ""}`}>{it.badge}</i>}{it.sub}</small>}</span>
                   <span className="cnt" title={`${fmtN(it.n)} ${p.countLabel ?? "observations"}`}><span className="bar" style={{ width: `${Math.max(1, Math.round(44 * Math.log10(it.n + 1) / Math.log10(maxN + 1)))}px` }} /><span>{fmtN(it.n)}</span></span>
                 </li>); })}
             </ul>

@@ -112,3 +112,8 @@ export class Engine {
 }
 
 export const engine = new Engine();
+
+// dev only (Vite): editing engine.ts, sqltpl.ts or any sql/*.sql re-runs this module with a NEW, empty database while the
+// page keeps its state — the next query then asks for a slice that was never built ("Table with name slice does not exist",
+// Betty 2026-11-11). Reload the page instead, so the slice is built again
+if (import.meta.hot) import.meta.hot.accept(() => location.reload());

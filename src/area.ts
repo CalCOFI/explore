@@ -7,6 +7,7 @@
 //                     sample, the same layers (and their names) the Regions lens and the Layers card list. Everything
 //                     after the FIRST `|` is the name, verbatim (a name may hold `|`, `,` or `%`): the permalink form
 //                     since explore#20, parsed exactly as before
+//   area=ln:90        every station on CalCOFI line 90;  area=ln:90/55  line 90, station 55 (the grid's own line / station)
 //   area=in:L         every region of layer L (no `|`: the whole layer; Ben, 2026-10-14)
 //   area=ins:L|A,B,C  any of a set of regions of L (two or more). Each name is escaped so the comma cannot occur in
 //                     it: `%` -> `%25`, `,` -> `%2C`, nothing else ("Channel Islands,Monterey Bay"). A set of one is
@@ -15,16 +16,23 @@
 // sanctuaries came from the gazetteer, explore#34: "Channel Islands" -> its Northern and Santa Barbara sections) is
 // widened to that set by resolveArea() once the release's region names are known.
 // Pure rules (no React, no engine) so tests/area.test.ts asserts them; App.tsx turns the SQL into {{area_filter}}.
-import { lit } from "./sqltpl";
+import { lit, hexExpr } from "./sqltpl";
+import { getResolution } from "h3-js";
+import { parseGridKey } from "./gridkey";
 
 /** a region area: `names` null = every region of the layer; otherwise one or more names */
 export type RegionArea = { kind: "region"; layer: string; names: string[] | null };
+export type LineItem = { line: number; station: number | null };
 export type Area =
   | { kind: "pattern"; patterns: string[] }
   | { kind: "box"; bbox: [number, number, number, number] }
+  | { kind: "line"; line: number; station: number | null }
+  | { kind: "lines"; items: LineItem[] }   // two or more lines / stations in any combination: area=ln:90/55,93.3,87/60
+  | { kind: "poly"; pts: [number, number][] }   // a freehand shape drawn on the map (lon, lat): area=poly:lon,lat~lon,lat~…
+  | { kind: "hex"; cell: string }   // one H3 hexagon, picked by clicking it on the map: area=hx:<h3 index>
   | RegionArea;
 
-export const PATTERN_WORD: Record<string, string> = { standard: "the standard station pattern", extended: "the extended lines" };
+export const PATTERN_WORD: Record<string, string> = { standard: "the standard station grid", extended: "the extended lines" };
 const PATTERN_CODE: Record<string, string> = { std: "standard", ext: "extended" };
 const CODE_OF: Record<string, string> = { standard: "std", extended: "ext" };
 
@@ -39,6 +47,21 @@ export function parseArea(s: string | null | undefined): Area | null {
     const [w, so, e, n] = v;
     if (w >= e || so >= n || so < -90 || n > 90) return null;
     return { kind: "box", bbox: [w, so, e, n] };
+  }
+  if (s.startsWith("hx:")) { const cell = s.slice(3).toLowerCase(); return /^[0-9a-f]{15}$/.test(cell) ? { kind: "hex", cell } : null; }
+  if (s.startsWith("poly:")) {
+    const pts = s.slice(5).split("~").map((q) => q.split(",").map(Number) as [number, number]);
+    if (pts.length < 3 || pts.some((q) => q.length !== 2 || q.some((x) => !Number.isFinite(x)) || Math.abs(q[1]) > 90)) return null;
+    return { kind: "poly", pts };
+  }
+  if (s.startsWith("ln:")) {
+    const items: LineItem[] = [];
+    for (const part of s.slice(3).split(",")) {
+      const [l, st] = part.split("/"), line = Number(l), station = st == null || st === "" ? null : Number(st);
+      if (!(l ?? "").trim() || !Number.isFinite(line) || (station != null && !Number.isFinite(station))) return null;
+      if (!items.some((i) => i.line === line && i.station === station)) items.push({ line, station });
+    }
+    return linesArea(items);
   }
   if (s.startsWith("ins:")) {
     const at = s.indexOf("|", 4);
@@ -58,8 +81,16 @@ export function parseArea(s: string | null | undefined): Area | null {
 }
 
 const r3 = (x: number) => Math.round(x * 1000) / 1000;
+/** one line / station = the single form, two or more = `lines`, none = no area (a link never has two spellings) */
+export const linesArea = (items: LineItem[]): Area | null => items.length === 0 ? null : items.length === 1 ? { kind: "line", ...items[0] } : { kind: "lines", items };
+export const lineItemsOf = (a: Area | null): LineItem[] => a?.kind === "line" ? [{ line: a.line, station: a.station }] : a?.kind === "lines" ? a.items : [];
+const itemUrl = (i: LineItem) => `${i.line}${i.station != null ? `/${i.station}` : ""}`;
 export function areaToUrl(a: Area | null): string | null {
   if (!a) return null;
+  if (a.kind === "hex") return `hx:${a.cell}`;
+  if (a.kind === "line") return `ln:${itemUrl(a)}`;
+  if (a.kind === "lines") return `ln:${a.items.map(itemUrl).join(",")}`;
+  if (a.kind === "poly") return `poly:${a.pts.map(([x, y]) => `${r3(x)},${r3(y)}`).join("~")}`;
   if (a.kind === "box") return `box:${a.bbox.map(r3).join(",")}`;
   if (a.kind === "region") {
     if (a.names == null) return `in:${a.layer}`;
@@ -81,8 +112,26 @@ export function pickedArea(layer: string, picked: Iterable<string>, available: s
 /** the predicate on `slice` rows (columns grid_key, root_id, latitude, longitude). `gridKeys` are the grid's cells
  *  by pattern (grid.geojson); `spatialSrc` is the sample_spatial relation. null = not computable yet (the grid has not
  *  loaded) — the caller waits rather than draw unfiltered. A pattern with no cells matches nothing, never everything. */
-export function areaSql(a: Area | null, ctx: { gridKeys: Map<string, string[]> | null; spatialSrc: string }): string | null {
+export function areaSql(a: Area | null, ctx: { gridKeys: Map<string, string[]> | null; spatialSrc: string; allKeys?: string[] | null }): string | null {
   if (!a) return "TRUE";
+  if (a.kind === "hex") { let r = 7; try { r = getResolution(a.cell); } catch { return "FALSE"; } return `(hex7 IS NOT NULL AND ${hexExpr(r)} = ${lit(a.cell)})`; }
+  if (a.kind === "line") {
+    if (!ctx.allKeys) return null;
+    const keys = lineKeys(a, ctx.allKeys);
+    return keys.length ? `grid_key IN (${keys.map((k) => lit(k)).join(", ")})` : "FALSE";
+  }
+  if (a.kind === "lines") {
+    if (!ctx.allKeys) return null;
+    const keys = [...new Set(a.items.flatMap((i) => lineKeys(i, ctx.allKeys!)))];
+    return keys.length ? `grid_key IN (${keys.map((k) => lit(k)).join(", ")})` : "FALSE";
+  }
+  if (a.kind === "poly") {
+    // even-odd ray casting in plain SQL (no spatial extension): a bounding-box test first, then the parity of the edges a ray to the east crosses
+    const P = a.pts, lons = P.map((q) => q[0]), lats = P.map((q) => q[1]);
+    const cross = P.map((q, i) => { const [x1, y1] = q, [x2, y2] = P[(i + 1) % P.length]; if (y1 === y2) return null;
+      return `(CASE WHEN (${y1} > latitude) <> (${y2} > latitude) AND longitude < ${x1} + (${x2 - x1}) * (latitude - ${y1}) / ${y2 - y1} THEN 1 ELSE 0 END)`; }).filter(Boolean).join(" + ");
+    return `(latitude BETWEEN ${Math.min(...lats)} AND ${Math.max(...lats)} AND longitude BETWEEN ${Math.min(...lons)} AND ${Math.max(...lons)} AND ((${cross}) % 2) = 1)`;
+  }
   if (a.kind === "box") {
     const [w, s, e, n] = a.bbox;
     return `(latitude BETWEEN ${s} AND ${n} AND longitude BETWEEN ${w} AND ${e})`;
@@ -97,16 +146,29 @@ export function areaSql(a: Area | null, ctx: { gridKeys: Map<string, string[]> |
   return keys.length ? `grid_key IN (${keys.map((k) => lit(k)).join(", ")})` : "FALSE";
 }
 
+/** the grid cells of a line (or of one station on it): every cell whose key names that line / station */
+export function lineKeys(a: { line: number; station: number | null }, allKeys: string[]): string[] {
+  return allKeys.filter((k) => { const g = parseGridKey(k); return !!g && g.line === a.line && (a.station == null || g.station === a.station); });
+}
+
 /** the title sentence's clause: "within the standard station pattern", "within Channel Islands (National Marine
  *  Sanctuaries)", "within all of National Marine Sanctuaries", "within 3 regions of CA Counties",
  *  "within 121.5°W–117°W, 32°N–35°N" */
+/** CalCOFI's standard station ID: line and station as LLL.L SSS.S ("093.3 026.7", the bottle database's Sta_ID) */
+export const staId = (n: number) => n.toFixed(1).padStart(5, "0");
+export const lineStationId = (i: { line: number; station: number | null }) => i.station != null ? `${staId(i.line)} ${staId(i.station)}` : `Line ${staId(i.line)}`;
 export function areaWord(a: Area | null): string {
   if (!a) return "everywhere";
   if (a.kind === "region") {
     if (a.names == null) return `within all of ${a.layer}`;
     return a.names.length === 1 ? `within ${a.names[0]} (${a.layer})` : `within ${a.names.length} regions of ${a.layer}`;
   }
-  if (a.kind === "pattern") return `within ${a.patterns.map((p) => PATTERN_WORD[p]).join(" and ")}`;
+  if (a.kind === "hex") return "within the selected hexagon";
+  if (a.kind === "line") return a.station != null ? `at station ${lineStationId(a)}` : `along line ${staId(a.line)}`;
+  if (a.kind === "lines") return a.items.length <= 3 ? `at ${a.items.map((i) => i.station != null ? `station ${lineStationId(i)}` : `line ${staId(i.line)}`).join(", ")}` : `at ${a.items.length} chosen lines and stations`;
+  if (a.kind === "poly") return "within the area you drew";
+  // the names the Where step uses (Betty 2026-11-10): "75-station pattern" (standard), "113-station pattern" (standard + extended)
+  if (a.kind === "pattern") return a.patterns.includes("extended") ? "on the 113-station grid" : a.patterns.includes("standard") ? "on the 75-station grid" : `within ${a.patterns.map((p) => PATTERN_WORD[p]).join(" and ")}`;
   const [w, s, e, n] = a.bbox, lon = (x: number) => `${Math.abs(r3(x))}°${x < 0 ? "W" : "E"}`, lat = (y: number) => `${Math.abs(r3(y))}°${y < 0 ? "S" : "N"}`;
   return `within ${lon(w)}–${lon(e)}, ${lat(s)}–${lat(n)}`;
 }
@@ -192,6 +254,16 @@ export function filterSortRegions(rows: RegionRow[], q: string, by: RegionSort, 
 }
 
 /** the box as a GeoJSON polygon, for the map's outline */
+export const polyFeature = (pts: [number, number][]) => ({ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [[...pts, pts[0]]] } });
+/** Douglas–Peucker on a drawn path (pixels): thins a freehand stroke to a few dozen corners, so the link and the SQL stay short */
+export function simplifyPath(pts: [number, number][], eps: number): [number, number][] {
+  if (pts.length < 3) return pts;
+  const [ax, ay] = pts[0], [bx, by] = pts[pts.length - 1], dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy) || 1;
+  let k = -1, md = 0;
+  for (let i = 1; i < pts.length - 1; i++) { const d = Math.abs(dy * (pts[i][0] - ax) - dx * (pts[i][1] - ay)) / L; if (d > md) { md = d; k = i; } }
+  if (md <= eps) return [pts[0], pts[pts.length - 1]];
+  return [...simplifyPath(pts.slice(0, k + 1), eps).slice(0, -1), ...simplifyPath(pts.slice(k), eps)];
+}
 export const boxFeature = (b: [number, number, number, number]) => ({ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [[[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]], [b[0], b[1]]]] } });
 
 /** the lon/lat box around some GeoJSON features ([w, s, e, n]), null for none — where the region modal's map opens.
