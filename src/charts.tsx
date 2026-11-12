@@ -5,7 +5,7 @@ import { SEASON_CODE } from "./anomaly";
 import { Icon } from "./icons";
 import { colorScale, quantileDomain } from "./map";
 import { anomRange, rampPlotly } from "./ramps";
-import { anomalyOf, climLookup, type ClimBase } from "./anomaly";
+import { anomalyOf, climLookup, noBaseline, type ClimBase } from "./anomaly";
 import { dtGrid, dtTrace, wrapText, type DtRow } from "./depthtime";
 // Plotly is ~3.5 MB of the bundle and no panel needs it before the slice answers: load it lazily
 let PlotlyMod: any = null;
@@ -355,7 +355,10 @@ export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | nul
     // stations run OFFSHORE -> NEARSHORE, i.e. station number DESCENDING, so the section reads like the map it was
     // cut from: a CalCOFI line runs west-south-west off the coast, so the high station numbers are the western
     // (left) end and station 30 sits against the shore on the right. z is built over `stas`, so the sort is the flip.
-    const stas = [...new Set(p.cells.map((c) => c.station))].sort((a, c) => c - a);
+    // an anomaly with rows but no baseline for the cruise's period draws nothing (anomaly.ts noBaseline()): it is an empty
+    // state with its own reason (`p.empty`, from App.tsx), not a heatmap of blanks on axes that say nothing
+    const blank = p.anom && noBaseline(p.cells, p.clim, p.base);
+    const stas = blank ? [] : [...new Set(p.cells.map((c) => c.station))].sort((a, c) => c - a);
     const ys = [...new Set(p.cells.map((c) => c.y))].sort((a, c) => a - c);
     // distance offshore, zeroed on the nearest-shore station in view — the ruler ctd-transects draws by default
     const sta0 = stas.length ? Math.min(...stas) : 0;
@@ -413,7 +416,7 @@ export function SectionPlot(p: { cells: SectionCell[]; clim: SectionCell[] | nul
       margin: { l: 50, r: 10, t: p.title ? 62 : 38, b: 36 },
       // the env section is one cruise's cut, the bio section every cruise's — so the empty note names the right axes
       // (a per-cast variable hands its own reason: a section cuts depth, and it has none — App.tsx)
-      annotations: xs.length ? [] : [{ text: p.empty ?? (isDepth ? "no rows for this line × cruise × filters" : "no rows for this line × filters"), xref: "paper", yref: "paper", x: 0.5, y: 0.5, showarrow: false }],
+      annotations: xs.length ? [] : [{ text: p.empty ?? (blank ? "no normal at these stations for this cruise" : isDepth ? "no rows for this line × cruise × filters" : "no rows for this line × filters"), xref: "paper", yref: "paper", x: 0.5, y: 0.5, showarrow: false }],
     }, CFG);
     // the two axes carry different units, so `matches` cannot hold them together: re-derive the station range
     // from the km range after any zoom. Our own relayout fires this again, hence the no-op guard.

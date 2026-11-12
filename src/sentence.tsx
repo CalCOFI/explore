@@ -8,16 +8,21 @@ import { Icon, type IconName } from "./icons";
 import { IconButton, Menu, NumInput, YearRange, useAnchor, type MenuItem } from "./ui";
 import { shownName } from "./spatial_registry";
 import { Picker, type PickerItem, type GroupOpt } from "./picker";
-import { CLIM_MIN_CRUISES, baselineWord, cruiseMonth, type ClimBase } from "./anomaly";
+import { CLIM_MIN_CRUISES, SEASON_CODE, SEASON_WORD, baselineWord, cruiseMonth, type ClimBase } from "./anomaly";
 import { DEN_LABEL, DEN_HOW, LENSES, LENS_SHORT, LENS_DESC, LENS_ICON, RES_KM, STAT_WORD, STAT_LABEL, YEAR_OPEN, INTERPS, INTERP_LABEL, INTERP_WORD, INTERP_HOW, SURFACES, SURFACE_LABEL, SURFACE_WORD, GRAIN_LABEL, GRAIN_HOW, type Sel, type Den, type Stat, type Lens, type Grain } from "./state";
 
 const fmtN = (v: number) => v.toLocaleString();
-export const Q_LABEL = ["Jan–Mar", "Apr–Jun", "Jul–Sep", "Oct–Dec"];
+// the season filter in words: 1 = DJF … 4 = SON since release v2026.11 (the season of the cruise, by its median cast
+// month). These were the calendar quarters until then, and the sentence went on saying "Apr–Jun" for MAM.
+export const Q_LABEL = SEASON_WORD;
 
 export interface SentenceCtx {
   sel: Sel; setSel: (patch: Partial<Sel>) => void; onLens: (l: Lens) => void;
   organismItems: PickerItem[]; organismGroups: GroupOpt[]; variableItems: PickerItem[]; variableGroups: GroupOpt[];
-  sectionCruiseItems: PickerItem[]; cruiseItems: PickerItem[]; lines: number[]; layerNames: string[]; regionName: string | null;
+  sectionCruiseItems: PickerItem[]; cruiseItems: PickerItem[]; lines: number[];
+  // the preliminary mark beside the cruise (stage.ts viewStage()): the provider's wording and, on hover, the release's own
+  // value; null for a finished cruise, a view of more than one cruise, or a release whose sample_root carries no stage
+  cruiseStage?: { label: string; title: string } | null; layerNames: string[]; regionName: string | null;
   stages: [string | null, number][]; denRows: (d: Den) => number; defaultDen: (stage: string | null) => Den;
   areaText: string | null; // the Area filter's clause (src/area.ts areaWord), null = everywhere (explore#20)
   years: [number, number]; yearMax: number; hasDepthAxis: boolean; hasClim: boolean; climWindow: [number, number] | null;
@@ -34,7 +39,8 @@ export interface SentenceCtx {
   // the popover's parts — the definition, how it is computed, the dataset page that holds its methods
   derived?: DerivedNote | null;
   countWord?: string;         // what the count counts: "observations", or "casts" for a per-cast variable
-  domain: [string, string]; bar: string; count: number; status: string; ready: boolean; seaFloor: boolean;
+  domain: [string, string] | null;   // null: nothing is drawn, so there is no range to show (an empty section — App.tsx)
+  bar: string; count: number; status: string; ready: boolean; seaFloor: boolean;
   countLabel?: string | null; // the count in words, when it is more than "N observations" ("1,204 samples · found in 31", App.tsx countText)
   countNote?: string | null;  // lean: a side note on the count (observations left out by the standardization), as its tooltip rather than a line of its own
   extra?: ReactNode;          // the boundary-layer legend rows, an empty result's note — under the sentence
@@ -150,9 +156,9 @@ export function Sentence(c: SentenceCtx) {
     <div className="row"><YearRange years={c.years} first={1949} last={c.yearMax} width={62} onChange={(y) => setSel({ years: [y[0], y[1] >= c.yearMax ? YEAR_OPEN : y[1]], months: null })} /></div>
     <div className="row"><button type="button" className="pill act" onClick={() => setSel({ years: [1949, YEAR_OPEN], months: null })}>all years</button><span className="hint">or drag on the Years panel{sel.months ? " · month edges from the brush" : ""}</span></div>
   </ChipPop>;
-  const seasonPop = () => <ChipPop label={seasonWord} icon="ui-calendar" title="season: keep only these quarters" width={240}>
-    <span className="seg">{[1, 2, 3, 4].map((x) => <button key={x} type="button" className={!sel.q || sel.q.includes(x) ? "on" : ""} onClick={() => toggleQ(x)} title={Q_LABEL[x - 1]}>Q{x}</button>)}</span>
-    <div className="hint">{sel.q ? sel.q.map((x) => Q_LABEL[x - 1]).join(", ") : "every quarter"}</div>
+  const seasonPop = () => <ChipPop label={seasonWord} icon="ui-calendar" title="season: keep only these seasons (a cruise's season, by its median cast month)" width={240}>
+    <span className="seg">{[1, 2, 3, 4].map((x) => <button key={x} type="button" className={!sel.q || sel.q.includes(x) ? "on" : ""} onClick={() => toggleQ(x)} title={Q_LABEL[x - 1]}>{SEASON_CODE[x - 1]}</button>)}</span>
+    <div className="hint">{sel.q ? sel.q.map((x) => Q_LABEL[x - 1]).join(", ") : "every season"}</div>
   </ChipPop>;
   const depthPop = () => <ChipPop label={depthWord} icon="ui-tune" title="the depth band · or drag on the Depth panel">
     <div className="row"><NumInput value={sel.depth[0]} min={0} max={sel.depth[1] - 10} step={10} width={62} label="top of the depth band (m)" onCommit={(v) => setSel({ depth: [v, sel.depth[1]] })} />–<NumInput value={sel.depth[1]} min={sel.depth[0] + 10} max={6500} step={10} width={62} label="bottom of the depth band (m)" onCommit={(v) => setSel({ depth: [sel.depth[0], v] })} /> m</div>
@@ -169,6 +175,12 @@ export function Sentence(c: SentenceCtx) {
   const parts: Part[] = [];
   const w = (s: string) => parts.push(s);
   const chip = (key: string, text: ReactNode, control?: () => ReactNode, bold = false, title?: string) => parts.push({ key, text, control, bold, title });
+  // beside the cruise, when what the view draws of it is preliminary: a pill in the brand's warn state, in both renderings
+  const stageMark = () => {
+    if (!c.cruiseStage) return;
+    const pill = <span className="pill warn" data-stage title={c.cruiseStage.title}>{c.cruiseStage.label}</span>;
+    w(" "); chip("stage", pill, () => pill);
+  };
   if (c.open) chip("realm", sel.realm === "bio" ? "Biology" : "Environment", realmMenu);
   chip("subject", c.subject, subjectPicker, true);
   // a derived variable: "(derived, one value per cast)" — the hover is its definition, the chip opens it with its dataset page
@@ -181,14 +193,14 @@ export function Sentence(c: SentenceCtx) {
   if (sel.lens === "station") chip("lens", "at each station", () => lensMenu("at each station"));
   else if (sel.lens === "hex") { chip("lens", "in hexagons", () => lensMenu("in hexagons")); w(" of "); chip("res", RES_KM[sel.res], resMenu); }
   else if (sel.lens === "contour") { chip("lens", "as a contoured surface", () => lensMenu("as a contoured surface")); w(" by "); chip("interp", INTERP_WORD[sel.interp], interpMenu); w(" over "); chip("grain", sel.interp === "tps" ? "the station grid" : sel.grain === "site" ? "every site" : "the station grid", grainMenu); if (sel.surface !== "value" || c.open) { w(", showing "); chip("surface", SURFACE_WORD[sel.surface] || "the statistic itself", surfaceMenu); } }
-  else if (sel.lens === "cruise") { chip("lens", "along a cruise track", () => lensMenu("along a cruise track")); w(": "); chip("cruise", cruiseLabel(c.cruiseItems), () => cruiseChip(c.cruiseItems, "ts-cruise")); }
+  else if (sel.lens === "cruise") { chip("lens", "along a cruise track", () => lensMenu("along a cruise track")); w(": "); chip("cruise", cruiseLabel(c.cruiseItems), () => cruiseChip(c.cruiseItems, "ts-cruise")); stageMark(); }
   else if (sel.lens === "region") { chip("lens", "within regions", () => lensMenu("within regions")); w(": "); chip("layer", shownName(sel.layer), layerMenu); }
   else {
     // the section's y-axis is the realm: env cuts DEPTH on one cruise, bio has no depth (the tows are
     // depth-integrated) and cuts YEARS, so the sentence names the axis rather than saying "a section" twice over
     const sectionWord = sel.realm === "env" ? "as a depth section along line" : "as a station-by-year section along line";
     chip("lens", sectionWord, () => lensMenu(sectionWord)); w(" "); chip("line", String(sel.line), lineMenu);
-    if (sel.realm === "env") { w(" on cruise "); chip("cruise", cruiseLabel(c.sectionCruiseItems), () => cruiseChip(c.sectionCruiseItems, "ts-section-cruise")); if (c.anomAvail ?? c.hasClim) { w(", "); chip("anom", anomWord, anomMenu); } }
+    if (sel.realm === "env") { w(" on cruise "); chip("cruise", cruiseLabel(c.sectionCruiseItems), () => cruiseChip(c.sectionCruiseItems, "ts-section-cruise")); stageMark(); if (c.anomAvail ?? c.hasClim) { w(", "); chip("anom", anomWord, anomMenu); } }
     else w(" across all cruises");
   }
   // the map lenses that pool departures (Hexagons, Contours) say so, for an env variable with a baseline
@@ -205,9 +217,9 @@ export function Sentence(c: SentenceCtx) {
   // a newcomer waiting on "engine warming…" will see it. The title stands above the legend, never beside it: a mouthful of a
   // sentence squeezed into a column beside an unwrapping legend was the 2026-09-07 bug.
   const legend = <span className="ts-legend" data-tour="legend">
-    {!c.ready ? null : c.sel.data ? <><span>{c.domain[0]}</span><span className="bar" style={{ background: c.bar }} /><span>{c.domain[1]} {c.unit}</span></> : <span className="hint">data off</span>}
+    {!c.ready ? null : !c.sel.data ? <span className="hint">data off</span> : c.domain ? <><span>{c.domain[0]}</span><span className="bar" style={{ background: c.bar }} /><span>{c.domain[1]} {c.unit}</span></> : <span className="hint">nothing drawn</span>}
     {c.sel.obs && <span className="hint" title="the Observations layer (Layers card): every site in the selection as a dot"> · <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: 4, background: `#${c.sel.obs}`, boxShadow: "0 0 0 1px rgba(127,127,127,.6)", verticalAlign: "middle" }} /> every site sampled</span>}
-    <span className="hint">{c.sel.data ? " · 5–95 %" : ""}{c.ready ? ` · ${c.countLabel ?? `${fmtN(c.count)} ${c.countWord ?? "observations"}`}` : ""}</span>
+    <span className="hint">{c.sel.data && c.domain ? " · 5–95 %" : ""}{c.ready ? ` · ${c.countLabel ?? `${fmtN(c.count)} ${c.countWord ?? "observations"}`}` : ""}</span>
   </span>;
   return (
     <div className={`sentence${c.open ? " open" : ""}`} data-tour="sentence" style={c.band}>
@@ -230,7 +242,7 @@ export function Sentence(c: SentenceCtx) {
           return <>
             <div className="ts-row lean-title">
               <span className="ts-text">{draw(head)}</span>
-              <span className="ts-legend lt-scale" data-tour="legend">{!c.ready ? null : c.sel.data ? <><span>{c.domain[0]}</span><span className="bar" style={{ background: c.bar }} /><span>{c.domain[1]} {c.unit}</span></> : <span className="hint">data off</span>}</span>
+              <span className="ts-legend lt-scale" data-tour="legend">{!c.ready ? null : !c.sel.data ? <span className="hint">data off</span> : c.domain ? <><span>{c.domain[0]}</span><span className="bar" style={{ background: c.bar }} /><span>{c.domain[1]} {c.unit}</span></> : <span className="hint">nothing drawn</span>}</span>
               <button type="button" className="lt-details" onClick={c.onToggle} data-tour="sentence-toggle" title="change what the map shows">Details <Icon name="ui-down" size="0.9em" /></button>
             </div>
             <div className="lt-bottom">
