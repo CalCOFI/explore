@@ -1,5 +1,5 @@
 // capture the story page frame by frame with headless Chrome, then encode it.
-//   node story/elnino-2026/capture.mjs --url http://localhost:5181/ --out <dir> [--shots 0.5,6,12] [--from 0 --to 30] [--mp4 <file>] [--poster <png>]
+//   node story/elnino-2026/capture.mjs --url http://localhost:5181/ --out <dir> [--shots 0.5,6,12] [--from 0 --to 60] [--mp4 <file>] [--poster <png>]
 // --shots  writes one PNG per listed time (seconds) into <dir> and stops: the way to look at a beat
 // otherwise every frame t = k / fps for k in [from·fps, to·fps) is written to <dir>/f_%05d.png, and with --mp4 the
 // frames are encoded to H.264 (yuv420p, +faststart, no audio) at the page's own fps.
@@ -12,15 +12,16 @@ import { spawnSync } from "node:child_process";
 
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d; };
 const url = arg("url", "http://localhost:5181/"), out = arg("out"), shots = arg("shots"), mp4 = arg("mp4"), poster = arg("poster");
-const query = arg("query", "");   // extra page parameters, e.g. --query cam3=8.7,66,-50,1250,470 to try a camera (main.ts CAM3D_SPEC)
+const query = arg("query", "");   // extra page parameters: units=F or units=CF for the other cuts (main.ts UNITS), cam3=8.5,64,-32,546,486 to try a camera (main.ts CAM3D_SPEC)
+const [VW, VH] = arg("size", "1080x1080").split("x").map(Number);   // the page's stage (main.ts W x H): checked against the page below
 if (!out) { console.error("--out <dir> is required"); process.exit(2); }
 fs.mkdirSync(out, { recursive: true });
 
 const browser = await puppeteer.launch({
   executablePath: process.env.CHROME ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   headless: true,   // ANGLE on Metal gives headless Chrome a real WebGL2 context on this machine (capture/webgl_probe.mjs)
-  args: ["--window-size=1920,1080", "--hide-scrollbars", "--force-color-profile=srgb", "--disable-background-timer-throttling", "--disable-renderer-backgrounding"],
-  defaultViewport: { width: 1920, height: 1080, deviceScaleFactor: 1 },
+  args: [`--window-size=${VW},${VH}`, "--hide-scrollbars", "--force-color-profile=srgb", "--disable-background-timer-throttling", "--disable-renderer-backgrounding"],
+  defaultViewport: { width: VW, height: VH, deviceScaleFactor: 1 },
 });
 const page = await browser.newPage();
 page.on("pageerror", (e) => console.log("PAGEERROR", e.message));
@@ -30,10 +31,12 @@ const t0 = Date.now();
 await page.goto(`${url}?t=0${query ? `&${query}` : ""}`, { waitUntil: "domcontentloaded" });
 await page.waitForFunction(() => typeof window.__story === "object", { timeout: 60000 });   // (a promise would be awaited: test the object)
 await page.evaluate(() => window.__story.ready.then(() => true));
-const info = await page.evaluate(() => ({ duration: window.__story.duration, fps: window.__story.fps, terrain: window.__story.terrain, check: window.__story.check }));
+const info = await page.evaluate(() => ({ duration: window.__story.duration, fps: window.__story.fps, width: window.__story.width, height: window.__story.height, units: window.__story.units, terrain: window.__story.terrain, check: window.__story.check }));
 console.log(`ready in ${((Date.now() - t0) / 1000).toFixed(1)} s`, JSON.stringify(info));
 // the page checks itself (main.ts selfCheck()): the section must stay in the frame through the whole camera move
-if (!info.check?.sectionInFrame && !query) { console.error("STOP: the section leaves the frame during beat 7", JSON.stringify(info.check)); await browser.close(); process.exit(1); }
+// (a camera being tried, `cam3=`, may leave the frame; a cut, `units=`, may not)
+if (!info.check?.sectionInFrame && !/(^|&)cam3=/.test(query)) { console.error("STOP: the section leaves the frame during beat 7", JSON.stringify(info.check)); await browser.close(); process.exit(1); }
+if (info.width !== VW || info.height !== VH) { console.error(`STOP: the page's stage is ${info.width} x ${info.height}, the capture ${VW} x ${VH} (--size)`); await browser.close(); process.exit(1); }
 if (info.terrain?.missing) console.log(`WARNING: ${info.terrain.missing} of ${info.terrain.tiles} terrain tiles missing`);
 
 const frame = async (t, file) => {

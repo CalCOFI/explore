@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CalCOFI · November 2026 · the warm water off Southern California</title>
+<title>CalCOFI · fall 2026 · the warm water off Southern California</title>
 <!-- the calcofi.io brand, v2: its own fonts.css, theme.css and font files, copied verbatim into page/brand/ (see
      brand/README.md) so the page needs nothing from calcofi.io when it starts. Dark, and not theme.js: the story is one
      fixed look for a video, it has no theme toggle and must not read a visitor's cookie. -->
@@ -14,38 +14,33 @@
 <body>
 <div id="stage">
   <div id="map"></div>
-  <div id="scrim"></div>
+  <div id="scrim-top"></div>
   <div id="scrim-strip"></div>
 
-  <div id="col">
-    <div id="kicker"></div>
+  <div id="head"><span id="head-a"></span><span id="head-b"></span></div>
+  <div id="row">
     <div id="year"></div>
-    <div id="pill">preliminary data</div>
-    <div id="caption"></div>
-    <div id="caption2"></div>
+    <div id="words">
+      <div id="caption"></div>
+      <div id="pill">preliminary data</div>
+    </div>
   </div>
 
   <div id="legends">
     <div class="legend" id="legend-temp">
-      <div class="legend-title">Temperature at the surface</div>
+      <div class="legend-title">Temperature</div>
       <div class="legend-bar"></div>
-      <div class="legend-ticks"></div>
     </div>
     <div class="legend" id="legend-anom">
-      <div class="legend-title">Difference from normal</div>
+      <div class="legend-title">Change from baseline</div>
       <div class="legend-bar"></div>
-      <div class="legend-ticks"></div>
     </div>
   </div>
 
-  <div id="callout">
-    <div id="callout-big"></div>
-    <div id="callout-text"></div>
-  </div>
-  <svg id="leader" width="1920" height="1080" viewBox="0 0 1920 1080"></svg>
+  <svg id="leader" width="1080" height="1080" viewBox="0 0 1080 1080"></svg>
   <div id="tag"></div>
 
-  <svg id="strip" width="1920" height="244" viewBox="0 0 1920 244"></svg>
+  <svg id="strip" width="1080" height="262" viewBox="0 0 1080 262"></svg>
   <div id="credit"></div>
   <div id="loading">loading …</div>
 </div>

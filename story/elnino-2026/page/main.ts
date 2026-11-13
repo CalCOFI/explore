@@ -1,14 +1,21 @@
-// The 2026 warm water off Southern California in 30 seconds, from CalCOFI's November cruises.
+// The 2026 warm water off Southern California in a minute, from CalCOFI's fall cruises: a square film for social feeds.
 //
-// ONE CLOCK: every pixel is a pure function of t (seconds, 0 … 30). The page plays live (requestAnimationFrame sets t)
+// ONE CLOCK: every pixel is a pure function of t (seconds, 0 … 60). The page plays live (requestAnimationFrame sets t)
 // and can be stepped (`?t=12.5`, or window.__story.setT(t) from capture.mjs), so a capture is deterministic.
 //
 // What it draws is the Explorer's own: the ramps (src/ramps.ts: cmocean thermal and balance), the interpolator and its
 // isolines (src/contour.ts + contour.worker.ts: the thin-plate spline of the Contours lens, blank beyond 60 km of a
 // station, land clipped), the sea floor (the GEBCO terrain tiles of src/basemap.ts) and the 3-D section recipe of
 // src/curtain.tsx. The numbers are the release's (page/data/*.json, written by ../build_data.sh from the analysis
-// database): the 0–10 m bin of each CTD cast, and the `climatology` table's November rows as the normal. Every number a
-// caption shows is read from page/data/facts.json or cruises.json: none is typed here.
+// database): the 0–50 m layer mean of each CTD cast, and the `climatology` table's fall (September–November, 1993–2013)
+// rows as the baseline. Every number a caption shows is read from page/data/facts.json or cruises.json: none is typed here.
+//
+// Rasmus Swalethorp's notes on the 30 s cut (2026-11-13), and where each went:
+//   · the seasonal climatology rather than the monthly       → the fall baseline throughout (build_data.sql)
+//   · the 0–50 m average, CalCOFI's own strength             → every map and bar is the 0–50 m mean
+//   · more years: a longer clip, or a summary of the track   → one cruise is sailed; the other 22 baseline cruises draw at once
+//   · slower when the text changes; less text                → 60 s; each line holds ≥ 4 s; "1993–2013 baseline", "Change from baseline"
+//   · a headline at the top                                  → "Fall ocean temperatures at 0–50 m"
 import { Deck, MapView, COORDINATE_SYSTEM, WebMercatorViewport, SimpleMeshLayer, ScatterplotLayer, PathLayer, TextLayer, BitmapLayer, GeoJsonLayer } from "deck.gl";
 import { rampColors, rampCss } from "../../../src/ramps";
 import { computeSurface, landMask, isolines, joinSegments, labelPoints, thinLabels, surfaceImage, cellToLonLat, type SurfaceGrid } from "../../../src/contour";
@@ -22,14 +29,15 @@ import factsJson from "./data/facts.json";
 import releaseJson from "./data/release.json";
 
 // ── the data ─────────────────────────────────────────────────────────────────────────────────────────────────────
-interface Cruise { cruise_key: string; year: number; date_min: string; date_max: string; ship: string; data_stage: string; role: string;
-  n_stations: number; n_anom: number; mean_anom: number; n_anom_fp: number; mean_anom_fp: number }
-interface Sta { cruise_key: string; site_key: string; line: number; station: number; lon: number; lat: number; t: number; temp: number; clim: number | null; anom: number | null }
+interface Cruise { cruise_key: string; year: number; month: number; date_min: string; date_max: string; ship: string; data_stage: string; primary: boolean;
+  role: string; n_stations: number; n_anom: number; n_fp: number | null; mean_fp: number | null }
+/** a station of a cruise: temp and anom are its 0–50 m layer mean and that mean's departure from the fall normal */
+interface Sta { cruise_key: string; site_key: string; line: number; station: number; lon: number; lat: number; t: number; temp: number | null; anom: number | null }
 interface Normal { site_key: string; line: number; station: number; lon: number; lat: number; clim: number; n_cruises: number }
-interface StripCruise { cruise_key: string; year: number; month: number; date_median: string; november: boolean }
+interface StripCruise { cruise_key: string; year: number; month: number; date_median: string; fall: boolean }
 interface Sec { site_key: string; station: number; lon: number; lat: number; depth_bin: number; temp: number; clim: number | null; anom: number | null }
-interface Facts { max_anom: number; max_anom_station: number; max_anom_bin: number; record_from: number; record_to: number; layer_temp: number; layer_depth: number;
-  coast_n: number; coast_min: number; coast_max: number; offshore_n: number; offshore_min: number; offshore_max: number }
+interface Facts { max_anom: number; max_anom_site: string; max_anom_station: number; max_anom_bin: number; prev_max_anom: number; record_from: number; record_to: number;
+  layer_temp: number; layer_depth: number; fp_2026: number; fp_prev: number; fp_prev_cruise: string; max_anom_raw: number; layer_temp_raw: number }
 
 const cruises = cruisesJson as Cruise[], normal = normalJson as Normal[], strip = stripJson as StripCruise[], section = sectionJson as Sec[];
 const facts = (factsJson as Facts[])[0];
@@ -37,28 +45,26 @@ const RELEASE = (releaseJson as { release: string }).release;
 const byCruise = new Map<string, Sta[]>();
 for (const s of stationsJson as Sta[]) (byCruise.get(s.cruise_key) ?? byCruise.set(s.cruise_key, []).get(s.cruise_key)!).push(s);
 const stationsOf = (c: Cruise) => byCruise.get(c.cruise_key)!;
-const baseline = cruises.filter((c) => c.role === "baseline"), first = cruises.find((c) => c.role === "first")!, series = cruises.filter((c) => c.role === "series");
+/** every baseline cruise (all feed the normal); the first of them is the one the film sails */
+const baseline = cruises.filter((c) => c.role === "baseline"), base0 = baseline[0];
+const first = cruises.find((c) => c.role === "first")!, series = cruises.filter((c) => c.role === "series" && c.primary);
 const last = series[series.length - 1];
-const normalBySite = new Map(normal.map((n) => [n.site_key, n]));
 
 // ── the frame, the clock, the beats ──────────────────────────────────────────────────────────────────────────────
-const W = 1920, H = 1080, DURATION = 30, FPS = 30;
-const B1 = 0, B2 = 5.2, B3 = 8.2, B4 = 11.0, B5 = 15.0, B6 = 17.0, B7 = 24.0;
-const B1_FIRST = 1.2, B1_STEP = (B2 - B1_FIRST) / (baseline.length - 1);   // the first cruise holds 1.2 s, the others 0.5 s
-const B6_STEP = 0.55;                                                      // the last cruise then holds to B7
+const W = 1080, H = 1080, DURATION = 60, FPS = 30;
+//    1 one cruise · 2 all of them · 3 the baseline mapped · 4 the next year · 5 its change · 6 each fall since · 7 below
+const B1 = 0, B2 = 7.0, B3 = 12.0, B4 = 17.0, B5 = 23.0, B6 = 27.5, B7 = 47.5;
+const B6_STEP = 1.4;                                   // each fall since holds 1.4 s; the last then holds to B7
 const beat6Start = (i: number) => B6 + i * B6_STEP;
-/** beat 1: which baseline cruise is showing, and how far through its slot */
-function beat1(t: number): { k: number; p: number } {
-  if (t < B1_FIRST) return { k: 0, p: t / B1_FIRST };
-  const k = Math.min(baseline.length - 1, 1 + Math.floor((t - B1_FIRST) / B1_STEP));
-  return { k, p: (t - B1_FIRST - (k - 1) * B1_STEP) / B1_STEP };
-}
 const beat6 = (t: number) => Math.min(series.length - 1, Math.max(0, Math.floor((t - B6) / B6_STEP)));
+const TRACK_STAGGER = 0.12, TRACK_DRAW = 0.6;          // beat 2: each further baseline cruise's track, one after another
+const HERO_AT = 4.0;                                   // beat 7: the year gives way to the record, this long after B7
 
 /** the two scales of the whole film: never rescaled, so a redder frame is a warmer ocean */
 const TEMP: [number, number] = [11, 26], ANOM: [number, number] = [-13, 13];
 const MASK_KM = 60, EDGE = 5;
 const SECTION_LINE = 93.3, SECTION_DEPTH = 200, EXAG = 300;   // the section's vertical exaggeration, the sea floor's too
+const R_BIG = 7.5, R_SMALL = 4.6;                             // station dots: arriving, and under a map
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 const ramp = (t: number, a: number, b: number) => clamp01((t - a) / (b - a));
@@ -78,7 +84,36 @@ const tempColor = scale(TEMP, "thermal"), anomColor = scale(ANOM, "balance");
 const INK: RGB = [233, 237, 243], MUTED: RGB = [159, 176, 200], NAVY: RGB = [8, 18, 32];
 const rgba = (c: RGB, a: number): RGBA => [c[0], c[1], c[2], Math.round(255 * clamp01(a))];
 const css = (c: RGB) => `rgb(${c.map(Math.round).join(",")})`;
-const signed = (v: number, d = 1) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toFixed(d)}`;
+/** a value with its sign, rounded first: −0.018 is "0.0", never "−0.0" */
+const signed = (v: number, d = 1) => { const r = Number(v.toFixed(d)); return `${r > 0 ? "+" : r < 0 ? "−" : ""}${Math.abs(r).toFixed(d)}`; };
+const mix = (a: RGB, b: RGB, f: number): RGB => [lerp(a[0], b[0], f), lerp(a[1], b[1], f), lerp(a[2], b[2], f)];
+
+// ── the units: one film, three cuts (`?units=`) ──────────────────────────────────────────────────────────────────
+// C (the default): every number in °C, the scientific cut. F: every number in °F, for a general US audience. CF: the °C
+// cut with °F beside the numbers people quote (the record, the tag, the bar on screen) and a °F row under each legend.
+// The data stay in °C and the colours are the same in every cut: only the words and the isolines change. A CHANGE
+// converts without the 32 (+11.9 °C of change is +21.3 °F, not 53 °F), and always from the unrounded value.
+type Units = "C" | "F" | "CF";
+const UNITS: Units = ((u) => (u === "F" || u === "CF" ? u : "C"))((new URLSearchParams(location.search).get("units") ?? "C").toUpperCase());
+const IN_F = UNITS === "F", WITH_F = UNITS === "CF";
+const toF = (c: number) => (c * 9) / 5 + 32, dF = (c: number) => (c * 9) / 5;     // a temperature; a change
+const fromF = (f: number) => ((f - 32) * 5) / 9, fromDF = (f: number) => (f * 5) / 9;
+/** a change as the cut says it: "+4.5 °C", "+8.0 °F", or "+4.5 °C · +8.0 °F" */
+const change = (c: number) => (IN_F ? `${signed(dF(c))} °F` : WITH_F ? `${signed(c)} °C · ${signed(dF(c))} °F` : `${signed(c)} °C`);
+/** a map's isolines in the cut's units: each one's level there, its value in the data's °C, whether it is drawn heavier,
+ *  and its label (if any). °C: every degree, the even ones heavier (and, on temperature, labelled); °F: every 2 °F, every
+ *  4 °F heavier (and, on temperature, labelled) */
+interface IsoLevel { level: number; c: number; heavy: boolean; label: string | null }
+function isoLevels(kind: "temp" | "anom"): IsoLevel[] {
+  if (IN_F) return kind === "temp"
+    ? Array.from({ length: 14 }, (_, i) => 52 + 2 * i).map((f) => ({ level: f, c: fromF(f), heavy: f % 4 === 0, label: f % 4 === 0 ? `${f}°` : null }))
+    : Array.from({ length: 23 }, (_, i) => 2 * i - 22).filter((f) => f !== 0).map((f) => ({ level: f, c: fromDF(f), heavy: f % 4 === 0, label: signed(f, 0) }));
+  return kind === "temp"
+    ? Array.from({ length: 15 }, (_, i) => 12 + i).map((v) => ({ level: v, c: v, heavy: v % 2 === 0, label: v % 2 === 0 ? `${v}°` : null }))
+    : Array.from({ length: 25 }, (_, i) => i - 12).filter((v) => v !== 0).map((v) => ({ level: v, c: v, heavy: v % 2 === 0, label: signed(v, 0) }));
+}
+/** the section's isolines (and their labels): every 4 °C, or every 8 °F */
+const SECTION_ISO = IN_F ? [8, 16].map((f) => ({ c: fromDF(f), label: `+${f}` })) : [4, 8].map((v) => ({ c: v, label: `+${v}` }));
 
 // ── the section's stations, and metres from its middle ───────────────────────────────────────────────────────────
 const secStations = [...new Map(section.map((s) => [s.station, s])).values()].sort((a, b) => a.station - b.station);
@@ -92,16 +127,16 @@ const stationAt = (n: number) => secStations.find((s) => s.station === n) ?? sec
 // ── the cameras ──────────────────────────────────────────────────────────────────────────────────────────────────
 interface Cam { longitude: number; latitude: number; zoom: number; pitch: number; bearing: number }
 const q = new URLSearchParams(location.search);
-// bird's-eye: the standard pattern in the frame's right two thirds, clear of the column and the strip
-const fit = new WebMercatorViewport({ width: W, height: H }).fitBounds([[-124.75, 29.45], [-116.85, 35.45]], { padding: { left: 720, right: 20, top: 16, bottom: 250 } });
+// bird's-eye: the standard pattern between the two bands of words and the strip
+const MAP_BOX = { top: 226, bottom: 262, left: 26, right: 26 };
+const fit = new WebMercatorViewport({ width: W, height: H }).fitBounds([[-124.42, 29.76], [-117.2, 35.16]], { padding: MAP_BOX });
 const CAM2D: Cam = { longitude: fit.longitude, latitude: fit.latitude, zoom: fit.zoom, pitch: 0, bearing: 0 };
 // oblique: the section's face from its south side, the coast on the right as on the map, close and low enough that the
-// warm core at the inshore end is the largest thing in the frame while all seven stations stay in it. (Turned further
-// toward the west the inshore end would be nearer still, but San Diego's own coast then stands in front of it.)
+// warm core at the inshore end is the largest thing in the frame while all seven stations stay in it.
 // Stated as zoom, pitch, bearing and WHERE ON SCREEN the section's middle sits; the centre follows
 // (`?cam3=zoom,pitch,bearing,x,y` to try another).
 const camQ = q.get("cam3")?.split(",").map(Number);
-const CAM3D_SPEC = camQ?.length === 5 ? { zoom: camQ[0], pitch: camQ[1], bearing: camQ[2], at: [camQ[3], camQ[4]] } : { zoom: 8.84, pitch: 66, bearing: -32, at: [1270, 452] };
+const CAM3D_SPEC = camQ?.length === 5 ? { zoom: camQ[0], pitch: camQ[1], bearing: camQ[2], at: [camQ[3], camQ[4]] } : { zoom: 8.5, pitch: 64, bearing: -32, at: [546, 486] };
 const viewport = (c: Cam) => new WebMercatorViewport({ width: W, height: H, ...c });
 const PIVOT: [number, number] = [lon0, lat0];
 /** the camera with this zoom, pitch and bearing that puts the section's middle at a pixel */
@@ -111,23 +146,20 @@ function camWithPivotAt(zoom: number, pitch: number, bearing: number, px: number
 }
 const CAM3D: Cam = camWithPivotAt(CAM3D_SPEC.zoom, CAM3D_SPEC.pitch, CAM3D_SPEC.bearing, CAM3D_SPEC.at);
 // the move between them carries the section's middle along a straight line on screen while zoom, pitch and bearing ease,
-// so the section never leaves the frame (interpolating the centre itself let the zoom outrun it: the line ran off the
-// right edge half-way)
+// so the section never leaves the frame
 const P2D = viewport(CAM2D).project(PIVOT), P3D = CAM3D_SPEC.at;
 function camAt(t: number): Cam {
-  const e = ease(ramp(t, B7 + 0.2, B7 + 2.7));
+  const e = ease(ramp(t, B7 + 0.3, B7 + 2.8));
   if (e <= 0) return CAM2D;
   if (e >= 1) return CAM3D;
   return camWithPivotAt(lerp(CAM2D.zoom, CAM3D.zoom, e), lerp(CAM2D.pitch, CAM3D.pitch, e), lerp(CAM2D.bearing, CAM3D.bearing, e), [lerp(P2D[0], P3D[0], e), lerp(P2D[1], P3D[1], e)]);
 }
 const PX_PER_DEG = (512 * 2 ** CAM2D.zoom) / 360;   // bird's-eye pixels per degree of longitude
-/** a lon/lat moved by screen pixels under the bird's-eye camera (the ring of beat 2) */
-const nudge = (lon: number, lat: number, dx: number, dy: number): [number, number] => [lon + dx / PX_PER_DEG, lat - (dy * Math.cos((lat * Math.PI) / 180)) / PX_PER_DEG];
 
 // ── the surfaces: the Contours lens's spline, once per map ───────────────────────────────────────────────────────
 type Bounds = [number, number, number, number];
 interface Surf { canvas: HTMLCanvasElement; bounds: Bounds; coarse?: { canvas: HTMLCanvasElement; bounds: Bounds };
-  lines: { path: [number, number][]; level: number }[]; labels: { position: [number, number]; text: string; angle: number }[]; n: number;
+  lines: { path: [number, number][]; level: number; heavy: boolean }[]; labels: { position: [number, number]; text: string; angle: number }[]; n: number;
   grid: SurfaceGrid; behind?: HTMLCanvasElement; front?: HTMLCanvasElement }
 const surfs = new Map<string, Surf>();
 async function buildSurf(key: string, pts: { lon: number; lat: number; z: number }[], kind: "temp" | "anom", withCoarse: boolean) {
@@ -144,17 +176,15 @@ async function buildSurf(key: string, pts: { lon: number; lat: number; z: number
     return s;
   };
   const s = await one(0.04), g = s.grid;
-  const levels = kind === "temp" ? Array.from({ length: 15 }, (_, i) => 12 + i) : Array.from({ length: 25 }, (_, i) => i - 12).filter((v) => v !== 0);
+  const spec = isoLevels(kind);
   const lines: Surf["lines"] = [], labels: (Surf["labels"][number] & { x: number; y: number })[] = [];
-  for (const iso of isolines(s.values, g.nx, g.ny, levels)) {
-    const polys = joinSegments(iso.segs).filter((p) => p.length > 10);
-    for (const p of polys) lines.push({ level: iso.level, path: p.map(([x, y]) => cellToLonLat(g, x, y)) });   // isolines run through cell CENTRES
-    const text = kind === "temp" ? `${iso.level}°` : signed(iso.level, 0);
-    if (kind === "anom" || iso.level % 2 === 0)
-      for (const p of labelPoints(polys, 80)) { const position = cellToLonLat(g, p.x, p.y); labels.push({ position, text, angle: p.angle, x: position[0] * PX_PER_DEG, y: position[1] * PX_PER_DEG * 1.19 }); }
-  }
+  isolines(s.values, g.nx, g.ny, spec.map((l) => l.c)).forEach((iso, k) => {   // one entry per level, in order
+    const L = spec[k], polys = joinSegments(iso.segs).filter((p) => p.length > 10);
+    for (const p of polys) lines.push({ level: L.level, heavy: L.heavy, path: p.map(([x, y]) => cellToLonLat(g, x, y)) });   // isolines run through cell CENTRES
+    if (L.label) for (const p of labelPoints(polys, 80)) { const position = cellToLonLat(g, p.x, p.y); labels.push({ position, text: L.label, angle: p.angle, x: position[0] * PX_PER_DEG, y: position[1] * PX_PER_DEG * 1.19 }); }
+  });
   const surf: Surf = { canvas: surfaceImage(s.values, g.nx, g.ny, paint, 255, s.dist, MASK_KM), bounds: [g.lon0, g.latS, g.lon1, g.latN], lines, n: pts.length, grid: g,
-    labels: thinLabels(labels, 190) };
+    labels: thinLabels(labels, 120) };
   if (withCoarse) {   // the same spline on a coarse regular grid, drawn as its cells: "interpolated to the grid" made visible
     const c = await one(0.28);
     surf.coarse = { canvas: surfaceImage(c.values, c.grid.nx, c.grid.ny, paint, 255, c.dist, MASK_KM), bounds: [c.grid.lon0, c.grid.latS, c.grid.lon1, c.grid.latN] };
@@ -183,10 +213,10 @@ function splitAlongLine(f: Surf) {
   f.behind = mk(true); f.front = mk(false);
 }
 
-// ── the section's texture: stations across, depth down, the departure from the November normal ───────────────────
+// ── the section's texture: stations across, depth down, the departure from the fall normal ───────────────────────
 /** the curtain image for line 93.3, as its face is seen: bilinear between stations and between the 10 m bins that were
  *  measured, never below a cast's deepest bin except toward a deeper neighbour (the sea floor mesh covers what lies
- *  under the shelf). Isolines every 4 °C; the 4 and the 8 carry their value, the 12 is marked by the record's own label. */
+ *  under the shelf). Isolines every 4 °C; the 4 and the 8 carry their value, the record is marked by its own ring. */
 function sectionTexture(): HTMLCanvasElement {
   const N = faceStations.length, GX = 40, nx = (N - 1) * GX + 1, ny = SECTION_DEPTH / 2 + 1;   // 2 m rows
   const col = faceStations.map((st) => section.filter((c) => c.station === st.station && c.anom != null).sort((a, b) => a.depth_bin - b.depth_bin));
@@ -210,18 +240,18 @@ function sectionTexture(): HTMLCanvasElement {
   const K = 6, cv = document.createElement("canvas"); cv.width = nx * K; cv.height = ny * K;
   const ctx = cv.getContext("2d")!; ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high"; ctx.drawImage(small, 0, 0, cv.width, cv.height);
   ctx.lineWidth = 5; ctx.lineJoin = "round"; ctx.font = `700 60px "Source Sans 3", sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  for (const iso of isolines(v, nx, ny, [4, 8, 12])) {
+  isolines(v, nx, ny, SECTION_ISO.map((l) => l.c)).forEach((iso, n) => {
     const polys = joinSegments(iso.segs).filter((p) => p.length > 8);
     ctx.strokeStyle = "rgba(255,255,255,0.92)";
     for (const p of polys) { ctx.beginPath(); p.forEach(([x, y], k) => (k ? ctx.lineTo((x + 0.5) * K, (y + 0.5) * K) : ctx.moveTo((x + 0.5) * K, (y + 0.5) * K))); ctx.stroke(); }
     const longest = polys.sort((a, b) => b.length - a.length)[0];
-    if (longest && iso.level < 12) {
+    if (longest) {
       const [x, y] = longest[Math.floor(longest.length * 0.42)];
-      const tx = (x + 0.5) * K, ty = (y + 0.5) * K, text = `+${iso.level}`, w = ctx.measureText(text).width + 26;
+      const tx = (x + 0.5) * K, ty = (y + 0.5) * K, text = SECTION_ISO[n].label, w = ctx.measureText(text).width + 26;
       ctx.fillStyle = css(anomColor(iso.level)); ctx.fillRect(tx - w / 2, ty - 36, w, 72);
       ctx.fillStyle = "#fff"; ctx.fillText(text, tx, ty + 3);
     }
-  }
+  });
   return cv;
 }
 
@@ -240,7 +270,7 @@ const TEXT = { fontFamily: FONT, fontWeight: 700, fontSettings: { sdf: true, fon
 const SECTION_PLACE = "San Diego";
 const PLACES = [
   { name: "Los Angeles", lon: -118.24, lat: 34.05 }, { name: "San Diego", lon: -117.16, lat: 32.72 },
-  { name: "Santa Barbara", lon: -119.7, lat: 34.42 }, { name: "Ensenada", lon: -116.6, lat: 31.86 },
+  { name: "Santa Barbara", lon: -119.7, lat: 34.42 },
 ];
 // everything that lies ON the sea surface is drawn in order, never depth-tested: two coplanar quads under a tilted camera
 // fight, and a billboard label standing on the land's plane was cut in half by it
@@ -260,22 +290,26 @@ function trackTo(st: Sta[], p: number): { path: [number, number][]; reached: num
 }
 
 interface Dot { lon: number; lat: number; r: number; fill: RGBA; line: RGBA }
-const noValue = (a: number) => ({ fill: rgba(NAVY, 0.0), line: rgba(MUTED, 0.9 * a) });   // sampled, no normal there: a ring, never a colour
+const noValue = (a: number) => ({ fill: rgba(NAVY, 0.0), line: rgba(MUTED, 0.9 * a) });   // sampled, no baseline there: a ring, never a colour
 interface Shown { key: string; opacity: number; coarse?: number; lines?: number; split?: number }
+interface Track { path: [number, number][]; opacity: number; width: number }
+/** beat 2: when the k-th further baseline cruise (k = 0 … 21) starts drawing its track */
+const trackStart = (k: number) => B2 + 0.3 + k * TRACK_STAGGER;
+const TRACKS_DONE = trackStart(baseline.length - 2) + TRACK_DRAW;
 
 function layersAt(t: number) {
   const L: any[] = [];
   const in7 = t >= B7, u7 = t - B7;
-  const flat = 1 - ease(ramp(u7, 0.3, 1.6));           // the bird's-eye layers leave as the camera tilts
-  const dots: Dot[] = [], shown: Shown[] = [];
-  let track: { path: [number, number][]; opacity: number } | null = null, ship: [number, number] | null = null;
+  const flat = 1 - ease(ramp(u7, 0.4, 1.7));           // the bird's-eye layers leave as the camera tilts
+  const dots: Dot[] = [], shown: Shown[] = [], tracks: Track[] = [];
+  let ship: [number, number] | null = null;
 
   // ── the 3-D stage, under everything flat ──
   if (in7 && floor) {
     L.push(new SimpleMeshLayer({ id: "floor3d", ...M3D, data: [0], getPosition: () => [0, 0, 0],
       mesh: { attributes: { positions: { value: floor.positions, size: 3 }, texCoords: { value: floor.texCoords, size: 2 }, normals: { value: floor.normals, size: 3 } }, indices: { value: floor.indices, size: 1 } } as any,
       texture: floor.texture, getColor: [255, 255, 255, 255], material: { ambient: 0.55, diffuse: 0.5, shininess: 4, specularColor: [10, 14, 20] } }));
-    const d = ease(ramp(u7, 1.4, 2.9)), N = faceStations.length;
+    const d = ease(ramp(u7, 1.5, 3.0)), N = faceStations.length;
     if (d > 0 && curtainTex) {
       const pos = new Float32Array(N * 2 * 3), tex = new Float32Array(N * 2 * 2), idx = new Uint32Array((N - 1) * 6);
       faceStations.forEach((s, i) => {
@@ -290,68 +324,68 @@ function layersAt(t: number) {
       const top = faceStations.map((s) => [...off(s.lon, s.lat), 0] as [number, number, number]);
       const frame = [...top, ...top.slice().reverse().map(([x, y]) => [x, y, -SECTION_DEPTH * EXAG * d] as [number, number, number]), top[0]];
       L.push(new PathLayer({ id: "curtain-frame", ...M3D, data: [frame], getPath: (p: any) => p, widthUnits: "pixels", getWidth: 3, getColor: [255, 255, 255, 190] }));
-      // depth marks just inside the offshore edge (outside it they ran into the column's words), a tick on the edge for each
+      // depth marks just inside the offshore edge, a tick on the edge for each
       const edge = faceStations[0], [ex, ey] = off(edge.lon, edge.lat), next = faceStations[1], [nx2, ny2] = off(next.lon, next.lat);
       const marks = [50, 100, 150].filter((z) => z <= SECTION_DEPTH * d - 8), tk = 0.035;
       L.push(new PathLayer({ id: "curtain-ticks", ...M3D, ...FLAT, data: marks, getPath: (z: number) => [[ex, ey, -z * EXAG], [ex + (nx2 - ex) * tk, ey + (ny2 - ey) * tk, -z * EXAG]], widthUnits: "pixels", getWidth: 3, getColor: [255, 255, 255, 230] }));
       L.push(new TextLayer({ id: "curtain-depths", ...M3D, ...TEXT, ...FLAT, data: marks,
-        getPosition: (z: number) => [ex + (nx2 - ex) * tk, ey + (ny2 - ey) * tk, -z * EXAG], getText: (z: number) => `${z} m`, getSize: 38, getColor: rgba(INK, 1), getTextAnchor: "start", getAlignmentBaseline: "center", getPixelOffset: [10, 0] }));
+        getPosition: (z: number) => [ex + (nx2 - ex) * tk, ey + (ny2 - ey) * tk, -z * EXAG], getText: (z: number) => `${z} m`, getSize: 30, getColor: rgba(INK, 1), getTextAnchor: "start", getAlignmentBaseline: "center", getPixelOffset: [8, 0] }));
     }
   }
 
   // ── the sea floor from above ──
   if (bathy && flat > 0) L.push(new BitmapLayer({ id: "bathy", ...FLAT, image: bathy.canvas, bounds: bathy.bounds, opacity: flat }));
 
-  // ── which surface, which dots, which track: the beats ──
-  if (t < B2) {                                                        // 1 · the baseline's November cruises, one after another
-    const { k, p } = beat1(t), st = stationsOf(baseline[k]);
-    const tr = trackTo(st, k === 0 ? ramp(p, 0.06, 0.7) : ramp(p, 0.04, 0.72));
-    track = { path: tr.path, opacity: 1 }; ship = tr.path[tr.path.length - 1];
-    // the first cruise is on screen from the first frame (its track then draws through it); the others arrive with the ship
-    st.forEach((s, i) => { const a = k === 0 ? 1 : ramp(tr.reached, i - 0.4, i + 0.1); if (a > 0) dots.push({ lon: s.lon, lat: s.lat, r: 13 * (0.6 + 0.4 * a), fill: rgba(tempColor(s.temp), a), line: rgba(NAVY, 0.9 * a) }); });
-  } else if (t < B3) {                                                 // 2 · all of them together → the average at each station
-    const u = t - B2, conv = ease(ramp(u, 1.1, 2.0)), ring = 16 * (1 - conv), a = ramp(u, 0, 0.3);
-    baseline.forEach((c, k) => {
-      const ang = (2 * Math.PI * k) / baseline.length - Math.PI / 2;
-      for (const s of stationsOf(c)) {
-        const n = normalBySite.get(s.site_key), keep = n ? 1 - ramp(conv, 0.75, 1) : 1 - ramp(conv, 0, 0.6);
-        if (keep <= 0) continue;
-        const [lon, lat] = nudge(n?.lon ?? s.lon, n?.lat ?? s.lat, Math.cos(ang) * ring, Math.sin(ang) * ring);
-        dots.push({ lon, lat, r: lerp(6, 4, conv), fill: rgba(tempColor(s.temp), a * keep), line: rgba(NAVY, 0.7 * a * keep) });
-      }
+  const full = (c: Cruise) => stationsOf(c).map((s) => [s.lon, s.lat] as [number, number]);
+  const normalDots = (r: number, a: number) => { for (const n of normal) dots.push({ lon: n.lon, lat: n.lat, r, fill: rgba(tempColor(n.clim), a), line: rgba(NAVY, 0.9 * a) }); };
+
+  // ── which surface, which dots, which tracks: the beats ──
+  if (t < B2) {                                                        // 1 · one fall cruise, sailed station by station
+    const st = stationsOf(base0), tr = trackTo(st, ramp(t, 0.6, 5.6));
+    tracks.push({ path: tr.path, opacity: 1, width: 3 }); if (t < 5.7) ship = tr.path[tr.path.length - 1];
+    st.forEach((s, i) => { if (s.temp == null) return; const a = ramp(tr.reached, i - 0.4, i + 0.1); if (a > 0) dots.push({ lon: s.lon, lat: s.lat, r: R_BIG * (0.6 + 0.4 * a), fill: rgba(tempColor(s.temp), a), line: rgba(NAVY, 0.9 * a) }); });
+  } else if (t < B3) {                                                 // 2 · every other fall cruise of the baseline, at once: the full track
+    const u = t - B2;
+    tracks.push({ path: full(base0), opacity: lerp(1, 0.42, ramp(u, 0, 0.6)), width: 2.2 });
+    baseline.slice(1).forEach((c, k) => {
+      const s0 = trackStart(k), p = ramp(t, s0, s0 + TRACK_DRAW); if (p <= 0) return;
+      tracks.push({ path: trackTo(stationsOf(c), p).path, opacity: lerp(0.95, 0.42, ramp(t, s0 + TRACK_DRAW, s0 + TRACK_DRAW + 0.5)), width: 2.2 });
     });
-    const grow = ease(ramp(u, 1.5, 2.2));
-    if (grow > 0) for (const n of normal) dots.push({ lon: n.lon, lat: n.lat, r: 13 * grow, fill: rgba(tempColor(n.clim), grow), line: rgba(NAVY, 0.9 * grow) });
-  } else if (t < B4) {                                                 // 3 · the averages, interpolated to the regular grid
-    const u = t - B3, fine = ease(ramp(u, 1.35, 2.0));
-    shown.push({ key: "normal", opacity: fine, coarse: ease(ramp(u, 0.1, 0.8)) * (1 - fine), lines: ramp(u, 1.7, 2.2) });
-    const r = lerp(13, 6.5, ease(ramp(u, 0.2, 1.1)));
-    for (const n of normal) dots.push({ lon: n.lon, lat: n.lat, r, fill: rgba(tempColor(n.clim), 1), line: rgba(NAVY, 0.9) });
-  } else if (t < B5) {                                                 // 4 · the next year: its track, its samples, its grid
+    // the 1993 values give way to the baseline at each station once every track is in
+    const x = ease(ramp(t, TRACKS_DONE + 0.1, TRACKS_DONE + 0.9));
+    if (x < 1) for (const s of stationsOf(base0)) if (s.temp != null) dots.push({ lon: s.lon, lat: s.lat, r: R_BIG, fill: rgba(tempColor(s.temp), 1 - x), line: rgba(NAVY, 0.9 * (1 - x)) });
+    if (x > 0) normalDots(R_BIG, x);
+  } else if (t < B4) {                                                 // 3 · the baseline, interpolated to the regular grid
+    const u = t - B3, fine = ease(ramp(u, 1.6, 2.3));
+    if (u < 0.7) for (const c of baseline) tracks.push({ path: full(c), opacity: 0.42 * (1 - ramp(u, 0, 0.6)), width: 2.2 });
+    shown.push({ key: "normal", opacity: fine, coarse: ease(ramp(u, 0.3, 1.1)) * (1 - fine), lines: ramp(u, 2.0, 2.6) });
+    normalDots(lerp(R_BIG, R_SMALL, ease(ramp(u, 0.3, 1.2))), 1);
+  } else if (t < B5) {                                                 // 4 · the next year: its track, its samples, its map
     const u = t - B4, out = 1 - ramp(u, 0, 0.45), st = stationsOf(first);
-    if (out > 0) { shown.push({ key: "normal", opacity: out, lines: out }); for (const n of normal) dots.push({ lon: n.lon, lat: n.lat, r: 6.5, fill: rgba(tempColor(n.clim), out), line: rgba(NAVY, 0.9 * out) }); }
-    const tr = trackTo(st, ramp(u, 0.5, 2.2)), fine = ease(ramp(u, 2.95, 3.5));
-    if (u >= 0.5) { track = { path: tr.path, opacity: 1 - ramp(u, 2.4, 3.2) * 0.75 }; if (u < 2.3) ship = tr.path[tr.path.length - 1]; }
-    shown.push({ key: "first-temp", opacity: fine, coarse: ease(ramp(u, 2.3, 2.9)) * (1 - fine), lines: ramp(u, 3.2, 3.7) });
-    const r = lerp(13, 6.5, ease(ramp(u, 2.4, 3.2)));
-    st.forEach((s, i) => { const a = u < 0.5 ? 0 : ramp(tr.reached, i - 0.4, i + 0.1); if (a > 0) dots.push({ lon: s.lon, lat: s.lat, r: r * (0.6 + 0.4 * a), fill: rgba(tempColor(s.temp), a), line: rgba(NAVY, 0.9 * a) }); });
-  } else if (t < B6) {                                                 // 5 · that year's departure from the normal
-    const u = t - B5, x = ease(ramp(u, 0.25, 1.05));
+    if (out > 0) { shown.push({ key: "normal", opacity: out, lines: out }); normalDots(R_SMALL, out); }
+    const tr = trackTo(st, ramp(u, 0.5, 2.7)), fine = ease(ramp(u, 3.5, 4.1));
+    if (u >= 0.5) { tracks.push({ path: tr.path, opacity: 1 - ramp(u, 2.9, 3.7) * 0.75, width: 3 }); if (u < 2.8) ship = tr.path[tr.path.length - 1]; }
+    shown.push({ key: "first-temp", opacity: fine, coarse: ease(ramp(u, 2.9, 3.5)) * (1 - fine), lines: ramp(u, 3.8, 4.3) });
+    const r = lerp(R_BIG, R_SMALL, ease(ramp(u, 3.0, 3.8)));
+    st.forEach((s, i) => { if (s.temp == null) return; const a = u < 0.5 ? 0 : ramp(tr.reached, i - 0.4, i + 0.1); if (a > 0) dots.push({ lon: s.lon, lat: s.lat, r: r * (0.6 + 0.4 * a), fill: rgba(tempColor(s.temp), a), line: rgba(NAVY, 0.9 * a) }); });
+  } else if (t < B6) {                                                 // 5 · that year as its change from the baseline
+    const u = t - B5, x = ease(ramp(u, 0.4, 1.4));
     shown.push({ key: "first-temp", opacity: 1 - x, lines: 1 - x }, { key: "first-anom", opacity: x, lines: x });
     for (const s of stationsOf(first)) {
-      if (s.anom == null) { dots.push({ lon: s.lon, lat: s.lat, r: 6.5, fill: rgba(tempColor(s.temp), 1 - x), line: x < 0.5 ? rgba(NAVY, 0.9) : rgba(MUTED, 0.9) }); continue; }
-      const a = tempColor(s.temp), b = anomColor(s.anom);
-      dots.push({ lon: s.lon, lat: s.lat, r: 6.5, fill: rgba([lerp(a[0], b[0], x), lerp(a[1], b[1], x), lerp(a[2], b[2], x)], 1), line: rgba(NAVY, 0.9) });
+      if (s.temp == null) continue;
+      if (s.anom == null) { dots.push({ lon: s.lon, lat: s.lat, r: R_SMALL, fill: rgba(tempColor(s.temp), 1 - x), line: x < 0.5 ? rgba(NAVY, 0.9) : rgba(MUTED, 0.9) }); continue; }
+      dots.push({ lon: s.lon, lat: s.lat, r: R_SMALL, fill: rgba(mix(tempColor(s.temp), anomColor(s.anom), x), 1), line: rgba(NAVY, 0.9) });
     }
-  } else {                                                             // 6 · each November since; 7 · the last one, under the surface
-    const i = beat6(t), x = ramp(t - beat6Start(i), 0, 0.18);
+  } else {                                                             // 6 · each fall since; 7 · the last one, under the surface
+    const i = beat6(t), x = ramp(t - beat6Start(i), 0, 0.3);
     const cur = series[i], prev = i ? `anom-${series[i - 1].cruise_key}` : "first-anom";
     if (x < 1) shown.push({ key: prev, opacity: 1 - x, lines: 1 - x });
     shown.push(in7 ? { key: `anom-${cur.cruise_key}`, opacity: 1, lines: flat, split: 1 - flat } : { key: `anom-${cur.cruise_key}`, opacity: x, lines: x });
     for (const s of stationsOf(cur)) {
+      if (s.temp == null) continue;
       const onLine = in7 && s.line === SECTION_LINE, a = in7 ? (onLine ? 1 : lerp(1, 0.35, 1 - flat)) : 1;
       const style = s.anom == null ? noValue(a) : { fill: rgba(anomColor(s.anom), a), line: rgba(onLine ? INK : NAVY, 0.9 * a) };
-      dots.push({ lon: s.lon, lat: s.lat, r: onLine ? lerp(6.5, 9, 1 - flat) : 6.5, ...style });
+      dots.push({ lon: s.lon, lat: s.lat, r: onLine ? lerp(R_SMALL, 7, 1 - flat) : R_SMALL, ...style });
     }
   }
 
@@ -366,155 +400,165 @@ function layersAt(t: number) {
     } else if (s.opacity > 0.003) L.push(new BitmapLayer({ id: `surf-${s.key}`, ...FLAT, image: f.canvas, bounds: f.bounds, opacity: s.opacity }));
   }
   // ── the land, over the surfaces and the sea floor ──
-  if (land) L.push(new GeoJsonLayer({ id: "land", data: land, stroked: true, filled: true, getFillColor: [36, 50, 74, 255], getLineColor: [159, 176, 200, 210], lineWidthUnits: "pixels", getLineWidth: 2 }));
+  if (land) L.push(new GeoJsonLayer({ id: "land", data: land, stroked: true, filled: true, getFillColor: [36, 50, 74, 255], getLineColor: [159, 176, 200, 210], lineWidthUnits: "pixels", getLineWidth: 1.6 }));
   // ── the isolines: every degree, the even ones heavier, their values large enough for a phone ──
   for (const s of shown) {
     const f = surfs.get(s.key), a = s.lines ?? 0; if (!f || a <= 0.003) continue;
     const anom = s.key.includes("anom");
     L.push(new PathLayer({ id: `iso-${s.key}`, ...FLAT, data: f.lines, getPath: (d: any) => d.path, widthUnits: "pixels", opacity: a,
-      getWidth: (d: any) => (d.level % 2 === 0 ? 4 : 2.2),
+      getWidth: (d: any) => (d.heavy ? 3.2 : 1.8),
       getColor: (d: any) => (anom ? (d.level > 0 ? [112, 10, 30, 255] : [20, 48, 122, 255]) : [8, 18, 32, 205]) as RGBA, jointRounded: true, capRounded: true }));
-    L.push(new TextLayer({ id: `isolab-${s.key}`, ...TEXT, ...FLAT, data: f.labels, getPosition: (d: any) => d.position, getText: (d: any) => d.text, getSize: 40,   // upright: a value turned along a steep isoline did not read
+    L.push(new TextLayer({ id: `isolab-${s.key}`, ...TEXT, ...FLAT, data: f.labels, getPosition: (d: any) => d.position, getText: (d: any) => d.text, getSize: 30,   // upright: a value turned along a steep isoline did not read
       getColor: [255, 255, 255, 255], opacity: a, getTextAnchor: "middle", getAlignmentBaseline: "center" }));
   }
-  // ── the grid itself, faintly: every station that has a November normal ──
-  const gridA = (t < B2 ? 0.55 : t < B3 ? 0.55 * (1 - ramp(t - B2, 1.5, 2.2)) : 0) + (t >= B4 && t < B5 ? 0.45 * ramp(t - B4, 0, 0.5) * (1 - ramp(t - B4, 2.4, 3.2)) : 0);
-  if (gridA > 0.01) L.push(new ScatterplotLayer({ id: "grid", ...FLAT, data: normal, getPosition: (n: Normal) => [n.lon, n.lat], radiusUnits: "pixels", getRadius: 3.2, getFillColor: rgba(MUTED, 1), opacity: gridA }));
-  // the places: four names from above; under the tilted camera only the one the section belongs to, larger
+  // ── the grid itself, faintly: every station that has a fall baseline ──
+  const gridA = t < B2 ? 0.55 : t < B3 ? 0.55 * (1 - ramp(t, TRACKS_DONE + 0.1, TRACKS_DONE + 0.9)) : t >= B4 && t < B5 ? 0.45 * ramp(t - B4, 0, 0.5) * (1 - ramp(t - B4, 2.9, 3.7)) : 0;
+  if (gridA > 0.01) L.push(new ScatterplotLayer({ id: "grid", ...FLAT, data: normal, getPosition: (n: Normal) => [n.lon, n.lat], radiusUnits: "pixels", getRadius: 2.6, getFillColor: rgba(MUTED, 1), opacity: gridA }));
+  // the places: three names from above; under the tilted camera only the one the section belongs to, larger
   const placeProps = { ...FLAT, getPosition: (p: any) => [p.lon, p.lat] as [number, number] };
   const others = in7 ? PLACES.filter((p) => p.name !== SECTION_PLACE) : PLACES, othersA = in7 ? flat : 1;
   if (othersA > 0.01) {
-    L.push(new ScatterplotLayer({ id: "places-dot", ...placeProps, data: others, radiusUnits: "pixels", getRadius: 4.5, getFillColor: rgba(INK, 0.9), opacity: othersA, billboard: true }));
-    L.push(new TextLayer({ id: "places", ...TEXT, ...placeProps, fontWeight: 600, data: others, getText: (p: any) => p.name, getSize: 32, getColor: rgba(INK, 0.95), opacity: othersA,
-      getTextAnchor: "start", getAlignmentBaseline: "center", getPixelOffset: [13, 0] }));
+    L.push(new ScatterplotLayer({ id: "places-dot", ...placeProps, data: others, radiusUnits: "pixels", getRadius: 3.6, getFillColor: rgba(INK, 0.9), opacity: othersA, billboard: true }));
+    L.push(new TextLayer({ id: "places", ...TEXT, ...placeProps, fontWeight: 600, data: others, getText: (p: any) => p.name, getSize: 26, getColor: rgba(INK, 0.95), opacity: othersA,
+      getTextAnchor: "start", getAlignmentBaseline: "center", getPixelOffset: [10, 0] }));
   }
   if (in7) {
     const sd = PLACES.filter((p) => p.name === SECTION_PLACE);
-    L.push(new ScatterplotLayer({ id: "place-dot-3d", ...placeProps, data: sd, radiusUnits: "pixels", getRadius: 6, getFillColor: rgba(INK, 0.95), billboard: true }));
-    L.push(new TextLayer({ id: "place-3d", ...TEXT, ...placeProps, data: sd, getText: (p: any) => p.name, getSize: lerp(32, 46, 1 - flat), getColor: rgba(INK, 1),
-      getTextAnchor: "middle", getAlignmentBaseline: "top", getPixelOffset: [0, 16] }));
+    L.push(new ScatterplotLayer({ id: "place-dot-3d", ...placeProps, data: sd, radiusUnits: "pixels", getRadius: 5, getFillColor: rgba(INK, 0.95), billboard: true }));
+    L.push(new TextLayer({ id: "place-3d", ...TEXT, ...placeProps, data: sd, getText: (p: any) => p.name, getSize: lerp(26, 32, 1 - flat), getColor: rgba(INK, 1),
+      getTextAnchor: "middle", getAlignmentBaseline: "top", getPixelOffset: [lerp(0, 30, 1 - flat), 14] }));   // under its dot, a little east: the record's ring is just west of it, the frame's edge just east
   }
-  if (track && track.path.length > 1) L.push(new PathLayer({ id: "track", ...FLAT, data: [track], getPath: (d: any) => d.path, widthUnits: "pixels", getWidth: 3, getColor: rgba(INK, 0.85), opacity: track.opacity, jointRounded: true, capRounded: true }));
+  tracks.forEach((tr, k) => { if (tr.path.length > 1 && tr.opacity > 0.005) L.push(new PathLayer({ id: `track-${k}`, ...FLAT, data: [tr], getPath: (d: any) => d.path, widthUnits: "pixels", getWidth: tr.width, getColor: rgba(INK, 0.85), opacity: tr.opacity, jointRounded: true, capRounded: true })); });
   if (in7) L.push(new PathLayer({ id: "line-3d", ...FLAT, data: [secStations.map((s) => [s.lon, s.lat])], getPath: (d: any) => d, widthUnits: "pixels", getWidth: 3, getColor: rgba(INK, 0.9 * ease(ramp(u7, 0.6, 1.6))) }));
   L.push(new ScatterplotLayer({ id: "dots", ...FLAT, data: dots, getPosition: (d: Dot) => [d.lon, d.lat], radiusUnits: "pixels", getRadius: (d: Dot) => d.r, getFillColor: (d: Dot) => d.fill,
-    stroked: true, lineWidthUnits: "pixels", getLineWidth: 1.6, getLineColor: (d: Dot) => d.line, billboard: true }));
-  if (ship) L.push(new ScatterplotLayer({ id: "ship", ...FLAT, data: [ship], getPosition: (d: any) => d, radiusUnits: "pixels", getRadius: 7, getFillColor: [255, 255, 255, 255], stroked: true, lineWidthUnits: "pixels", getLineWidth: 5, getLineColor: [255, 255, 255, 90] }));
+    stroked: true, lineWidthUnits: "pixels", getLineWidth: 1.4, getLineColor: (d: Dot) => d.line, billboard: true }));
+  if (ship) L.push(new ScatterplotLayer({ id: "ship", ...FLAT, data: [ship], getPosition: (d: any) => d, radiusUnits: "pixels", getRadius: 6, getFillColor: [255, 255, 255, 255], stroked: true, lineWidthUnits: "pixels", getLineWidth: 4, getLineColor: [255, 255, 255, 90] }));
   return L;
 }
 
 // ── the words, the legends, the strip (DOM over the canvas) ──────────────────────────────────────────────────────
 const $ = (id: string) => document.getElementById(id)!;
-function legend(id: string, rampId: string, domain: [number, number], ticks: number[], fmt: (v: number) => string, unit: string) {
+/** a legend: its ramp, and one row of ticks per unit the cut shows, each tick placed at its value in the data's °C */
+interface TickRow { ticks: number[]; toC: (v: number) => number; fmt: (v: number) => string; unit: string }
+function legend(id: string, rampId: string, domain: [number, number], rows: TickRow[]) {
   const root = $(id); (root.querySelector(".legend-bar") as HTMLElement).style.background = rampCss(rampId);
-  const tk = root.querySelector(".legend-ticks")!;
-  tk.innerHTML = ticks.map((v) => `<span style="left:${((v - domain[0]) / (domain[1] - domain[0])) * 100}%">${fmt(v)}</span>`).join("") + `<span class="unit" style="left:100%;margin-left:14px">${unit}</span>`;
+  root.querySelectorAll(".legend-ticks").forEach((e) => e.remove());
+  rows.forEach((r, k) => {
+    const tk = document.createElement("div"); tk.className = k ? "legend-ticks alt" : "legend-ticks";
+    tk.innerHTML = r.ticks.map((v) => `<span style="left:${((r.toC(v) - domain[0]) / (domain[1] - domain[0])) * 100}%">${r.fmt(v)}</span>`).join("") + `<span class="unit" style="left:100%;margin-left:12px">${r.unit}</span>`;
+    root.appendChild(tk);
+  });
 }
-legend("legend-temp", "thermal", TEMP, [12, 16, 20, 24], (v) => String(v), "°C");
-legend("legend-anom", "balance", ANOM, [-12, -6, 0, 6, 12], (v) => (v > 0 ? `+${v}` : v < 0 ? `−${-v}` : "0"), "°C");
-$("credit").innerHTML = `<b>CalCOFI</b> · calcofi.io<br>CTD casts · release ${RELEASE}`;
+const plain = (v: number) => String(v), plus = (v: number) => (v > 0 ? `+${v}` : v < 0 ? `−${-v}` : "0");
+const T_C: TickRow = { ticks: [12, 16, 20, 24], toC: (v) => v, fmt: plain, unit: "°C" }, T_F: TickRow = { ticks: [55, 65, 75], toC: fromF, fmt: plain, unit: "°F" };
+const A_C: TickRow = { ticks: [-12, -6, 0, 6, 12], toC: (v) => v, fmt: plus, unit: "°C" }, A_F: TickRow = { ticks: [-20, -10, 0, 10, 20], toC: fromDF, fmt: plus, unit: "°F" };
+legend("legend-temp", "thermal", TEMP, IN_F ? [{ ...T_F, ticks: [55, 60, 65, 70, 75] }] : WITH_F ? [T_C, T_F] : [T_C]);
+legend("legend-anom", "balance", ANOM, IN_F ? [A_F] : WITH_F ? [A_C, A_F] : [A_C]);
+$("credit").innerHTML = `<b>CalCOFI</b> · calcofi.io · CTD casts · release ${RELEASE}`;
 
-// the strip: which cruise, out of all of them. Every November cruise is a dot on the years' line (the other months' CTD
-// cruises a faint texture behind it), the one on screen is the yellow one with its year under it, and each cruise the
-// film has played since the baseline keeps a bar: its mean surface departure over the stations the 2026 cruise occupied
-// (cruises.json mean_anom_fp: the same stations every year).
-const SX0 = 120, SX1 = 1800, SY = 140, Y0 = 1993, Y1 = 2027.3, BAR = 22, BAR_W = 34;
+// the strip: which cruise, out of all of them. Every fall cruise is a dot on the years' line (the other seasons' CTD
+// cruises a faint texture behind it), the one on screen is the yellow one with its year under it, and once the change
+// from the baseline is on screen every year keeps a bar: its mean 0–50 m change over the stations the 2026 cruise
+// occupied (cruises.json mean_fp: the same stations every year). The baseline years' bars arrive together, then each
+// year since as the film plays it.
+const SX0 = 62, SX1 = 1018, SY = 130, Y0 = 1992.75, Y1 = 2027.15, BAR = 21, BAR_W = 17;
 const decYear = (d: string) => { const [y, m, dd] = d.split("-").map(Number); return y + (m - 1) / 12 + (dd - 1) / 365; };
 const sx = (yr: number) => SX0 + ((yr - Y0) / (Y1 - Y0)) * (SX1 - SX0);
 const stripX = new Map(strip.map((c) => [c.cruise_key, sx(decYear(c.date_median))]));
-const NOV = strip.filter((c) => c.november);
-const novYears = new Set(NOV.map((c) => c.year));
-/** the years since the baseline with no November cruise: read off the data, never listed */
-const MISSING = Array.from({ length: last.year - first.year }, (_, i) => first.year + i).filter((y) => !novYears.has(y));
-const NOV_X = sx(2014.87) - sx(2014);   // where in a year's slot a November cruise falls
-const NOTE_X = MISSING.length ? sx((MISSING[0] + MISSING[MISSING.length - 1]) / 2) + NOV_X : -1e6, NOTE_HALF = 140;   // the empty slots' label: its middle and half its width
+const FALL = strip.filter((c) => c.fall);
+const byKey = new Map(cruises.map((c) => [c.cruise_key, c]));
+const BASE_X0 = sx(1993) - 10, BASE_X1 = sx(2013.95);
 function stripSvg(t: number): string {
   const s: string[] = [], inBase = t >= B2 && t < B4;
-  s.push(`<rect x="${sx(1993)}" y="${SY - 58}" width="${sx(2014) - sx(1993)}" height="74" rx="8" fill="rgba(159,176,200,${inBase ? 0.34 : 0.13})"/>`);
-  s.push(`<text x="${sx(1993) + 18}" y="${SY - 20}" font-size="36" font-weight="600" style="fill:rgba(233,237,243,${inBase ? 1 : 0.78})">the normal: 1993–2013</text>`);
-  s.push(`<line x1="${SX0 - 24}" y1="${SY}" x2="${SX1 + 24}" y2="${SY}" stroke="rgba(159,176,200,0.65)" stroke-width="2.5"/>`);
-  for (const c of strip) if (!c.november) { const x = stripX.get(c.cruise_key)!; s.push(`<line x1="${x}" y1="${SY - 5}" x2="${x}" y2="${SY + 5}" stroke="rgba(159,176,200,0.28)" stroke-width="2"/>`); }
-  // which cruise is showing, and which have played
-  let cur: Cruise | null = null; const played: Cruise[] = [];
-  if (t < B2) cur = baseline[beat1(t).k];
+  // the baseline years: a band, its name above it
+  s.push(`<rect x="${BASE_X0}" y="${SY - 58}" width="${BASE_X1 - BASE_X0}" height="72" rx="7" fill="rgba(159,176,200,${inBase ? 0.32 : 0.12})"/>`);
+  s.push(`<text x="${BASE_X0 + 6}" y="${SY - 68}" font-size="30" font-weight="600" style="fill:rgba(233,237,243,${inBase ? 1 : 0.8})">1993–2013 baseline</text>`);
+  s.push(`<line x1="${SX0 - 20}" y1="${SY}" x2="${SX1 + 20}" y2="${SY}" stroke="rgba(159,176,200,0.65)" stroke-width="2.2"/>`);
+  for (const c of strip) if (!c.fall) { const x = stripX.get(c.cruise_key)!; s.push(`<line x1="${x}" y1="${SY - 4}" x2="${x}" y2="${SY + 4}" stroke="rgba(159,176,200,0.28)" stroke-width="1.6"/>`); }
+  // which cruise is showing, and which bars are up
+  let cur: Cruise | null = null;
+  if (t < B2) cur = base0;
   if (t >= B4 && t < B6) cur = first;
-  if (t >= B5) played.push(first);
-  if (t >= B6) { const i = beat6(t); cur = series[i]; played.push(...series.slice(0, i + 1)); }
-  for (const c of played) {
-    const x = stripX.get(c.cruise_key)!, grow = c === first ? ease(ramp(t - B5, 0.4, 1.1)) : ease(ramp(t - beat6Start(series.indexOf(c)), 0, 0.2));
-    const h = c.mean_anom_fp * BAR * grow, on = c === cur, lx = Math.min(x, SX1 - 60);
-    // the value over the bar on screen: above its bar, above a neighbouring empty slot, and above the slots' own label
-    const ly = Math.min(SY - h, SY - 32) - 16 - (t >= B6 && lx + 95 > NOTE_X - NOTE_HALF && lx - 95 < NOTE_X + NOTE_HALF ? 34 : 0);
-    s.push(`<rect x="${x - BAR_W / 2}" y="${h >= 0 ? SY - h : SY}" width="${BAR_W}" height="${Math.max(2, Math.abs(h))}" fill="${css(anomColor(c.mean_anom_fp))}" stroke="${on ? "#ffcd00" : "rgba(233,237,243,0.85)"}" stroke-width="${on ? 4 : 1.5}"/>`);
-    if (on) s.push(`<text x="${lx}" y="${ly}" font-size="46" font-weight="700" text-anchor="middle" style="fill:#ffffff" paint-order="stroke" stroke="#0f1a2e" stroke-width="8">${signed(c.mean_anom_fp)} °C</text>`);
+  if (t >= B6) cur = series[beat6(t)];
+  const bars: { c: Cruise; grow: number }[] = [];
+  if (t >= B5) {
+    const g = ease(ramp(t - B5, 1.0, 1.8));
+    for (const c of cruises) if (c.primary && c.mean_fp != null && (c.role === "baseline" || c === first)) bars.push({ c, grow: g });
   }
-  if (t >= B5) s.push(`<text x="${sx(2014) - 70}" y="${SY - 72}" font-size="32" text-anchor="end" opacity="${ramp(t - B5, 0.4, 1.1)}">bars: surface, at 2026's stations</text>`);
-  // the years with no November cruise: two empty slots
-  if (t >= B6) {
-    for (const y of MISSING) s.push(`<rect x="${sx(y) + NOV_X - BAR_W / 2}" y="${SY - 30}" width="${BAR_W}" height="30" fill="none" stroke="rgba(159,176,200,0.95)" stroke-width="2.5" stroke-dasharray="7 5"/>`);
-    if (MISSING.length) s.push(`<text x="${NOTE_X}" y="${SY - 42}" font-size="30" text-anchor="middle">no November cruise</text>`);
+  if (t >= B6) { const i = beat6(t); series.slice(0, i + 1).forEach((c, k) => { if (c.mean_fp != null) bars.push({ c, grow: ease(ramp(t - beat6Start(k), 0, 0.3)) }); }); }
+  for (const { c, grow } of bars) {
+    const x = stripX.get(c.cruise_key)!, h = c.mean_fp! * BAR * grow, on = c === cur;
+    s.push(`<rect x="${x - BAR_W / 2}" y="${h >= 0 ? SY - h : SY}" width="${BAR_W}" height="${Math.max(2, Math.abs(h))}" fill="${css(anomColor(c.mean_fp!))}" stroke="${on ? "#ffcd00" : "rgba(233,237,243,0.8)"}" stroke-width="${on ? 3.5 : 1.2}"/>`);
   }
-  for (const c of NOV) {
-    const x = stripX.get(c.cruise_key)!, on = c.cruise_key === cur?.cruise_key, lit = inBase && c.year <= 2013;
-    s.push(`<circle cx="${x}" cy="${SY}" r="${on ? 14 : 8}" fill="${on ? "#ffcd00" : lit ? "#ffffff" : "rgba(233,237,243,0.8)"}" stroke="#0f1a2e" stroke-width="2.5"/>`);
-    if (on) s.push(`<path d="M${x - 16} ${SY + 34} L${x + 16} ${SY + 34} L${x} ${SY + 16} Z" fill="#ffcd00"/>`);
+  if (t >= B5) s.push(`<text x="${BASE_X0 + 6}" y="${SY - 104}" font-size="24" opacity="${ramp(t - B5, 1.0, 1.8)}">bars: the change, at 2026's stations</text>`);
+  for (const c of FALL) {
+    const x = stripX.get(c.cruise_key)!, on = c.cruise_key === cur?.cruise_key;
+    const k = baseline.findIndex((b) => b.cruise_key === c.cruise_key);
+    const lit = k >= 0 && (t >= B3 && t < B4 || (t >= B2 && t < B3 && (k === 0 || t >= trackStart(k - 1))));
+    s.push(`<circle cx="${x}" cy="${SY}" r="${on ? 11 : 6}" fill="${on ? "#ffcd00" : lit ? "#ffffff" : "rgba(233,237,243,0.75)"}" stroke="#0f1a2e" stroke-width="2"/>`);
+    if (on) s.push(`<path d="M${x - 13} ${SY + 30} L${x + 13} ${SY + 30} L${x} ${SY + 14} Z" fill="#ffcd00"/>`);
+  }
+  // the value over the bar on screen
+  const cb = cur && bars.find((b) => b.c === cur);
+  if (cb && cb.grow > 0.5) {
+    const text = change(cur!.mean_fp!), wide = WITH_F, bx = stripX.get(cur!.cruise_key)!, h = cur!.mean_fp! * BAR * cb.grow;
+    // the two-unit label is wide: near the right edge it ends there rather than centring on its bar
+    const half = wide ? 140 : 70, atEnd = bx + half > SX1 + 40, x = atEnd ? SX1 + 40 : Math.max(bx, SX0 + half - 30);
+    s.push(`<text x="${x}" y="${Math.min(SY - h, SY - 30) - 12}" font-size="${wide ? 32 : 38}" font-weight="700" text-anchor="${atEnd ? "end" : "middle"}" style="fill:#ffffff" paint-order="stroke" stroke="#0f1a2e" stroke-width="7">${text}</text>`);
   }
   // few, large year labels; the current cruise's own year in yellow (a decade label beside it steps aside)
-  for (const y of [2000, 2010, 2020]) if (!cur || Math.abs(cur.year - y) > 2) s.push(`<text x="${sx(y) + NOV_X}" y="${SY + 92}" font-size="46" text-anchor="middle">${y}</text>`);
-  if (cur) s.push(`<text x="${Math.min(stripX.get(cur.cruise_key)!, SX1 - 30)}" y="${SY + 92}" font-size="50" font-weight="700" text-anchor="middle" style="fill:#ffcd00">${cur.year}</text>`);
+  for (const y of [2000, 2010, 2020]) if (!cur || Math.abs(cur.year - y) > 2) s.push(`<text x="${sx(y + 0.8)}" y="${SY + 70}" font-size="34" text-anchor="middle">${y}</text>`);
+  if (cur) s.push(`<text x="${Math.min(stripX.get(cur.cruise_key)!, SX1 - 26)}" y="${SY + 70}" font-size="38" font-weight="700" text-anchor="middle" style="fill:#ffcd00">${cur.year}</text>`);
   return s.join("");
 }
 
-interface Words { kicker: string; year: string; range?: boolean; pill?: boolean; caption: string; caption2?: string }
-const titleCase = (s: string) => s.replace(/\b(\w)(\w*)/g, (_, a, b) => a + b.toLowerCase());
+interface Words { head: string; year: string; hero?: boolean; pill?: boolean; caption: string; small?: boolean }
+const HEAD_MAP = "Fall ocean temperatures at 0–50 m", HEAD_SECTION = "Fall ocean temperatures at 0–200 m";
+/** the record, from facts.json: its value, and where it is */
+const HERO = IN_F ? `${signed(dF(facts.max_anom_raw))} °F` : `${signed(facts.max_anom)} °C`;
+const HERO_TEXT = `${WITH_F ? `${signed(dF(facts.max_anom_raw))} °F, ` : ""}at ${facts.max_anom_bin}–${facts.max_anom_bin + 10} m: the largest change from baseline in CalCOFI's record, ${facts.record_from}–${facts.record_to}`;
+const TAG_F = `${Math.round(toF(facts.layer_temp_raw))} °F`;
+const TAG = `${IN_F ? TAG_F : WITH_F ? `${facts.layer_temp} °C (${TAG_F})` : `${facts.layer_temp} °C`} water down to ${facts.layer_depth} m`;
 function wordsAt(t: number): Words {
-  const stations = (c: Cruise) => `${c.n_stations} stations`;
-  if (t < B2) { const c = baseline[beat1(t).k]; return { kicker: "November", year: String(c.year), caption: "Every fall, a ship measures the ocean off California", caption2: `${titleCase(c.ship)} · ${stations(c)}` }; }
-  if (t < B3) return { kicker: "November", year: "1993–2013", range: true, caption: "All of them together: the normal", caption2: `Normal = the 1993–2013 average for November (${baseline.length} cruises)` };
-  if (t < B4) return { kicker: "November", year: "1993–2013", range: true, caption: "The normal, mapped between the stations", caption2: "Normal = the 1993–2013 average for November" };
-  if (t < B5) return { kicker: "November", year: String(first.year), caption: "The next year: one cruise, its stations, its map", caption2: stations(first) };
-  if (t < B6) return { kicker: "November", year: String(first.year), caption: "The same cruise, as its difference from normal", caption2: "Red is warmer than normal, blue is cooler" };
-  const c = series[beat6(t)], prelim = c.data_stage !== "final";
-  if (t >= B7) return { kicker: "Line 93.3, off San Diego", year: String(c.year), pill: prelim, caption: "" };
-  // the last map says what it shows, the surface, in the stations' own numbers (facts.json coast_min / coast_max: the
-  // inner Bight's 0–10 m departures; build_data.sql stops the build if the offshore stations reach into that range)
-  if (c === last) return { kicker: "November", year: String(c.year), pill: prelim, caption: `At the surface: ${Math.round(facts.coast_min)} to ${Math.round(facts.coast_max)} °C warmer than normal near the coast` };
-  return { kicker: "November", year: String(c.year), pill: prelim, caption: "Each November since, against the same normal", caption2: stations(c) };
+  if (t < B2) return { head: HEAD_MAP, year: String(base0.year), caption: "Each fall, a ship samples the same stations" };
+  if (t < B4) return { head: HEAD_MAP, year: "1993–2013", caption: "baseline" };
+  if (t < B5) return { head: HEAD_MAP, year: String(first.year), caption: "" };
+  const c = t < B6 ? first : series[beat6(t)], prelim = c.data_stage !== "final";
+  if (t < B7) return { head: HEAD_MAP, year: String(c.year), pill: prelim, caption: "Change from baseline" };
+  if (t < B7 + HERO_AT) return { head: HEAD_SECTION, year: String(c.year), pill: prelim, caption: "Line 93.3, off San Diego" };
+  return { head: HEAD_SECTION, year: HERO, hero: true, pill: prelim, caption: HERO_TEXT, small: true };
 }
-/** the three sentences of beat 7, from facts.json */
-const HERO = `${signed(facts.max_anom)} °C`;
-const HERO_TEXT = `at ${facts.max_anom_bin}–${facts.max_anom_bin + 10} m depth: the largest departure in CalCOFI's record, ${facts.record_from}–${facts.record_to}`;
-const TAG = `${facts.layer_temp} °C water down to ${facts.layer_depth} m`;
 
 let lastWords = "";
 function hudAt(t: number, cam: Cam) {
   const w = wordsAt(t), key = JSON.stringify(w);
   if (key !== lastWords) {
     lastWords = key;
-    $("kicker").textContent = w.kicker; $("year").textContent = w.year; $("year").classList.toggle("range", !!w.range);
-    $("caption").textContent = w.caption; $("caption2").textContent = w.caption2 ?? "";
+    $("year").textContent = w.year; $("year").classList.toggle("hero", !!w.hero);
+    $("caption").textContent = w.caption; $("caption").classList.toggle("small", !!w.small); $("row").classList.toggle("hero", !!w.hero);
+    $("pill").classList.toggle("gone", !w.pill);
   }
+  // the headline: its second half changes once, as the camera tilts (a short crossfade, not a cut)
+  const hx = ease(ramp(t - B7, 0.3, 0.9));
+  $("head-a").textContent = HEAD_MAP; $("head-b").textContent = HEAD_SECTION;
+  $("head-a").style.opacity = String(1 - hx); $("head-b").style.opacity = String(hx);
   $("pill").style.opacity = w.pill ? "1" : "0";
-  const anomLegend = t < B5 ? 0 : ease(ramp(t - B5, 0.25, 1.05));
+  const anomLegend = t < B5 ? 0 : ease(ramp(t - B5, 0.4, 1.4));
   $("legend-temp").style.opacity = String(1 - anomLegend); $("legend-anom").style.opacity = String(anomLegend);
   $("strip").innerHTML = stripSvg(t);
-  const n7 = ease(ramp(t - B7, 0.2, 2.7));   // the column's scrim narrows as the section comes up beside the words
-  $("scrim").style.background = `linear-gradient(90deg, rgba(15,26,46,0.94) 0, rgba(15,26,46,${lerp(0.86, 0.92, n7)}) ${lerp(520, 560, n7)}px, rgba(15,26,46,0) ${lerp(900, 700, n7)}px)`;
-  // beat 7: the number and what it is; the tag on the warm layer; the ring on the record's own cell
-  const u = t - B7, big = ease(ramp(u, 3.0, 3.6)), tagA = ease(ramp(u, 2.5, 3.1));
-  $("callout").style.opacity = String(big);
-  $("callout-big").textContent = HERO; $("callout-text").textContent = HERO_TEXT;
+  // beat 7: the tag on the warm layer; the ring on the record's own cell, in the colour of the record's number above
+  const u = t - B7, big = ease(ramp(u, HERO_AT, HERO_AT + 0.6)), tagA = ease(ramp(u, 2.8, 3.4));
   const tag = $("tag"), leader = $("leader"); tag.style.opacity = String(tagA);
   if (tagA > 0 || big > 0) {
-    const vp = viewport(cam), a = stationAt(28), b = stationAt(facts.max_anom_station);
-    const [x, y] = vp.project([(a.lon + b.lon) / 2, (a.lat + b.lat) / 2, -22 * EXAG]);                      // in the warm layer, between the two core stations
-    const [rx, ry] = vp.project([b.lon, b.lat, -(facts.max_anom_bin + 5) * EXAG]);                        // the record's cell: its station, the middle of its bin
+    const vp = viewport(cam), a = stationAt(28), b = stationAt(30), rec = stationAt(facts.max_anom_station);
+    const [x, y] = vp.project([(a.lon + b.lon) / 2, (a.lat + b.lat) / 2, -18 * EXAG]);                      // in the warm layer, between the two core stations
+    const [rx, ry] = vp.project([rec.lon, rec.lat, -(facts.max_anom_bin + 5) * EXAG]);                     // the record's cell: its station, the middle of its bin
     tag.textContent = TAG;
-    const tw = tag.offsetWidth, th = tag.offsetHeight, tx = Math.min(W - tw - 36, Math.max(760, x - tw * 0.5)), ty = y - 268;
+    const tw = tag.offsetWidth, th = tag.offsetHeight, tx = Math.min(W - tw - 26, Math.max(26, x - tw * 0.62)), ty = Math.max(246, y - 150);
     tag.style.transform = `translate(${tx}px, ${ty}px)`;
     leader.innerHTML =
-      `<line x1="${Math.min(tx + tw - 50, Math.max(tx + 50, x))}" y1="${ty + th}" x2="${x}" y2="${y}" stroke="rgba(233,237,243,${0.95 * tagA})" stroke-width="3.5"/><circle cx="${x}" cy="${y}" r="8" fill="rgba(233,237,243,${tagA})"/>` +
-      `<circle cx="${rx}" cy="${ry}" r="21" fill="none" stroke="rgba(15,26,46,${0.9 * big})" stroke-width="10"/><circle cx="${rx}" cy="${ry}" r="21" fill="none" stroke="rgba(255,255,255,${big})" stroke-width="5"/>` +
-      `<text x="${rx}" y="${ry + 80}" font-size="48" font-weight="700" text-anchor="middle" style="fill:rgba(255,255,255,${big})" paint-order="stroke" stroke="rgba(15,26,46,${0.95 * big})" stroke-width="11" stroke-linejoin="round">${HERO}</text>`;
+      `<line x1="${Math.min(tx + tw - 40, Math.max(tx + 40, x))}" y1="${ty + th}" x2="${x}" y2="${y}" stroke="rgba(233,237,243,${0.95 * tagA})" stroke-width="3"/><circle cx="${x}" cy="${y}" r="6.5" fill="rgba(233,237,243,${tagA})"/>` +
+      `<circle cx="${rx}" cy="${ry}" r="18" fill="none" stroke="rgba(15,26,46,${0.9 * big})" stroke-width="9"/><circle cx="${rx}" cy="${ry}" r="18" fill="none" stroke="rgba(255,180,162,${big})" stroke-width="4.5"/>`;
   } else leader.innerHTML = "";
 }
 
@@ -529,15 +573,18 @@ const raf = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
 async function settle() { for (let i = 0; i < 3; i++) await raf(); }
 
 /** what a capture must be able to trust, checked once the page is ready (capture.mjs prints it and stops on a failure):
- *  the section's seven stations stay inside the frame, clear of the column and the strip, at every frame of the move */
+ *  the section's seven stations stay inside the frame, below the bands of words and above the strip, at every frame of
+ *  the move; and the record's cell is one the section draws */
 function selfCheck() {
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   for (let k = Math.round(B7 * FPS); k < DURATION * FPS; k++) {
     const vp = viewport(camAt(k / FPS));
     for (const s of secStations) for (const z of [0, -SECTION_DEPTH * EXAG]) { const [x, y] = vp.project([s.lon, s.lat, z]); x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
   }
-  const box = [x0, y0, x1, y1].map(Math.round), ok = x0 >= 620 && x1 <= W - 20 && y0 >= 60 && y1 <= 800;   // right of the column's words, above the strip
-  return { sectionBox: box, sectionInFrame: ok, missingYears: MISSING, hero: HERO, heroText: HERO_TEXT, tag: TAG, lastCaption: wordsAt(B7 - 0.1).caption };
+  const box = [x0, y0, x1, y1].map(Math.round), inFrame = x0 >= 16 && x1 <= W - 16 && y0 >= 236 && y1 <= 812;
+  const recordDrawn = section.some((c) => c.station === facts.max_anom_station && c.depth_bin === facts.max_anom_bin && c.anom != null && Math.abs(c.anom - facts.max_anom) < 0.051);
+  return { units: UNITS, sectionBox: box, sectionInFrame: inFrame && recordDrawn, recordDrawn, hero: HERO, heroText: HERO_TEXT, tag: TAG,
+    cruises: { baseline: baseline.length, series: series.map((c) => c.year) } };
 }
 
 async function boot() {
@@ -565,7 +612,7 @@ async function boot() {
 }
 
 const story: any = ((window as any).__story = {
-  duration: DURATION, fps: FPS, width: W, height: H, beats: { B1, B2, B3, B4, B5, B6, B7 },
+  duration: DURATION, fps: FPS, width: W, height: H, units: UNITS, beats: { B1, B2, B3, B4, B5, B6, B7 },
   ready: null as Promise<void> | null,
   /** set the clock and resolve once that frame is on screen (capture.mjs steps this) */
   setT: async (t: number) => { setFrame(t); await settle(); },

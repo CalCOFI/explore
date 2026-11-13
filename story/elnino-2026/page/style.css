@@ -1,56 +1,66 @@
-/* the story's stage: one fixed 1920 x 1080 frame (the video's own pixels), scaled to fit a live window.
-   Colours and faces are the brand's dark tokens (calcofi.io/brand/v2/theme.css); the literals are only fallbacks.
-   Type is sized for a phone: the frame is ~390 px wide there, so 56 px here is ~11 px there. */
+/* the story's stage: one fixed 1080 x 1080 frame (the video's own pixels, square for social feeds), scaled to fit a
+   live window. Colours and faces are the brand's dark tokens (calcofi.io/brand/v2/theme.css); the literals are only
+   fallbacks. Type is sized for a phone: the frame is ~390 px wide there, so 40 px here is ~14 px there.
+   The words live in two bands above the map (the headline, then the year and one short line), never over the data. */
 html, body { margin: 0; height: 100%; background: #060b14; overflow: hidden; }
 #stage {
-  position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; overflow: hidden; transform-origin: 0 0;
+  position: absolute; left: 0; top: 0; width: 1080px; height: 1080px; overflow: hidden; transform-origin: 0 0;
   background: var(--bg, #0f1a2e); color: var(--fg, #e9edf3);
   font-family: var(--sans, "Source Sans 3", system-ui, sans-serif); font-size: 40px; line-height: 1.15;
   -webkit-font-smoothing: antialiased;
 }
 #map { position: absolute; inset: 0; }
 #map canvas { display: block; }
-/* a scrim under the column, so the words never fight the sea floor */
-#scrim { position: absolute; left: 0; top: 0; width: 900px; height: 1080px; pointer-events: none;
-  background: linear-gradient(90deg, rgba(15, 26, 46, 0.94) 0, rgba(15, 26, 46, 0.86) 520px, rgba(15, 26, 46, 0) 900px); }
-#scrim-strip { position: absolute; left: 0; top: 806px; width: 1920px; height: 274px; pointer-events: none;
-  background: linear-gradient(180deg, rgba(15, 26, 46, 0) 0, rgba(15, 26, 46, 0.92) 70px, rgba(15, 26, 46, 0.96) 274px); }
+/* scrims under the bands, so the words never fight the sea floor or the sea surface behind the section */
+#scrim-top { position: absolute; left: 0; top: 0; width: 1080px; height: 300px; pointer-events: none;
+  background: linear-gradient(180deg, rgba(15, 26, 46, 0.97) 0, rgba(15, 26, 46, 0.9) 222px, rgba(15, 26, 46, 0) 300px); }
+#scrim-strip { position: absolute; left: 0; top: 790px; width: 1080px; height: 290px; pointer-events: none;
+  background: linear-gradient(180deg, rgba(15, 26, 46, 0) 0, rgba(15, 26, 46, 0.9) 56px, rgba(15, 26, 46, 0.97) 290px); }
 
-/* the left column: what, when, and the one sentence of the beat */
-#col { position: absolute; left: 64px; top: 34px; width: 640px; }
-#kicker { font-weight: 700; font-size: 38px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted, #9fb0c8); height: 44px; }
-#year { font-family: var(--display, "Teko", sans-serif); font-weight: 600; font-size: 250px; line-height: 0.86; margin: 6px 0 0 -6px; letter-spacing: -0.01em; white-space: nowrap; height: 210px; }
-#year.range { font-size: 150px; line-height: 1.42; }
+/* the headline: what the map is (Rasmus Swalethorp 2026-11-13: "Fall ocean temperatures at 0-50m"); the second half
+   changes only once, when the section comes up */
+#head { position: absolute; left: 44px; top: 22px; width: 1000px; height: 64px; font-weight: 700; font-size: 52px; line-height: 64px; white-space: nowrap; }
+#head span { position: absolute; left: 0; top: 0; }
+/* the year (or the record), and beside it the one line of the beat */
+#row { position: absolute; left: 44px; top: 96px; width: 1000px; height: 128px; display: flex; align-items: center; gap: 30px; }
+#year { flex: none; font-family: var(--display, "Teko", sans-serif); font-weight: 600; font-size: 150px; line-height: 128px; height: 128px;
+  padding-top: 14px; box-sizing: border-box; letter-spacing: -0.01em; white-space: nowrap; }
+#year.hero { color: #ffb4a2; }
+#words { flex: 1; min-width: 0; }
+#caption { font-weight: 600; font-size: 42px; line-height: 1.1; text-wrap: balance; }
+#caption.small { font-size: 33px; line-height: 1.12; }
+/* the record: its words run three lines, so the row reads from its top */
+#row.hero { align-items: flex-start; }
+#row.hero #words { padding-top: 6px; }
 #pill {
-  display: inline-block; margin-top: 2px; padding: 4px 18px 6px; border-radius: 8px; font-weight: 700; font-size: 34px;
+  display: inline-block; margin-top: 10px; padding: 3px 14px 5px; border-radius: 7px; font-weight: 700; font-size: 26px;
   letter-spacing: 0.06em; text-transform: uppercase; color: #182b49; background: var(--cc-yellow, #ffcd00); opacity: 0;
 }
-#caption  { margin-top: 18px; font-weight: 600; font-size: 54px; line-height: 1.1; text-wrap: balance; }
-#caption2 { margin-top: 14px; font-weight: 400; font-size: 42px; line-height: 1.14; color: var(--muted, #9fb0c8); text-wrap: balance; }
+#pill.gone { display: none; }
 
-/* the legends: one fixed scale each, for the whole film */
-#legends { position: absolute; left: 64px; top: 662px; width: 600px; height: 160px; }
-.legend { position: absolute; left: 0; top: 0; width: 600px; opacity: 0; }
-.legend-title { font-weight: 600; font-size: 40px; margin-bottom: 8px; }
-.legend-bar { height: 36px; border-radius: 4px; box-shadow: 0 0 0 1.5px rgba(233, 237, 243, 0.4); }
-.legend-ticks { position: relative; height: 54px; font-size: 42px; font-weight: 600; color: var(--fg, #e9edf3); }
-.legend-ticks span { position: absolute; top: 4px; transform: translateX(-50%); white-space: nowrap; }
+/* the legends: one fixed scale each, for the whole film; in the open ocean north-west of the pattern, on a backdrop of
+   their own (under the last beat's camera that corner is the sea surface behind the section) */
+#legends { position: absolute; left: 26px; top: 236px; width: 330px; height: 112px; }
+.legend { position: absolute; left: 0; top: 0; width: 262px; padding: 8px 54px 2px 14px; border-radius: 10px; background: rgba(15, 26, 46, 0.78); opacity: 0; }
+.legend-title { font-weight: 600; font-size: 28px; margin-bottom: 6px; white-space: nowrap; }
+.legend-bar { height: 24px; border-radius: 4px; box-shadow: 0 0 0 1.5px rgba(233, 237, 243, 0.4); }
+.legend-ticks { position: relative; height: 38px; font-size: 26px; font-weight: 600; color: var(--fg, #e9edf3); }
+.legend-ticks span { position: absolute; top: 2px; transform: translateX(-50%); white-space: nowrap; }
 .legend-ticks span.unit { transform: none; color: var(--muted, #9fb0c8); font-weight: 400; }
+/* the second unit's row (the CF cut): smaller, quieter, under the first */
+.legend-ticks.alt { height: 31px; margin-top: -6px; font-size: 24px; font-weight: 600; color: var(--muted, #9fb0c8); }
 
-/* beat 7: the number, and what it is */
-#callout { position: absolute; left: 64px; top: 352px; width: 640px; opacity: 0; }
-#callout-big { font-family: var(--display, "Teko", sans-serif); font-weight: 600; font-size: 176px; line-height: 0.9; color: #ffb4a2; white-space: nowrap; }
-#callout-text { margin-top: -6px; font-weight: 600; font-size: 41px; line-height: 1.12; text-wrap: balance; }
+/* the last beat: the tag on the warm layer and its leader */
 #leader { position: absolute; left: 0; top: 0; pointer-events: none; }
 #tag {
-  position: absolute; left: 0; top: 0; opacity: 0; font-weight: 700; font-size: 48px; line-height: 1.08; white-space: nowrap;
-  padding: 8px 18px 10px; border-radius: 10px; background: rgba(15, 26, 46, 0.82); box-shadow: 0 0 0 2px rgba(233, 237, 243, 0.55);
+  position: absolute; left: 0; top: 0; opacity: 0; font-weight: 700; font-size: 36px; line-height: 1.08; white-space: nowrap;
+  padding: 6px 14px 8px; border-radius: 9px; background: rgba(15, 26, 46, 0.84); box-shadow: 0 0 0 2px rgba(233, 237, 243, 0.55);
 }
 
 /* the time strip: which cruise, out of all cruises */
-#strip { position: absolute; left: 0; top: 836px; }
+#strip { position: absolute; left: 0; top: 818px; }
 #strip text { font-family: var(--sans, "Source Sans 3", sans-serif); fill: var(--muted, #9fb0c8); }
-#credit { position: absolute; right: 40px; top: 30px; text-align: right; font-size: 32px; line-height: 1.2; color: var(--muted, #9fb0c8); }
-#credit b { color: var(--fg, #e9edf3); font-weight: 700; font-size: 40px; }
+#credit { position: absolute; right: 36px; bottom: 14px; text-align: right; font-size: 22px; line-height: 1.2; color: var(--muted, #9fb0c8); white-space: nowrap; }
+#credit b { color: var(--fg, #e9edf3); font-weight: 700; }
 
-#loading { position: absolute; left: 64px; top: 500px; font-size: 40px; color: var(--muted, #9fb0c8); }
+#loading { position: absolute; left: 44px; top: 500px; font-size: 40px; color: var(--muted, #9fb0c8); }
