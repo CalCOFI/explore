@@ -7,9 +7,23 @@ go to the press is not settled.
 The public write-up of the same analysis is the notebook `2026-11_temperature-anomaly.qmd` (draft PR
 <https://github.com/CalCOFI/workflows/pull/263>): press summary, figures, every check with its code, and every data
 source by URL. This file is the internal companion: the same numbers, plus the meeting's figures and the storyboard
-readings for the video. Three things were added to the notebook after this file was written and are only
-there: the density surfaces on every station of the cruise, why a one-metre bin mean reads 0.1 to 0.2 °C cooler
-than the thinned series in stratified water, and the literature on earlier events.
+readings for the video.
+
+**Added in the notebook after this file was written, and only there** (live at
+<https://calcofi.io/workflows/2026-11_temperature-anomaly.html> once CalCOFI/workflows#265 is merged):
+
+- the scope of "the record": the release's normal exists only at today's stations, and a second yardstick that
+  reaches every station ever occupied (each value against the mean of the other cruises at its station, month and
+  depth, the lines off Baja California included) also puts fall 2026 first, +12.0 °C against +8.8 °C;
+- how large earlier events were in the literature, with baselines; the largest published value is 8 to 8.7 °C off
+  Baja California in October 1997 (IMECOCAL, not in the CalCOFI database);
+- salinity across events: fall 2026 is the saltiest cruise on record in the inner Bight (+0.65 through the upper
+  50 m against +0.38 in February 1998); November 2015 was not salty at all;
+- the density surfaces on every station of the cruise, and why a one-metre bin mean reads 0.1 to 0.2 °C cooler than
+  the thinned series in stratified water;
+- the `obs_ctd_full` export defect of v2026.11.05 and v2026.11.09, which changes no result here.
+
+The video is at <https://www.youtube.com/watch?v=5ReTP7iafkc> (posted by Ben, 13 November 2026).
 
 ## The answer
 

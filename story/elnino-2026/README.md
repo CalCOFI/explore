@@ -1,5 +1,9 @@
 # The 2026 warm water off Southern California, in 30 seconds
 
+The rendered film: <https://www.youtube.com/watch?v=5ReTP7iafkc>, and under the summary of
+<https://calcofi.io/workflows/2026-11_temperature-anomaly.html>, whose Code section lists these files at the commit
+the film was rendered from.
+
 A story page of its own in this repo: one fixed 1920 × 1080 stage driven by **one clock** (`t`, 0 to 30 s), so the
 same page plays live in a browser and is stepped frame by frame into a video. It is not part of the Explorer: it has
 its own Vite root and its own `tsconfig.json` here, `npm run build` and `npm test` never see it, and nothing in `src/`
