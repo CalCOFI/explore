@@ -7,7 +7,9 @@ go to the press is not settled.
 The public write-up of the same analysis is the notebook `2026-11_temperature-anomaly.qmd` (draft PR
 <https://github.com/CalCOFI/workflows/pull/263>): press summary, figures, every check with its code, and every data
 source by URL. This file is the internal companion: the same numbers, plus the meeting's figures and the storyboard
-readings for the video.
+readings for the video. Three things were added to the notebook after this file was written and are only
+there: the density surfaces on every station of the cruise, why a one-metre bin mean reads 0.1 to 0.2 °C cooler
+than the thinned series in stratified water, and the literature on earlier events.
 
 ## The answer
 
@@ -266,6 +268,15 @@ between 20 and 70 m. Below 130 m, July 1998 and earlier cruises were warmer.
   2025 +1.6, 2026 +4.3 °C (the last on 35 stations of the southern lines). The video shows that as it is.
 
 {{table:t11_fall_cruises|year,cruise_key,ship_name,date_min,date_max,cruise_month,ctd_stations,in_baseline,data_stage}}
+
+- **The film's year bars compare the same stations every year.** Each bar is the cruise's mean surface departure
+  over the stations the fall 2026 cruise occupied (`anom_2026_stations_C` below, with how many of the 35 the cruise
+  had), not over the cruise's own grid (`anom_own_C`): 2015 reads +3.2 °C on those stations against +2.7 °C over
+  its whole grid. The station count the film gives under a year is `stations_surface`, the stations with a 0–10 m
+  CTD value on that cruise (the dots drawn), which can be one or two fewer than the stations the cruise occupied
+  with a CTD (`ctd_stations` above) and is more than the stations that have a normal (`with_normal`).
+
+{{table:t12_november_surface|year,cruise_key,ship_name,stations_surface,with_normal,anom_own_C,of_2026_stations,anom_2026_stations_C}}
 
 ## 7. How this was computed
 

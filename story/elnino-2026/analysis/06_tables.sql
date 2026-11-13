@@ -142,3 +142,16 @@ COPY (
   WHERE x.dataset_key = 'calcofi_ctd-cast' AND c.month_median IN (10, 11)
   GROUP BY ALL ORDER BY c.cruise_key
 ) TO '__OUT__/t11_fall_cruises.csv' (HEADER);
+
+-- T12. every November cruise at the surface: over its own stations, and over the stations the fall 2026 cruise
+-- occupied (the bars of the film's time strip), with the station counts the film shows
+COPY (
+  WITH own AS (
+    SELECT cruise_key, count(*) AS stations_surface, count(anom) AS with_normal, round(avg(anom), 2) AS anom_own_C
+    FROM cell WHERE dataset_key = 'calcofi_ctd-cast' AND cruise_month = 11 AND depth_bin = 0 GROUP BY cruise_key)
+  SELECT r.year, o.cruise_key, r.ship_name, o.stations_surface, o.with_normal, o.anom_own_C,
+         l.n_sta AS of_2026_stations, round(l.anom, 2) AS anom_2026_stations_C
+  FROM own o JOIN cruise_ref r USING (cruise_key)
+  LEFT JOIN cruise_layer l ON l.cruise_key = o.cruise_key AND l.dataset_key = 'calcofi_ctd-cast' AND l.layer = 'surface (0-10 m)'
+  ORDER BY r.year
+) TO '__OUT__/t12_november_surface.csv' (HEADER);
