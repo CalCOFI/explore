@@ -1,8 +1,10 @@
 # The 2026 warm water off Southern California, in 30 seconds
 
-The rendered film: <https://www.youtube.com/watch?v=5ReTP7iafkc>, and under the summary of
-<https://calcofi.io/workflows/2026-11_temperature-anomaly.html>, whose Code section lists these files at the commit
-the film was rendered from.
+The rendered film is under the summary of <https://calcofi.io/workflows/2026-11_temperature-anomaly.html>, whose
+Code section lists these files at the commit the film was rendered from. It was first rendered from release
+v2026.11.09 (that render is at <https://www.youtube.com/watch?v=5ReTP7iafkc>) and again from v2026.11.12 on
+2026-11-13, when the page's data came out byte for byte the same: only `page/data/release.json`, and so the credit
+line, changed.
 
 A story page of its own in this repo: one fixed 1920 × 1080 stage driven by **one clock** (`t`, 0 to 30 s), so the
 same page plays live in a browser and is stepped frame by frame into a video. It is not part of the Explorer: it has
@@ -42,7 +44,7 @@ years are pale, 2014–15 pink, 2026 red, and the darkest red appears only under
 | 24 – 30 | The camera tilts. The map splits along line 93.3: the half behind stays as the sea surface, the half in front leaves, and the section hangs below it: the difference from normal, surface to 200 m, all seven stations, vertical exaggeration × 300. | "Line 93.3, off San Diego" · "2026" · "+12.8 °C" · "at 40–50 m depth: the largest departure in CalCOFI's record, 1949–2026" · "25 °C water down to 55 m" |
 
 Throughout: a *preliminary data* pill on any cruise whose CTD casts are not `final` in the release (2021 onward); the
-credit "CalCOFI · calcofi.io · CTD casts · release v2026.11.09".
+credit "CalCOFI · calcofi.io · CTD casts · release v2026.11.12".
 
 **The strip** along the bottom says which cruise, out of all of them. Every November cruise is a dot on the years'
 line (the other months' CTD cruises a faint texture behind it); the one on screen is yellow with its year under it;
@@ -64,7 +66,7 @@ No number is typed in `page/main.ts`. `build_data.sql` writes them, and stops th
 | the year bars and "+4.3 °C" over the current one | `cruises.json` `mean_anom_fp` | the mean 0–10 m departure over the 2026 cruise's stations |
 | "9 cruises", "75 stations", the ship | `cruises.json` (`n_stations`, `ship`) | counted from the release: the baseline's November cruises; the stations of a cruise that have a 0–10 m CTD value (the dots on screen, which can be fewer than the cruise occupied) |
 | the empty slots, "no November cruise" | derived in the page | the years from 2014 with no November cruise in `strip.json` |
-| "release v2026.11.09" | `release.json` | the release the analysis database was built from |
+| "release v2026.11.12" | `release.json` | the release the analysis database was built from |
 
 That the largest departure of the cruise is also the largest "in CalCOFI's record" is the finding of
 `analysis/` (out/findings.md); the page only repeats it.
