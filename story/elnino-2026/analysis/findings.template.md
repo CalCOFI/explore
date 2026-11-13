@@ -78,6 +78,13 @@ The water is also a different water mass: salinity in the layer is **34.43–34.
 a November normal of 33.34–33.50 (0.94 to 1.10 above, where the baseline's standard deviation is about 0.1).
 This is not the local surface layer warmed in place.
 
+On surfaces of equal density (the 1 m down casts at station 93.3 30.0, against the six November baseline casts):
+the top 80 m is lighter than the lightest baseline sea surface, so it has no counterpart in the normal column;
+beneath it the surfaces σθ 24.5 to 26.5 lie 79 to 113 m deeper than normal, and on them the water is 0.3 to 1.0 °C
+warmer and 0.05 to 0.29 saltier. At 150 m the +2.9 °C departure is +2.0 °C of displacement and +0.9 °C of changed
+water. So the depressed pycnocline accounts for most of the departure below about 80 m, and the layer above it is
+different water (notebook section "Displaced water, or different water?").
+
 The history of the record cell itself (station 93.3 30.0, 40–50 m, every cruise whose month is November):
 
 {{table:t2_record_cell_history}}
@@ -94,6 +101,7 @@ Across all months, 265 cruises since 1950 have sampled that cell. The warmest be
 | The two temperature sensors | Never differ by more than 0.006 °C through the warm layer at stations 28 and 30. Over every cast, top 100 m: mean difference 0.0025 °C. |
 | Bottle salinity (salinometer, on water samples) | Matches the CTD's salinity within 0.002 at every sampled depth in the warm layer at stations 28 and 30 (up cast). CTD salinity is computed from conductivity *and* temperature: a temperature error of 0.1 °C would shift it by 0.08 and break that agreement. |
 | Bottle oxygen (Winkler titration) | 4.8–4.9 mL/L through the layer, saturation for 25 °C water (4.75 mL/L); water at the normal temperature of those depths would hold about 5.7. |
+| Scripps Pier (SCCOOS automated shore station, daily means 2013–2026) | 24.14 °C on 5 November, where the highest for that calendar day in 13 earlier years was 19.85 °C; salinity 33.60 six days before the cruise and 34.24 by 5 November. 13 of the 20 saltiest days in that record are from 31 October 2026 onward. The table is `tables/pier_daily.csv`. |
 | Buoys | See below: the buoy nearest each of seven casts (2–13 km away) reads within 0.6 °C of the CTD, four of them within 0.2 °C, including the cool offshore side (19.1 °C at San Nicolas Island against the CTD's 19.08 °C). |
 | Satellite analyses | See below. |
 | Argo floats | Five floats profiled around the outer grid during the cruise: 18.5–21.0 °C surface layers with salinity near 33.5, like the cruise's seaward stations. None came within 30 km of a station or sampled the inner Bight, so the subsurface of the warm pool rests on the CTD's own redundancy (sensors, two passes, salinity, oxygen). The profiles are `tables/argo_profiles.csv`. |
@@ -231,6 +239,9 @@ between 20 and 70 m. Below 130 m, July 1998 and earlier cruises were warmer.
   exist (above).
 - **Preliminary.** The cast files are 1 m-binned field processing, before final calibration. Two sensors that
   agree within 0.006 °C, and bottle salinities that agree within 0.002, leave little for calibration to change.
+- **The normal holds up from the full profiles.** Recomputed from the six baseline cruises' one-metre casts
+  (not the thinned series), the normal at the record cell is 12.18 °C against the release's 12.19 °C. Under eight
+  definitions of normal the departure there stays between 11.4 and 13.0 °C.
 - **A flaw found on the way, not part of the anomaly.** The CTD salinity normal at station 93.3 30.0 is inflated
   at 90–120 m in November (34.06 where the bottles give 33.72) by one unflagged cast of cruise 2007-11-32NM with
   salinities up to 35.35. It does not touch temperature or the warm layer above 60 m. Similar unflagged
