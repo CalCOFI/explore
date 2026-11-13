@@ -137,9 +137,9 @@ anomaly against 1971–2000; JPL MUR v4.1, anomaly against its 2003–2014 clima
 
 OISST follows the CTD across the grid (correlation 0.96 over the 36 casts) and is smoother than a point
 measurement inside a warm pool with sharp edges. It puts the surface off San Diego about 5.5 °C above its own
-normal where the CTD reads +6.6 to +6.9 °C against the CalCOFI one. An empty MUR cell is a request NOAA's ERDDAP
-server answered with 503 on 2026-11-13; two MUR values read by hand earlier that night at station 93.3 28.0 were
-23.37 °C and +4.8 °C.
+normal where the CTD reads +6.6 to +6.9 °C against the CalCOFI one. MUR, served for all 36 casts after several
+hours of 503 answers from NOAA's ERDDAP server, follows the CTD as closely (correlation 0.97) and reads 23.37 °C
+and +4.8 °C at station 93.3 28.0.
 
 **Conclusion: not an artifact.** The baseline is the right one (same station, same depth bin, the cruise's own
 month), the sensors agree with each other and with the bottles, and four kinds of independent surface data match.
