@@ -23,6 +23,10 @@ readings for the video.
   the thinned series in stratified water;
 - the `obs_ctd_full` export defect of v2026.11.05 and v2026.11.09, which changes no result here.
 
+This file was first built from release v2026.11.09 (kept in `out/v2026.11.09/`) and rebuilt from v2026.11.12 on
+2026-11-13. Between the two builds no departure in any table changed; nine layer temperatures of 1950s and 1980s
+bottle cruises in `t4_layer_all_cruises.csv` moved by one in the third decimal, from the order of summation.
+
 The video is at <https://www.youtube.com/watch?v=5ReTP7iafkc> (posted by Ben, 13 November 2026).
 
 ## The answer
@@ -335,7 +339,7 @@ LEFT JOIN climatology c
   AND c.month       = o.cruise_month;
 ```
 
-Data: CalCOFI (2026). CalCOFI Integrated Database, release {{release}}. <https://doi.org/10.5281/zenodo.24083894>.
+Data: CalCOFI (2026). CalCOFI Integrated Database, release {{release}}. <https://doi.org/10.5281/zenodo.24187468>.
 Buoys: NOAA National Data Buoy Center and the Coastal Data Information Program (Scripps). Satellite: NOAA OISST
 v2.1; JPL MUR v4.1, both through NOAA CoastWatch West Coast ERDDAP. Argo: the International Argo Program, through
 the Ifremer ERDDAP.
