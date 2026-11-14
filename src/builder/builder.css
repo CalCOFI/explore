@@ -35,7 +35,7 @@
 .tb .chead .r a { color: var(--accent); font-weight: 600; margin-left: 14px; }
 
 /* 1 · columns */
-.tb .lists { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; }
+.tb .lists { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .tb .list { display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--border); }
 .tb .list:first-child { border-left: 0; }
 .tb .lh { display: flex; align-items: center; gap: 8px; padding: 9px 12px 7px; }
@@ -113,3 +113,10 @@ html, body { margin: 0; }
 /* a group is a dataset: its short name, its category under it */
 .tb .gname { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
 .tb .gname small { font-weight: 400; font-size: 11.5px; color: var(--muted); }
+/* Group by: Category (default; each row names its dataset) or Dataset */
+.tb .chead .gb { margin-left: 18px; display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.tb .chead .gb select { height: 26px; padding: 0 6px; font-size: 13px; }
+/* one line per row: the name whole, the scientific name and units give way first, the dataset stays readable */
+.tb label.it { white-space: nowrap; min-width: 0; }
+.tb label.it i { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tb label.it em { flex: 0 0 auto; max-width: 55%; overflow: hidden; text-overflow: ellipsis; padding-left: 8px; }

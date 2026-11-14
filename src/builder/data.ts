@@ -10,7 +10,7 @@ import { UNIFIED } from "../variables";
 
 // one pickable column: a species or a water measurement IN ONE DATASET (Betty 2026-11-13: the same species or measurement
 // comes from several datasets — ichthyo and ZooScan, bottle and CTD — so each is listed, and picked, under its dataset)
-export interface ListItem { realm: "bio" | "env"; id: string; key: string; dataset: string; label: string; sub: string | null; members: string[]; units: string | null; stages: string[]; n: number }
+export interface ListItem { realm: "bio" | "env"; id: string; key: string; dataset: string; category: string; label: string; sub: string | null; members: string[]; units: string | null; stages: string[]; n: number }
 export interface Group { dataset: string; category: string; realm: "bio" | "env"; items: ListItem[] }
 export interface Boot { version: string; catalog: Catalog; groups: Group[]; gridKeys: Map<string, string[]>; allKeys: string[]; years: [number, number] }
 
@@ -41,7 +41,7 @@ export async function boot(release: string | null): Promise<Boot> {
     if (v.realm !== "env" || !parts.has(v.measurement_type)) continue;
     const key = v.variable || v.measurement_type, id = `env:${v.dataset_key}:${key}`;
     const unified = UNIFIED.find((u) => u.key === key);
-    const it: ListItem = byKey.get(id) ?? { realm: "env" as const, id, key, dataset: v.dataset_key, label: unified?.label.replace(/\s*\(.*\)$/, "") ?? fixDisplayName(v.measurement_type), sub: null,
+    const it: ListItem = byKey.get(id) ?? { realm: "env" as const, id, key, dataset: v.dataset_key, category: "", label: unified?.label.replace(/\s*\(.*\)$/, "") ?? fixDisplayName(v.measurement_type), sub: null,
       members: [], units: unified?.label.match(/\(([^)]*)\)$/)?.[1] ?? null, stages: [], n: 0 };
     if (!it.members.includes(v.measurement_type)) it.members.push(v.measurement_type);
     it.n += v.n_obs ?? 0;
@@ -51,7 +51,7 @@ export async function boot(release: string | null): Promise<Boot> {
   // every species, once per dataset that holds it
   const bio: ListItem[] = (cov.taxa ?? []).flatMap((t: any) => {
     const common = titleCaseCommonName(t.common_name);
-    return (t.datasets ?? []).map((d: any): ListItem => ({ realm: "bio", id: `bio:${d.dataset_key}:${t.taxon_key}`, key: t.taxon_key, dataset: d.dataset_key,
+    return (t.datasets ?? []).map((d: any): ListItem => ({ realm: "bio", id: `bio:${d.dataset_key}:${t.taxon_key}`, key: t.taxon_key, dataset: d.dataset_key, category: "",
       label: common ?? t.scientific_name ?? t.taxon_key, sub: common ? t.scientific_name : null, members: [], units: null, stages: t.life_stages ?? [], n: d.n_obs ?? 0 }));
   });
   const order = (g: string) => { const i = (CATEGORY_ORDER as readonly string[]).indexOf(g); return i === -1 ? 99 : i; };
@@ -59,7 +59,7 @@ export async function boot(release: string | null): Promise<Boot> {
   const groupsOf = (items: ListItem[], realm: "bio" | "env"): Group[] => {
     const m = new Map<string, ListItem[]>();
     for (const it of items) (m.get(it.dataset) ?? m.set(it.dataset, []).get(it.dataset)!).push(it);
-    return [...m.entries()].map(([dataset, its]) => ({ dataset, category: catOf(dataset, realm), realm, items: its.sort((a, b) => b.n - a.n) }))
+    return [...m.entries()].map(([dataset, its]) => { const category = catOf(dataset, realm); its.forEach((it) => { it.category = category; }); return { dataset, category, realm, items: its.sort((a, b) => b.n - a.n) }; })
       .sort((a, b) => order(a.category) - order(b.category) || a.dataset.localeCompare(b.dataset));
   };
   const ys: number[] = (cov.datasets ?? []).flatMap((d: any) => [Number(d.year_min), Number(d.year_max)]).filter((y: number) => Number.isFinite(y));

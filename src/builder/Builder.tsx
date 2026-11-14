@@ -38,6 +38,8 @@ export function Builder() {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState<{ bio: string; env: string }>({ bio: "", env: "" });
+  // Betty 2026-11-13 (option A): grouped by category, each row naming its dataset; "Group by: Dataset" switches to one group per dataset
+  const [groupBy, setGroupBy] = useState<"category" | "dataset">("category");
   // 2 · rows
   const [lens, setLens] = useState<Lens>("station");
   const [stations, setStations] = useState<"std" | "std,ext" | "all">("std");
@@ -81,6 +83,21 @@ export function Builder() {
 
   const items = useMemo(() => new Map((b?.groups ?? []).flatMap((g) => g.items).map((it) => [it.id, it])), [b]);
   const dsName = (k: string) => ds.get(k)?.name ?? k;
+  const catOf = (it: ListItem) => ds.get(it.dataset)?.category ?? it.category;
+  type View = { key: string; name: string; sub: string | null; icon: string; items: ListItem[] };
+  const views = (realm: "bio" | "env"): View[] => {
+    const gs = (b?.groups ?? []).filter((g) => g.realm === realm);
+    if (groupBy === "dataset") return gs.map((g) => ({ key: g.dataset, name: dsName(g.dataset), sub: ds.get(g.dataset)?.category ?? g.category, icon: ds.get(g.dataset)?.category ?? g.category, items: g.items }));
+    // by category: the same species or measurement from several datasets sits together, each row saying which dataset
+    const m = new Map<string, ListItem[]>();
+    for (const g of gs) for (const it of g.items) { const c = catOf(it); (m.get(c) ?? m.set(c, []).get(c)!).push(it); }
+    const order = [...new Set(gs.map((g) => ds.get(g.dataset)?.category ?? g.category))];
+    return [...m.entries()].sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]))
+      .map(([c, its]) => {
+        const tot = new Map<string, number>(); its.forEach((it) => tot.set(it.label, (tot.get(it.label) ?? 0) + it.n));
+        return { key: c, name: c, sub: null, icon: c, items: [...its].sort((a, b) => (tot.get(b.label)! - tot.get(a.label)!) || a.label.localeCompare(b.label) || dsName(a.dataset).localeCompare(dsName(b.dataset))) };
+      });
+  };
   const picks: ListItem[] = [...picked].map((k) => items.get(k)!).filter(Boolean);
   const nBio = picks.filter((p) => p.realm === "bio").length, nEnv = picks.length - nBio;
 
@@ -162,10 +179,11 @@ export function Builder() {
           {/* 1 · COLUMNS */}
           <section className="card cols">
             <div className="chead"><span className="num">1</span><b>Choose what to include</b>
+              <label className="gb">Group by <select value={groupBy} onChange={(e) => setGroupBy(e.target.value as any)}><option value="category">Category</option><option value="dataset">Dataset</option></select></label>
               <span className="r">{picks.length} selected{picks.length > 0 && <a href="#" onClick={(e) => { e.preventDefault(); setPicked(new Set()); }}>Clear</a>}</span></div>
             <div className="lists">
               {(["bio", "env"] as const).map((realm) => {
-                const gs = (b?.groups ?? []).filter((g) => g.realm === realm);
+                const gs = views(realm);
                 const qy = search[realm].trim().toLowerCase();
                 const all = gs.flatMap((g) => g.items.map((it) => it.id));
                 const on = all.filter((k) => picked.has(k)).length;
@@ -177,22 +195,21 @@ export function Builder() {
                     <div className="scroll">
                       {!b && <div className="muted pad">Loading the list…</div>}
                       {gs.map((g) => {
-                        const gname = dsName(g.dataset);
-                        const its = g.items.filter((it) => !qy || `${it.label} ${it.sub ?? ""} ${gname}`.toLowerCase().includes(qy));
+                        const its = g.items.filter((it) => !qy || `${it.label} ${it.sub ?? ""} ${dsName(it.dataset)} ${g.name}`.toLowerCase().includes(qy));
                         if (!its.length) return null;
                         const ks = its.map((it) => it.id), n = ks.filter((k) => picked.has(k)).length;
-                        const isOpen = open.has(`${realm}:${g.dataset}`) || !!qy;
+                        const isOpen = open.has(`${realm}:${groupBy}:${g.key}`) || !!qy;
                         return (
-                          <div className={`grp${isOpen ? " open" : ""}`} key={g.dataset}>
+                          <div className={`grp${isOpen ? " open" : ""}`} key={g.key}>
                             <div className="gh">
-                              <input type="checkbox" aria-label={`Select all of ${gname}`} checked={n === ks.length} ref={(el) => { if (el) el.indeterminate = n > 0 && n < ks.length; }} onChange={(e) => setMany(ks, e.target.checked)} />
-                              <button type="button" className="gt" onClick={() => setOpen((s) => { const x = new Set(s), k = `${realm}:${g.dataset}`; x.has(k) ? x.delete(k) : x.add(k); return x; })}>
-                                <Icon name={CATEGORY_ICON[ds.get(g.dataset)?.category ?? g.category] ?? "cat-other"} /><span className="gname" title={`${g.category} · ${g.dataset}`}>{gname}<small>{ds.get(g.dataset)?.category ?? g.category}</small></span><span className="n">{n ? `${n} selected` : its.length}</span><Icon name="ui-down" className="chev" />
+                              <input type="checkbox" aria-label={`Select all of ${g.name}`} checked={n === ks.length} ref={(el) => { if (el) el.indeterminate = n > 0 && n < ks.length; }} onChange={(e) => setMany(ks, e.target.checked)} />
+                              <button type="button" className="gt" onClick={() => setOpen((s) => { const x = new Set(s), k = `${realm}:${groupBy}:${g.key}`; x.has(k) ? x.delete(k) : x.add(k); return x; })}>
+                                <Icon name={CATEGORY_ICON[g.icon] ?? "cat-other"} /><span className="gname">{g.name}{g.sub && <small>{g.sub}</small>}</span><span className="n">{n ? `${n} selected` : its.length}</span><Icon name="ui-down" className="chev" />
                               </button>
                             </div>
                             {isOpen && <div className="its">{its.slice(0, qy ? 200 : 400).map((it) => (
                               <label className="it" key={it.id}><input type="checkbox" checked={picked.has(it.id)} onChange={() => toggle(it.id)} />
-                                {it.label}{it.sub && <i>{it.sub}</i>}{it.units && <em>{it.units}</em>}</label>))}</div>}
+                                {it.label}{it.sub && <i>{it.sub}</i>}{it.units && <i>{it.units}</i>}{groupBy === "category" && <em title={it.dataset}>{dsName(it.dataset)}</em>}</label>))}</div>}
                           </div>
                         );
                       })}
