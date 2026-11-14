@@ -94,3 +94,19 @@ describe("other places and times", () => {
     expect(Object.keys(r[0])).toEqual(["northern_anchovy_larva_per_10m2", "northern_anchovy_egg_per_10m2", T]);
   });
 });
+
+describe("a pick is one dataset's species or measurement", () => {
+  it("the same species from one dataset only, named for it; another dataset's rows are left out", () => {
+    db.exec(`CREATE OR REPLACE TABLE obs AS SELECT * FROM obs UNION ALL SELECT 9, 'zooscan', root_id, grid_key, site_key, cruise_key, latitude, longitude, datetime, year, quarter,
+      depth_min_m, depth_max_m, depth_bin, taxon_key, life_stage, measurement_type, units, value, measurement_qual, qual_ok, tow_type, std_haul_factor, prop_sorted,
+      volume_sampled_m3, 100.0, density_per_1000m3, effort_class, hex7 FROM obs WHERE obs_id = 1`);
+    const spec: Spec = { ...BASE, place: "all", time: "all", picks: [
+      { realm: "bio", taxon: ANCHOVY, label: "Northern Anchovy", dataset: "ichthyo", tag: "SWFSC Ichthyo" },
+      { realm: "bio", taxon: ANCHOVY, label: "Northern Anchovy", dataset: "zooscan", tag: "ZooScan" }] };
+    const r = run(spec)[0];
+    expect(Object.keys(r)).toEqual(["northern_anchovy_larva_per_10m2_swfsc_ichthyo", "northern_anchovy_larva_per_10m2_zooscan"]);
+    expect(r.northern_anchovy_larva_per_10m2_swfsc_ichthyo).toBeCloseTo(7.81 / 3, 9);
+    expect(r.northern_anchovy_larva_per_10m2_zooscan).toBe(100);
+  });
+});
+

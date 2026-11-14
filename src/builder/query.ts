@@ -19,8 +19,10 @@ export type DepthBy = "avg" | "10";
 export type Stat = "avg" | "median" | "min" | "max" | "sum" | "count" | "stddev";
 export type Den = "density_per_10m2" | "density_per_1000m3" | "value";
 
-export interface BioPick { realm: "bio"; taxon: string; label: string }
-export interface EnvPick { realm: "env"; key: string; label: string; members: string[]; units?: string | null }
+// a pick is one species or measurement FROM ONE DATASET (dataset: its key; tag: the short name its column carries).
+// dataset null = every dataset that holds it, pooled (the tests' and the old behaviour)
+export interface BioPick { realm: "bio"; taxon: string; label: string; dataset?: string | null; tag?: string | null }
+export interface EnvPick { realm: "env"; key: string; label: string; members: string[]; units?: string | null; dataset?: string | null; tag?: string | null }
 export type Item = BioPick | EnvPick;
 
 export interface Spec {
@@ -68,11 +70,12 @@ export const slug = (s: string) => s.normalize("NFKD").replace(/[̀-ͯ]/g, "").t
 
 /** the output columns of one pick: one per life stage for a species when several stages are kept */
 export function pickColumns(p: Item, spec: Spec): { col: string; stage: string | null }[] {
-  if (p.realm === "env") return [{ col: slug(p.label), stage: null }];
-  const base = `${slug(p.label)}_${DEN_SUFFIX[spec.den]}`;
+  const ds = p.tag ? `_${slug(p.tag)}` : "";
+  if (p.realm === "env") return [{ col: `${slug(p.label)}${ds}`, stage: null }];
   const st = spec.stages;
-  if (!st || st.length <= 1) return [{ col: st?.length === 1 ? `${slug(p.label)}_${slug(st[0])}_${DEN_SUFFIX[spec.den]}` : base, stage: null }];
-  return st.map((s) => ({ col: `${slug(p.label)}_${slug(s)}_${DEN_SUFFIX[spec.den]}`, stage: s }));
+  const name = (s: string | null) => `${slug(p.label)}${s ? `_${slug(s)}` : ""}_${DEN_SUFFIX[spec.den]}${ds}`;
+  if (!st || st.length <= 1) return [{ col: name(st?.length === 1 ? st[0] : null), stage: null }];
+  return st.map((s) => ({ col: name(s), stage: s }));
 }
 
 /** the key columns of a row, as they read in the long table (select) and as the pivot groups and orders by them (names) */
@@ -99,8 +102,9 @@ export function keys(spec: Spec): { select: string[]; names: string[] } {
 }
 
 /** the WHERE of one pick's slice: the same rules as sql/_filters.sql, with several life stages allowed */
-export function pickWhere(spec: Spec, realm: "bio" | "env", stage: string | null): string {
+export function pickWhere(spec: Spec, realm: "bio" | "env", stage: string | null, dataset: string | null = null): string {
   const w: string[] = [];
+  if (dataset) w.push(`dataset_key = ${lit(dataset)}`);
   if (spec.qualOnly) w.push("qual_ok");
   w.push(`year BETWEEN ${spec.years[0]} AND ${spec.years[1]}`);
   if (spec.seasons?.length && spec.seasons.length < 4) w.push(`quarter IN (${spec.seasons.join(", ")})`);
@@ -135,7 +139,7 @@ export function longSql(spec: Spec, ctx: Ctx): string {
     : "";
   const parts = spec.picks.flatMap((p, i) => pickColumns(p, spec).map(({ col, stage }) => {
     const v = p.realm === "bio" ? spec.den : "value";
-    return `SELECT ${[...k.select, `${lit(col)} AS col`, `${v} AS v`].join(", ")}\n  FROM bld_${i}${join}\n  WHERE ${pickWhere(spec, p.realm, stage)}`;
+    return `SELECT ${[...k.select, `${lit(col)} AS col`, `${v} AS v`].join(", ")}\n  FROM bld_${i}${join}\n  WHERE ${pickWhere(spec, p.realm, stage, p.dataset ?? null)}`;
   }));
   return `CREATE OR REPLACE TABLE bld_long AS\n${parts.join("\nUNION ALL\n")}`;
 }

@@ -8,7 +8,7 @@ import { areaSql, type Area } from "../area";
 import { Icon, type IconName } from "../icons";
 import { CATEGORY_ICON } from "../categories";
 import { LOGO } from "../brand";
-import { boot, ensure, envReg, envSrc, probe, regions, REG, urlOf, type Boot, type ListItem } from "./data";
+import { boot, datasetInfo, ensure, envReg, envSrc, probe, regions, REG, urlOf, type Boot, type ListItem } from "./data";
 import { builderSql, pickColumns, sentence, STAT_WORD, type Den, type DepthBy, type Item, type Lens, type Place, type Spec, type Stat, type TimeBy } from "./query";
 
 type Preset = "sample" | "year" | "season" | "month" | "custom";
@@ -63,9 +63,13 @@ export function Builder() {
   const [busy, setBusy] = useState<string | null>(null);
   const [result, setResult] = useState<{ key: string; rows: Row[]; sql: string[] } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [ds, setDs] = useState<Map<string, { name: string; category: string | null }>>(new Map());
 
   useEffect(() => {
-    boot(params.get("release")).then((x) => { setB(x); setYears([Math.max(x.years[0], 1949), x.years[1]]); })
+    boot(params.get("release")).then((x) => {
+      setB(x); setYears([Math.max(x.years[0], 1949), x.years[1]]);
+      datasetInfo(x.catalog).then(setDs).catch((e) => console.warn("dataset names:", e.message)); // names arrive after the list; keys until then
+    })
       .catch((e) => { console.error(e); setErr("Could not load the CalCOFI release. Reload the page to try again."); });
   }, []);
   const needRegions = lens === "region" || !!regionLayer;
@@ -75,7 +79,8 @@ export function Builder() {
       .catch((e) => console.error("regions:", e));
   }, [b, needRegions]);
 
-  const items = useMemo(() => new Map((b?.groups ?? []).flatMap((g) => g.items).map((it) => [`${it.realm}:${it.key}`, it])), [b]);
+  const items = useMemo(() => new Map((b?.groups ?? []).flatMap((g) => g.items).map((it) => [it.id, it])), [b]);
+  const dsName = (k: string) => ds.get(k)?.name ?? k;
   const picks: ListItem[] = [...picked].map((k) => items.get(k)!).filter(Boolean);
   const nBio = picks.filter((p) => p.realm === "bio").length, nEnv = picks.length - nBio;
 
@@ -90,7 +95,8 @@ export function Builder() {
   const areaPred = b ? (areaSql(area, { gridKeys: b.gridKeys, spatialSrc: `'${REG.sample_spatial}'`, allKeys: b.allKeys }) ?? "TRUE") : "TRUE";
   const regionPred = lens !== "region" && regionLayer ? `root_id IN (SELECT root_id FROM '${REG.sample_spatial}' WHERE layer = '${regionLayer.replace(/'/g, "''")}')` : "TRUE";
   const spec: Spec = {
-    picks: picks.map((p): Item => p.realm === "bio" ? { realm: "bio", taxon: p.key, label: p.label } : { realm: "env", key: p.key, label: p.label, members: p.members, units: p.units }),
+    picks: picks.map((p): Item => p.realm === "bio" ? { realm: "bio", taxon: p.key, label: p.label, dataset: p.dataset, tag: dsName(p.dataset) }
+      : { realm: "env", key: p.key, label: p.label, members: p.members, units: p.units, dataset: p.dataset, tag: dsName(p.dataset) }),
     lens, place: effPlace, hexRes, layer: lens === "region" ? layer : null, regionNames: lens === "region" ? regionNames : null,
     area: [areaPred, regionPred].filter((x) => x !== "TRUE").join(" AND ") || "TRUE",
     years, seasons: season ? [season] : null, depth, time: effTime, depthBy: effDepth, stat: effStat,
@@ -161,7 +167,7 @@ export function Builder() {
               {(["bio", "env"] as const).map((realm) => {
                 const gs = (b?.groups ?? []).filter((g) => g.realm === realm);
                 const qy = search[realm].trim().toLowerCase();
-                const all = gs.flatMap((g) => g.items.map((it) => `${realm}:${it.key}`));
+                const all = gs.flatMap((g) => g.items.map((it) => it.id));
                 const on = all.filter((k) => picked.has(k)).length;
                 return (
                   <div className="list" key={realm}>
@@ -171,20 +177,21 @@ export function Builder() {
                     <div className="scroll">
                       {!b && <div className="muted pad">Loading the list…</div>}
                       {gs.map((g) => {
-                        const its = g.items.filter((it) => !qy || `${it.label} ${it.sub ?? ""}`.toLowerCase().includes(qy));
+                        const gname = dsName(g.dataset);
+                        const its = g.items.filter((it) => !qy || `${it.label} ${it.sub ?? ""} ${gname}`.toLowerCase().includes(qy));
                         if (!its.length) return null;
-                        const ks = its.map((it) => `${realm}:${it.key}`), n = ks.filter((k) => picked.has(k)).length;
-                        const isOpen = open.has(`${realm}:${g.name}`) || !!qy;
+                        const ks = its.map((it) => it.id), n = ks.filter((k) => picked.has(k)).length;
+                        const isOpen = open.has(`${realm}:${g.dataset}`) || !!qy;
                         return (
-                          <div className={`grp${isOpen ? " open" : ""}`} key={g.name}>
+                          <div className={`grp${isOpen ? " open" : ""}`} key={g.dataset}>
                             <div className="gh">
-                              <input type="checkbox" aria-label={`Select all ${g.name}`} checked={n === ks.length} ref={(el) => { if (el) el.indeterminate = n > 0 && n < ks.length; }} onChange={(e) => setMany(ks, e.target.checked)} />
-                              <button type="button" className="gt" onClick={() => setOpen((s) => { const x = new Set(s), k = `${realm}:${g.name}`; x.has(k) ? x.delete(k) : x.add(k); return x; })}>
-                                <Icon name={CATEGORY_ICON[g.name] ?? "cat-other"} />{g.name}<span className="n">{n ? `${n} selected` : its.length}</span><Icon name="ui-down" className="chev" />
+                              <input type="checkbox" aria-label={`Select all of ${gname}`} checked={n === ks.length} ref={(el) => { if (el) el.indeterminate = n > 0 && n < ks.length; }} onChange={(e) => setMany(ks, e.target.checked)} />
+                              <button type="button" className="gt" onClick={() => setOpen((s) => { const x = new Set(s), k = `${realm}:${g.dataset}`; x.has(k) ? x.delete(k) : x.add(k); return x; })}>
+                                <Icon name={CATEGORY_ICON[ds.get(g.dataset)?.category ?? g.category] ?? "cat-other"} /><span className="gname" title={`${g.category} · ${g.dataset}`}>{gname}<small>{ds.get(g.dataset)?.category ?? g.category}</small></span><span className="n">{n ? `${n} selected` : its.length}</span><Icon name="ui-down" className="chev" />
                               </button>
                             </div>
                             {isOpen && <div className="its">{its.slice(0, qy ? 200 : 400).map((it) => (
-                              <label className="it" key={it.key}><input type="checkbox" checked={picked.has(`${realm}:${it.key}`)} onChange={() => toggle(`${realm}:${it.key}`)} />
+                              <label className="it" key={it.id}><input type="checkbox" checked={picked.has(it.id)} onChange={() => toggle(it.id)} />
                                 {it.label}{it.sub && <i>{it.sub}</i>}{it.units && <em>{it.units}</em>}</label>))}</div>}
                           </div>
                         );
