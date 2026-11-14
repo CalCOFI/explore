@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **a Table builder** (`builder.html`, `src/builder/`; Rasmus Swalethorp: "a gui … that allows you to structure your query from
+  the integrated database … think MS Access style … pull several environmental and biological parameters at the same time").
+  One page: pick any species and water measurements from the release's coverage sidecar (select all, by group, or search),
+  choose Stations / Hexagons / Regions, filter (stations, region, years, season, depth, life stage, units, no catch = 0,
+  quality), shape the rows (every sample, yearly / seasonal / monthly averages, or Custom: place × time × depth and the
+  statistic), preview, and download one CSV — one column per pick. Each pick is built by the Explorer's own slice templates
+  (`slice_bio.sql` with its per-net zero-fill, `slice_env.sql`), so a value matches the Explorer's; a cell is blank when not
+  measured, 0 only from the zero-fill. "Copy as SQL" hands over the statements against the release's object URLs. Water
+  measurements are those with a per-bin `obs_env` object (a per-cast-only type is not listed yet). `src/builder/query.ts`,
+  `tests/builder.sql.test.ts`.
 - **fix: an anomaly section with no baseline drew empty axes under a legend left over from the map.**
   `?lens=section&var=temperature&line=93.3&anom=1&cruise=2025-04-3322`: the cruise's median cast month is March, and no
   March reached 5 cruises in 1993–2013 on line 93.3 (release v2026.11.09 holds no monthly temperature mean there for March,
