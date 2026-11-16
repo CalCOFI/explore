@@ -85,8 +85,6 @@ h4 { margin: 4px 0 0; font-size: 12px; color: var(--muted); text-transform: uppe
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 
-.station-card .cards { display: flex; flex-direction: column; gap: 4px; max-height: 40vh; overflow: auto; }
-.station-card .card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; }
 .cc-header .cc-versions { font: inherit; font-size: 0.76rem; color: var(--muted); background: var(--panel-2); border: 1px solid var(--border); border-radius: 999px; padding: 0.1rem 0.4rem; margin-left: 0.3rem; }
 .pill.sel { border-color: var(--accent); }
 .timing .row.head { flex-wrap: nowrap; }
@@ -234,8 +232,13 @@ button.chip { cursor: pointer; }
 /* the depth × time anomaly card (explore#28): the heatmap fills the card, the baseline note sits under it */
 .dt-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .dt-body .dt-note { padding: 2px 10px 6px; line-height: 1.35; }
-.card-station .cards { display: flex; flex-direction: column; gap: 4px; padding: 6px; }
-.card-station .cards .card { position: static; background: var(--panel-2); box-shadow: none; padding: 3px 6px; z-index: auto; }
+/* the Station card's per-dataset rows: their own classes, never .card — that one is the floating panel (absolute), and a
+   row wearing it stacked every dataset on one spot wherever no .card-station rule reset it (the phone's bottom sheet) */
+.stn-cards { display: flex; flex-direction: column; gap: 4px; padding: 6px; max-height: 40vh; overflow: auto; }
+.stn-ds { position: static; background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; min-width: 0; }
+.stn-ds-head { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; }
+.stn-ds-head .hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stn-others { font-size: 11px; padding: 0 6px 6px; }
 .timing-body { font-size: var(--fs-sm, 11px); }
 .timing-body table { border-collapse: collapse; margin: 0 6px 6px; font-variant-numeric: tabular-nums; }
 .timing-body td { padding: 1px 6px; border-top: 1px solid var(--border); white-space: nowrap; }
@@ -2387,3 +2390,13 @@ body .den.mo-sec .den-shf { margin: 6px 0 0 0; font-size: 12.5px; color: var(--m
 .vm-pic .vr-th { display: grid; width: 54px; height: 31px; font-size: 24px; background: var(--panel-2); color: var(--fg); }
 .va-tile.on .vr-th, .vm-row.on .vm-pic .vr-th { color: var(--accent); }
 :root[data-theme="dark"] .va-tile.on .vr-th, :root[data-theme="dark"] .vm-row.on .vm-pic .vr-th { color: var(--wh); }
+
+/* the Observations layer's click card (src/siteobs.ts): one block per sample at the dot, when, then what it recorded */
+.hex-card.obs-card { width: 316px; user-select: text; -webkit-user-select: text; }
+.obs-card .oc-list { max-height: 260px; overflow: auto; display: flex; flex-direction: column; gap: 6px; margin: 2px -4px 0 0; padding-right: 4px; }
+.obs-card .oc-when { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.obs-card .oc-when .hint { font-weight: 400; }
+.obs-card .oc-item { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; padding-left: 8px; color: color-mix(in srgb, var(--fg) 75%, var(--panel)); }
+.obs-card .oc-item span:last-child { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.obs-card .oc-item.oc-pick { color: var(--fg); font-weight: 600; }
+.obs-card .oc-foot { margin-top: 6px; font-size: 11px; }
