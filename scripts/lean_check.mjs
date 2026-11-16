@@ -732,6 +732,34 @@ C("region_zoom", async () => {
   noErrors("region_zoom");
 });
 
+// the bottom dock never covers the Find data panel: right of it while it is open (also from a remembered full-width Time
+// panel, the way the bug came back), the full width when it is folded (src/dock.ts)
+const boxes = () => page.evaluate(() => { const r = (s) => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return { l: Math.round(b.left), r: Math.round(b.right), t: Math.round(b.top), b: Math.round(b.bottom) }; }; return { sel: r(".card-select"), years: r(".card-years"), dt: r(".card-depthtime"), pills: r(".edge-pills.side-bottom") }; });
+C("dock_clear", async () => {
+  const W = { width: 1400, height: 850 };
+  await ready(`${SARDINE}&stage=larva&den=per_10m2`, W);
+  check(await exists(".wp"), "the What picker is open");
+  let b = await boxes();
+  check(b.sel && b.years && b.years.l > b.sel.r, `1400 × 850, picker open: the Time panel starts right of the panel (${b.years?.l} > ${b.sel?.r})`);
+  await page.evaluate(() => { const m = document.querySelector(".mapwrap"); localStorage.setItem("explore.panel.years", JSON.stringify({ vp: `${innerWidth}x${innerHeight}`, left: 10, top: m.clientHeight - 178, width: m.clientWidth - 70, height: 168 })); });
+  await page.reload({ waitUntil: "domcontentloaded" }); await idle();
+  b = await boxes();
+  check(b.sel && b.years && b.years.l > b.sel.r, `a remembered full-width Time panel steps clear of the open panel (${b.years?.l} > ${b.sel?.r})`);
+  await shot("dock_clear_remembered");
+  await click(".card-select .card-head [aria-label='Collapse to a pill']"); await sleep(600);
+  b = await boxes();
+  check(!b.sel && b.years && b.years.l <= 20, `the panel folded: the Time panel takes the width back (left ${b.years?.l})`);
+  await page.evaluate(() => localStorage.removeItem("explore.panel.years"));
+  await ready(`var=temperature&show=depthtime`, W);
+  await page.evaluate(() => [...document.querySelectorAll(".dock-tabs button")].find((x) => /Anomaly/.test(x.textContent))?.click()); await sleep(500);
+  b = await boxes();
+  check(b.sel && b.dt && b.dt.l > b.sel.r, `the depth × time card starts right of the panel (${b.dt?.l} > ${b.sel?.r})`);
+  await ready(`${SARDINE}&hide=years`, W);
+  b = await boxes();
+  check(b.sel && b.pills && b.pills.l > b.sel.r, `the collapsed Time pill sits right of the panel (${b.pills?.l} > ${b.sel?.r})`);
+  noErrors("dock_clear");
+});
+
 if (opt.list) { console.log(CASES.map((c) => c.name).join("\n")); process.exit(0); }
 for (const c of CASES) {
   if (only && !only.test(c.name)) continue;

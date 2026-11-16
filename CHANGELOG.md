@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **fix: the Time panel never covers the Find data panel.** A Time panel dragged or resized while the panel was folded (or in
+  classic, where it runs the full width) came back from the browser's memory at the map's left edge, over the lower half of
+  the open panel, its rows showing through the chart. The bottom docks — Time, the Section / Cruise result, the depth ×
+  time card and the collapsed pills — now start just right of the panel as it stands (moved, resized wider, opened), step
+  clear of it when their own remembered place would cover it, and take the full width when it is folded. In classic, an
+  open species or variable list now sits above the Time panel rather than under it; the phone's bottom sheet is
+  unchanged. `src/dock.ts`, `tests/dock.test.ts`, `scripts/lean_check.mjs`.
 - **fix: a species' counts count the nets its mean divides by.** The zeros are per net (`sample_key`; confirmed by Ben
   2026-11-16), but *found in K of N samples*, the hovers, the Time strip, the Regions list and the download line counted
   station visits (`root_id`), so Pacific sardine larvae per 10 m² read *found in 5,817 of 49,208 samples* under a mean of

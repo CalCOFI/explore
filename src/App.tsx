@@ -55,6 +55,7 @@ import { PREVIEW, PREVIEW_HOME } from "./preview";
 import { feedbackEndpoint } from "./feedback";
 import { cruiseStage, hasStageCols, stageIndex, stageProbeSql, viewStage, type StageIndex } from "./stage";
 import { shipAfter, shipName, shipOfCruise } from "./ship";
+import { dockBand, DOCK_EDGE, type Rect } from "./dock";
 import {
   DEFAULTS, resetPatch, DEN_SHORT, fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LENS_DESC, LENS_ICON, RES_KM, INTERPS, INTERP_LABEL, INTERP_WORD, INTERP_HOW, SURFACES, SURFACE_LABEL, GRAIN_LABEL, GRAIN_HOW, type Surface, type Grain, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, DEN_HOW, SHF_NOTE, STAT_LABEL, YEAR_OPEN, MAP_HOME,
   type Sel, type Lens, type Den, type Stat, type PickerRow, type PanelId,
@@ -1424,6 +1425,8 @@ export function App() {
   const [depthPulse, setDepthPulse] = useState(false);
   const [depthDs, setDepthDs] = useState<DepthRow[]>([]);
   const mapBox = useRef<HTMLDivElement>(null);
+  // the Find data panel as drawn, in px of the map's box (panels.tsx reports it as it moves, resizes or reflows): the bottom docks run right of it
+  const [selectRect, setSelectRect] = useState<(Rect & { bw: number; bh: number }) | null>(null);
   const folded = (id: PanelId) => sel.hide.includes(id);
   const toggleFold = (id: PanelId) => { if (id === "select" && folded("select")) setSentenceOpen(false); setSelRaw((s) => ({ ...s, hide: s.hide.includes(id) ? s.hide.filter((h) => h !== id) : [...s.hide, id] })); };
   const toggleSentence = () => { if (!sentenceOpen) setSelRaw((s) => (s.hide.includes("select") ? s : { ...s, hide: [...s.hide, "select"] })); setSentenceOpen((v) => !v); };
@@ -2633,22 +2636,30 @@ export function App() {
     const ro = new ResizeObserver(read); ro.observe(el); return () => ro.disconnect();
   }, [yearsOpen, dockActive, selectOpen]);
   const yearsClear = dock && yearsPx ? yearsPx : yearsH;   // for what sits above the panel
+  // the bottom docks never sit over the open Find data panel (dock.ts): they start just right of it as it stands — moved,
+  // resized or as it opens — and take the full width when it is folded or maximized. Until the panel has reported its
+  // rectangle, its home place stands in (full height in the lean layout, above the Time panel in classic).
+  const boxWH = { width: selectRect?.bw ?? mapBox.current?.clientWidth ?? innerWidth, height: selectRect?.bh ?? mapBox.current?.clientHeight ?? innerHeight };
+  const selectBox: Rect | null = !selectOpen || phone || maxId === "select" ? null : selectRect ?? { left: 10, top: 10, right: 330, bottom: boxWH.height - (lean ? 10 : 170) };
+  const band = dockBand(selectBox, boxWH, (dock ? Math.max(yearsH, dockTall) : yearsH) + 10);  // the Time panel and the lean dock
+  const bandTall = dockBand(selectBox, boxWH, boxWH.height);                                   // classic's cards above the Time panel
+  const freeLeft = band.left > DOCK_EDGE ? band.left : 0;                                       // the map's free area starts here (for centring)
   const tallCap = `calc(100% - 62px - ${yearsOpen ? yearsH + 10 : 0}px)`; // under the map's top-right row, above the Time panel
   // the bottom edge above whatever is docked there: the Time panel, and the section or cruise card over it. The depth × time
   // card opens there, and the bottom pills (its own among them) sit there, so an open Time panel no longer hides them
   const aboveBottom: number | string = resultUp ? `calc(${yearsOpen ? yearsClear + 30 : 20}px + ${cardOpen.section && !minCards.section ? 42 : 34}%)` : yearsOpen ? yearsClear + 20 : 10;
   // lean: the minimised panels park in the bottom-right corner (they sat under the Find-data panel, out of sight), clear of the info button
   const bottomPillsAt: React.CSSProperties | undefined = lean && !phone
-    ? { left: "auto", right: 60, bottom: yearsOpen || resultUp ? aboveBottom : 10, justifyContent: "flex-end", maxWidth: "calc(100% - 440px)" }
-    : yearsOpen || resultUp ? { bottom: aboveBottom, left: selectOpen ? 340 : 10 } : undefined;
+    ? { left: "auto", right: 60, bottom: yearsOpen || resultUp ? aboveBottom : 10, justifyContent: "flex-end", maxWidth: `calc(100% - ${band.left + 100}px)` }
+    : yearsOpen || resultUp ? { bottom: aboveBottom, left: bandTall.left } : undefined;
   const panelBox: Record<PanelId, CardBox> = {
     select: lean && !phone && selectOpen ? { left: 10, top: 10, width: 320, height: "calc(100% - 20px)" } : { left: 10, top: 10, width: 320, maxHeight: `calc(100% - 20px - ${yearsOpen && !(lean && !phone) ? 150 : 0}px)` },   // never under the Time panel: the body scrolls instead
-    years: { left: lean && !phone && selectOpen ? 340 : 10, right: 60, bottom: 10, height: yearsH },
+    years: { left: band.left, right: band.right, bottom: 10, height: yearsH },
     depth: { right: 10 + railW, top: 52, width: 210, height: `calc(100% - ${yearsOpen || resultUp ? yearsH + 72 : 62}px)` },
-    section: dock ? { left: selectOpen ? 340 : 10, right: 60, bottom: 10, height: dockTall } : { left: selectOpen ? 340 : 10, right: 60, bottom: yearsOpen ? yearsH + 20 : 10, height: "42%" },
-    cruise: dock ? { left: selectOpen ? 340 : 10, right: 60, bottom: 10, height: dockTall } : { left: selectOpen ? 340 : 10, right: 60, bottom: yearsOpen ? yearsH + 20 : 10, height: "34%" },
+    section: dock ? { ...band, bottom: 10, height: dockTall } : { ...bandTall, bottom: yearsOpen ? yearsH + 20 : 10, height: "42%" },
+    cruise: dock ? { ...band, bottom: 10, height: dockTall } : { ...bandTall, bottom: yearsOpen ? yearsH + 20 : 10, height: "34%" },
     // the depth × time card sits above the Time panel, clear of the Depth panel; above the section or cruise card when one is up
-    depthtime: dock ? { left: selectOpen ? 340 : 10, right: 60, bottom: 10, height: dockTall } : { left: selectOpen ? 340 : 10, right: depthOpen ? 230 : 60, height: resultUp ? "28%" : "38%", bottom: aboveBottom },
+    depthtime: dock ? { ...band, bottom: 10, height: dockTall } : { left: bandTall.left, right: Math.max(bandTall.right, depthOpen ? 230 : 60), height: resultUp ? "28%" : "38%", bottom: aboveBottom },
     station: { top: 52, right: rightBand, width: 340, maxHeight: tallCap },
     timing: { top: 52, right: rightBand + (stationUp ? 350 : 0), width: 420, maxHeight: tallCap },
     layers: { top: 52, right: rightBand + (stationUp ? 350 : 0) + (view3dOn ? 40 : 0), width: 270, maxHeight: tallCap }, // 3-D: clear of the camera column under the row
@@ -2670,7 +2681,7 @@ export function App() {
     const tourId = id === "select" ? "rail" : id === "years" ? "years" : id === "depth" ? "depth" : id === "station" ? "station" : id === "layers" ? "layers-card" : undefined;
     return <Panel key={id} id={id} title={inDock ? dockTitle : titles[id]} icon={icons[id]} boxRef={mapBox} defaults={panelBox[id]} dock={docks[id]} collapsed={false} onCollapse={() => (isRail(id) ? toggleFold(id) : minCard(id as CardId))}
       maximized={maxId === id} onMax={() => toggleMax(id)} onClose={isRail(id) ? undefined : closeCard[id as CardId]} actions={actions(id)} exportable={id === "select" || id === "layers" ? undefined : exportItems(id)}
-      raised={topCard === id} onTouch={() => setTopCard(id)} autoHeight={id === "select" || id === "station" || id === "timing" || id === "layers"} minWidth={id === "select" ? 260 : 180} minHeight={id === "select" ? 200 : 100} data-tour={tourId}>{body(id)}</Panel>;
+      raised={topCard === id} onTouch={() => setTopCard(id)} onRect={id === "select" ? setSelectRect : undefined} avoid={docks[id] === "bottom" ? selectBox : undefined} autoHeight={id === "select" || id === "station" || id === "timing" || id === "layers"} minWidth={id === "select" ? 260 : 180} minHeight={id === "select" ? 200 : 100} data-tour={tourId}>{body(id)}</Panel>;
   };
   // a collapsed panel is a pill on the edge nearest its dock, labelled with its state
   const cardPill = (c: CardId): EdgePill => ({ id: c, icon: icons[c], label: c === "station" ? stationCard!.grid_key : c === "timing" ? "SQL & timing" : titleText[c], onRestore: () => openCard(c), onClose: closeCard[c] });
@@ -2718,7 +2729,7 @@ export function App() {
     const t = setTimeout(() => setStatus("ready"), 5000); return () => clearTimeout(t);
   }, [status, busy]);
   const switching = !!sliceKey && !sliceCurrent;
-  const statusToast = (status !== "ready" && status !== "grid (static)") || switching ? <div className={`status-toast${busy || switching ? " busy" : ""}${isErrStatus(status) ? " err" : ""}`} title={isErrStatus(status) ? status : undefined} role="status" aria-live="polite" style={lean && !phone ? { left: `calc(${selectOpen ? 340 : 0}px + (100% - ${selectOpen ? 340 : 0}px) / 2)`, bottom: yearsOpen ? yearsH + 34 : 24 } : undefined}>{(busy || switching) && <span className="spin" />}{switching && status === "ready" ? "Loading data…" : plainStatus(status)}</div> : null;
+  const statusToast = (status !== "ready" && status !== "grid (static)") || switching ? <div className={`status-toast${busy || switching ? " busy" : ""}${isErrStatus(status) ? " err" : ""}`} title={isErrStatus(status) ? status : undefined} role="status" aria-live="polite" style={lean && !phone ? { left: `calc(${freeLeft}px + (100% - ${freeLeft}px) / 2)`, bottom: yearsOpen ? yearsH + 34 : 24 } : undefined}>{(busy || switching) && <span className="spin" />}{switching && status === "ready" ? "Loading data…" : plainStatus(status)}</div> : null;
   const sentence = !phone && <Sentence lean={lean} sel={sel} setSel={setSel} onLens={onLens} cruiseMonthOf={cruiseMonthOf} organismItems={organismItems} organismGroups={organismGroups} variableItems={variableItems} variableGroups={variableGroups}
     sectionCruiseItems={sectionCruiseItems} cruiseItems={cruiseItems} cruiseStage={viewStg ? { label: viewStg.label, title: `the release's data_stage for ${short(viewStg.dataset_key)} on this cruise: ${viewStg.stage}` } : null} lines={lines} layerNames={layerNames} regionName={regionName} areaText={area ? areaWord(area) : null} stages={stages} denRows={(d) => denInfo(d).rows} defaultDen={(s) => defaultDen(picker, s)}
     years={years} yearMax={yearMax} hasDepthAxis={depthAvail || noneLeft} hasClim={hasClim(catalog)} anomAvail={anomAvail} climBase={climBase} seasonOk={climSeason} climWindow={climWindow} datasetsInSlice={datasetsInSlice} onSources={openSources} sources={(showV2 && var2Ds.length ? var2Ds : viewDatasetKeys).map((dk) => { const d = dsRow(dk) as any, raw = (d?.link_data_source as string) || (d ? doiUrl(d) : ""); return { key: dk, name: d ? dsName(d) : short(dk), long: d ? dsLongName(d) : short(dk), url: raw || datasetPageUrl(dk), raw: !!raw }; })} dsOn={dsOn} toggleDataset={toggleDataset} dsColor={dsColor} short={short}
@@ -2750,7 +2761,7 @@ export function App() {
           </>}
         </a>
         <a className="cc-title" href="./">{BRAND === "v1" && <span className="cc-title-org">CalCOFI </span>}Explorer{!(lean && !phone) && <small><Icon name={LENS_ICON[sel.lens]} /> {LENS_SHORT[sel.lens]}</small>}</a>
-        {lean && !phone && <ViewMenu bio={sel.realm === "bio"} leftAt={selectOpen ? 340 : 10} lens={sel.lens} onLens={onLens} nudge={offGridOnly ? "hex" : null} />}
+        {lean && !phone && <ViewMenu bio={sel.realm === "bio"} leftAt={band.left} lens={sel.lens} onLens={onLens} nudge={offGridOnly ? "hex" : null} />}
         <span className="cc-spacer" />
         {/* the release chip sits at the right with the tools; Help gathers the tour, the welcome, About, the sources and the keyboard */}
         {/* one release picker: the word links to the schema and release notes, the bold value is a select of the releases (reloads) */}
@@ -2806,7 +2817,7 @@ export function App() {
           </div>
           {sentence}
           {!phone && statusToast}
-          {!phone && noneLeft && emptyWhy?.key === emptyKey && !status.endsWith("…") && <div className="map-empty" role="status" style={lean ? { left: `calc(${selectOpen ? 340 : 0}px + (100% - ${selectOpen ? 340 : 0}px) / 2)` } : undefined}>
+          {!phone && noneLeft && emptyWhy?.key === emptyKey && !status.endsWith("…") && <div className="map-empty" role="status" style={lean ? { left: `calc(${freeLeft}px + (100% - ${freeLeft}px) / 2)` } : undefined}>
             <b>No {sel.realm === "bio" ? `${subject}${sel.stage ? ` ${sel.stage}` : ""}` : subject} {sel.realm === "bio" ? "caught" : "measured"} under these choices</b>
             {emptyWhy.zeroTows > 0 && <span>{sel.cruises?.length === 1 ? `Cruise ${sel.cruises[0]}` : "The selection"} sampled {fmtN(emptyWhy.zeroTows)} {emptyWhy.zeroTows === 1 ? "tow" : "tows"}, and every one came up empty for it.</span>}
             {emptyWhy.back.length > 0 ? <span>It shows up without {emptyWhy.back.map((b, i) => <span key={b.what}>{i ? (i === emptyWhy.back.length - 1 ? " or " : ", ") : ""}{b.what} (<button type="button" className="linkish" onClick={b.clear}>clear</button>, {fmtN(b.n)} {countWord})</span>)}.</span>

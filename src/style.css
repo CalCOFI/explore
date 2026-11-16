@@ -222,6 +222,9 @@ button.chip { cursor: pointer; }
 /* floating cards over the map */
 .card { position: absolute; z-index: var(--z-cards); display: flex; flex-direction: column; background: color-mix(in srgb, var(--panel) 94%, transparent); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 20px color-mix(in srgb, var(--fg) 20%, transparent); min-width: 0; min-height: 0; overflow: hidden; }
 .card.raised { z-index: calc(var(--z-cards) + 1); }
+/* a card with an open picker list comes above the other cards: classic's species list hangs below the Controls panel, and the
+   Time panel along the bottom drew over its lower rows */
+.card:has(.picker.open) { z-index: calc(var(--z-cards) + 2); }
 .card-head { display: flex; align-items: center; gap: 5px; padding: 2px 4px 2px 8px; border-bottom: 1px solid var(--border); font-size: var(--fs-sm, 11px); color: var(--muted); cursor: grab; flex: none; user-select: none; touch-action: none; }
 .card-head:active { cursor: grabbing; }
 .card-head .card-title { color: var(--fg); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }

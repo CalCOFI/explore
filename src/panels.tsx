@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "./icons";
 import { IconButton, Menu, type MenuItem } from "./ui";
+import { clearOf, type Rect } from "./dock";
 
 // a rail folds to a pill and its fold lives in the URL (`hide=` / `show=`): the three rails, and the depth × time anomaly
 // card (explore#28), which floats like a card but opens and folds like the Depth panel
@@ -65,12 +66,33 @@ export function Panel(p: {
   actions?: ReactNode; raised?: boolean; onTouch?: () => void; children: ReactNode; className?: string; "data-tour"?: string; exportable?: MenuItem[];
   /** a content-sized panel (the Select panel) keeps its height automatic until the user resizes it */
   autoHeight?: boolean; minWidth?: number; minHeight?: number;
+  /** reports the panel's rectangle in px of the map's box as it moves, resizes or reflows (null when it is not drawn):
+   *  App.tsx lays the bottom docks out right of the Find data panel from it (dock.ts) */
+  onRect?: (r: (Rect & { bw: number; bh: number }) | null) => void;
+  /** a rectangle this panel never covers: a dragged or resized docked panel is moved clear of the open Find data panel */
+  avoid?: Rect | null;
 }) {
   const key = `explore.panel.${p.id}`;
   const [geom, setGeom] = useState<Geom | null>(() => { const s = store<{ vp: string } & Geom>(key); return s && s.vp === vpKey() ? { left: s.left, top: s.top, width: s.width, height: s.height } : null; });
   const ref = useRef<HTMLElement>(null);
   useEffect(() => { const reset = () => { const s = store<{ vp: string }>(key); if (s && s.vp !== vpKey()) setGeom(null); }; addEventListener("resize", reset); return () => removeEventListener("resize", reset); }, []);
   const minW = p.minWidth ?? 220, minH = p.minHeight ?? 96;
+  const onRectRef = useRef(p.onRect); onRectRef.current = p.onRect;
+  const drawn = !p.collapsed && !p.maximized;
+  useEffect(() => {
+    if (!onRectRef.current) return;
+    const card = ref.current, box = p.boxRef.current;
+    if (!drawn || !card || !box) { onRectRef.current(null); return; }
+    let last = "";
+    const read = () => {
+      const b = box.getBoundingClientRect(), c = card.getBoundingClientRect();
+      const r = { left: Math.round(c.left - b.left), top: Math.round(c.top - b.top), right: Math.round(c.right - b.left), bottom: Math.round(c.bottom - b.top), bw: Math.round(b.width), bh: Math.round(b.height) };
+      const k = JSON.stringify(r); if (k !== last) { last = k; onRectRef.current?.(r); }
+    };
+    read();
+    const ro = new ResizeObserver(read); ro.observe(card); ro.observe(box);
+    return () => { ro.disconnect(); onRectRef.current?.(null); };
+  }, [drawn, geom]);
   // the panel's rectangle as it stands (defaults resolve here), relative to the map's box
   const rect = () => { const card = ref.current, box = p.boxRef.current; if (!card || !box) return null; const b = box.getBoundingClientRect(), c = card.getBoundingClientRect(); return { b, c, left: c.left - b.left, top: c.top - b.top, width: c.width, height: c.height }; };
   const onHead = (e: React.PointerEvent) => {
@@ -109,8 +131,11 @@ export function Panel(p: {
   const snapBack = () => { setGeom(null); store(key, null); setTimeout(() => dispatchEvent(new Event("resize")), 0); };
   if (p.collapsed || p.maximized) return null;
   const d = p.defaults;
+  // a dragged or resized docked panel (or one placed in an earlier layout, e.g. classic's full-width Time panel) never
+  // covers the open Find data panel: it steps clear of it, keeping its own right edge
+  const clear = geom && p.avoid ? clearOf({ ...geom, height: geom.height ?? ref.current?.offsetHeight ?? 0 }, p.avoid, minW) : null;
   const style: React.CSSProperties = geom
-    ? { left: geom.left, top: geom.top, right: "auto", bottom: "auto", width: geom.width, height: geom.height ?? undefined, maxHeight: `calc(100% - ${geom.top}px - 10px)` }
+    ? { left: clear?.left ?? geom.left, top: geom.top, right: "auto", bottom: "auto", width: clear?.width ?? geom.width, height: geom.height ?? undefined, maxHeight: `calc(100% - ${geom.top}px - 10px)` }
     : { left: d.left, top: d.top, right: d.right, bottom: d.bottom, width: d.width, height: d.height, maxHeight: d.maxHeight };
   return (
     <section ref={ref} className={`card card-${p.id} dock-${p.dock}${p.raised ? " raised" : ""}${p.className ? ` ${p.className}` : ""}`} style={style} role="region" aria-label={typeof p.title === "string" ? p.title : p.id} onPointerDown={p.onTouch} data-tour={p["data-tour"]}>
