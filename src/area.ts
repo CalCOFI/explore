@@ -157,6 +157,20 @@ export function lineKeys(a: { line: number; station: number | null }, allKeys: s
 /** CalCOFI's standard station ID: line and station as LLL.L SSS.S ("093.3 026.7", the bottle database's Sta_ID) */
 export const staId = (n: number) => n.toFixed(1).padStart(5, "0");
 export const lineStationId = (i: { line: number; station: number | null }) => i.station != null ? `${staId(i.line)} ${staId(i.station)}` : `Line ${staId(i.line)}`;
+/** the lean Where step's "in force" line (review 2026-11-16: "Full survey" looked selected while a region, a line or a
+ *  drawing was the area): what the area is, as a short noun phrase; null = no area, the full survey */
+export function areaLabel(a: Area | null, hexKm?: string): string | null {
+  if (!a) return null;
+  switch (a.kind) {
+    case "pattern": return a.patterns.includes("extended") ? "CalCOFI 113-station grid" : "CalCOFI 75-station grid";
+    case "region": return a.names == null ? `Every region of ${a.layer}` : a.names.length === 1 ? a.names[0] : `${a.names.length} regions of ${a.layer}`;
+    case "hex": return `One ${hexKm ? `${hexKm} ` : ""}hexagon`;
+    case "line": return a.station != null ? `Station ${lineStationId(a)}` : lineStationId(a);
+    case "lines": return a.items.length <= 2 ? a.items.map((i) => (i.station != null ? `Station ${lineStationId(i)}` : lineStationId(i))).join(", ") : `${a.items.length} lines and stations`;
+    case "poly": return "An area drawn on the map";
+    case "box": { const [w, s, e, n] = a.bbox, lon = (x: number) => `${Math.abs(r3(x))}°${x < 0 ? "W" : "E"}`, lat = (y: number) => `${Math.abs(r3(y))}°${y < 0 ? "S" : "N"}`; return `Box ${lon(w)}–${lon(e)}, ${lat(s)}–${lat(n)}`; }
+  }
+}
 export function areaWord(a: Area | null): string {
   if (!a) return "everywhere";
   if (a.kind === "region") {

@@ -26,7 +26,7 @@ import { Picker, type PickerItem, type GroupOpt } from "./picker";
 import { Menu, Group, NumInput, YearRange, YearSlider } from "./ui";
 import { ordered, yearComplete } from "./ranges";
 import { parseGridKey } from "./gridkey";
-import { lineKeys, lineItemsOf, linesArea, polyFeature, simplifyPath, parseArea, areaSql, areaToUrl, areaWord, boxFeature, featuresBbox, pickedArea, regionOutline, regionsOfFeature, resolveArea, PATTERN_WORD, type Area } from "./area";
+import { areaLabel, lineKeys, lineItemsOf, linesArea, polyFeature, simplifyPath, parseArea, areaSql, areaToUrl, areaWord, boxFeature, featuresBbox, pickedArea, regionOutline, regionsOfFeature, resolveArea, PATTERN_WORD, type Area } from "./area";
 import { RegionPicker } from "./regionpicker";
 import { Panel, EdgePills, MaxPanel, Sheet, Sparkline, VSpark, SHEET_PEEK, type CardId, type CardBox, type Detent, type Dock, type EdgePill } from "./panels";
 import { Sentence, type DerivedNote } from "./sentence";
@@ -2242,7 +2242,9 @@ export function App() {
         const word = abbr ?? (all.length === 1 ? "region" : "regions");
         const setNames = (nx: Set<string>) => {
           const allData = withData.length > 0 && withData.every((r) => nx.has(r.name)) && [...nx].every((n) => withData.some((r) => r.name === n));
-          setSel({ area: areaToUrl({ kind: "region", layer, names: allData ? null : nx.size ? [...nx] : null }) });
+          // the last one unticked: no region, so the full survey — never silently "all regions" (review 2026-11-16); the layer stays picked
+          if (!nx.size) { setAreaLayerPick(layer); setSel({ area: null }); return; }
+          setSel({ area: areaToUrl({ kind: "region", layer, names: allData ? null : [...nx] }) });
         };
         const toggle = (nm: string) => { const nx = new Set(all.map((r) => r.name).filter(isOn)); if (nx.has(nm)) nx.delete(nm); else nx.add(nm); setNames(nx); };
         // the long official names, short: "Channel Islands National Marine Sanctuary - Northern Section" → "Channel Islands - Northern Section"
@@ -2278,8 +2280,6 @@ export function App() {
     const W = 44, H = Math.round(W * (y1 - y0) / ((x1 - x0) * Math.cos(((y0 + y1) / 2) * Math.PI / 180)));
     return { pts, W, H, X: (lon: number) => ((lon - x0) / (x1 - x0)) * W, Y: (lat: number) => ((y1 - lat) / (y1 - y0)) * H };
   }, [grid]);
-  const drawnWord = area?.kind === "poly" ? "Area drawn on the map" : area?.kind === "box" ? "Box drawn on the map"
-    : area?.kind === "pattern" ? (area.patterns.includes("extended") ? "113-station grid" : "75-station grid") : null;
   // "Reset all": state.ts resetPatch() — every filter and view setting back to its default, keeping the pick (with its stage and units)
   const resetAll = () => { setAreaRegionMode(false); setAreaLayerPick(null); setSel(resetPatch()); };
   const whatSel = whatItems.find((i) => i.key === (sel.realm === "bio" ? sel.taxon : sel.var) || (sel.realm === "env" && i.alt?.includes(sel.var)));
@@ -2363,12 +2363,32 @@ export function App() {
     {desk && dsBlock}
     {var2Block}
   </Group>;
+  // the area in force, named (area.ts areaLabel): the Where step's first line, so "Full survey" never looks chosen while a
+  // region, a line, a drawing or a hexagon is the area — and each way below replaces it (review 2026-11-16)
+  const areaNow = areaLabel(area, RES_KM[sel.res]);
+  const whereNow = <div className={`where-now${areaNow ? " on" : ""}`} role="status">
+    {areaNow ? <><span className="k">Area</span><b title={areaNow}>{areaNow}</b><button type="button" className="linkish" onClick={() => { clearArea(); setAreaLayerPick(null); }} title="back to the full survey">Clear</button></>
+      : <><span className="k">Area</span><b>Full survey</b><span className="hint">every sample</span></>}
+  </div>;
+  // a step the view hides keeps its filters in force (review 2026-11-16): the Cruise and Section views hide When and Where, the
+  // Region view hides Where — so they show here, collapsed, with what is in force and a Clear
+  const whenNow = [yearsSet && (sel.months ? `${years[0]}-${String(sel.months[0]).padStart(2, "0")} to ${years[1]}-${String(sel.months[1]).padStart(2, "0")}` : `${years[0]}–${years[1]}`),
+    sel.q && sel.q.length < 4 && sel.q.map((x) => ["Winter", "Spring", "Summer", "Fall"][x - 1]).join(", "),
+    sel.cruises?.length && (sel.cruises.length === 1 ? cruiseItemOf(sel.cruises[0], {}).label : `${sel.cruises.length} cruises`)].filter(Boolean).join(" · ");
+  const held = (step: "When" | "Where", what: string, why: string, clear: () => void) => <div className="step-held" data-held={step.toLowerCase()} title={why}>
+    <span className="k">{step}</span><b>{what}</b><button type="button" className="linkish" onClick={clear}>Clear</button>
+    <div className="hint">{why}</div></div>;
+  const heldSteps = <>
+    {lensOwns && whenNow && held("When", whenNow, sel.lens === "cruise" ? "Still in force: only cruises in it are listed, and the track shows what they sampled." : "Still in force: it narrows the cruises along the line and the samples drawn.", () => setSel({ years: [1949, YEAR_OPEN], months: null, q: null, cruises: null }))}
+    {(lensOwns || sel.lens === "region") && areaNow && held("Where", areaNow, sel.lens === "region" ? "Still in force: each region counts only the samples inside this area." : "Still in force: only samples inside this area are drawn.", () => { clearArea(); setAreaLayerPick(null); })}
+  </>;
   const leanBody = var2Open ? <div className="lean-steps"><WhatPicker items={whatItems.filter((i) => !whatIsOrganism.has(i.key) && !(sel.realm === "env" && (i.key === sel.var || !!i.alt?.includes(sel.var))))} isOrganism={() => false} value={sel.var2 ?? ""} onPick={(k) => { setSel({ var2: k, color2: false }); setVar2Open(false); }} onClose={() => setVar2Open(false)} iconOf={(c) => (c === DERIVED_FAMILY ? "ui-line" : categoryIcon(c))} rank={categoryRank} dsShort={(dk) => (short(dk) !== dk ? short(dk) : dsCategory(dk))} dsName={(dk) => { const d = dsRow(dk); return d ? dsLongName(d) : short(dk); }} loading={whatItems.length ? null : plainStatus(status)} /></div> : whatOpen ? <div className="lean-steps"><WhatPicker items={whatItems} isOrganism={(k) => whatIsOrganism.has(k)} value={sel.realm === "bio" ? sel.taxon : sel.var} onPick={pickWhat} onClose={() => setWhatOpen(false)} iconOf={(c) => (c === DERIVED_FAMILY ? "ui-line" : categoryIcon(c))} rank={categoryRank} dsShort={(dk) => (short(dk) !== dk ? short(dk) : dsCategory(dk))} dsName={(dk) => { const d = dsRow(dk); return d ? dsLongName(d) : short(dk); }} loading={whatItems.length ? null : plainStatus(status)} /></div> : <div className="lean-steps">
     <div className="lean-what">
       {whatGroup}
       {lensAfter && viewBlock}
     </div>
     {lensOwns && viewBlock}
+    {heldSteps}
     {!lensOwns && <Group title="When" icon="ui-years" className="step opt when-group">
       {yearsSet && <button type="button" className="linkish ys-reset" onClick={() => setSel({ years: [1949, YEAR_OPEN], months: null })}>Show all years</button>}
       <YearSlider min={dataYears ? dataYears[0] : 1949} max={dataYears ? dataYears[1] : yearMax} value={yearsShown}
@@ -2388,6 +2408,7 @@ export function App() {
     </Group>}
     {lensInline && sel.lens === "region" && viewBlock}
     {!lensOwns && sel.lens !== "region" && <Group title="Where" icon="ui-filter" data-tour="area" className="step opt">
+      {whereNow}
       {leanRegion}
       <LineStation lines={lineList} stationsOf={(ln) => { const set = new Set<number>(); for (const k of allKeys ?? []) { const g = parseGridKey(k); if (g && g.line === ln && g.station != null) set.add(g.station); } return [...set].sort((a, b) => a - b); }} items={lineItemsOf(area)} unmatched={lineItemsOf(area).filter((i) => allKeys && lineKeys(i, allKeys).length === 0)}
         onSet={(items) => { setAreaRegionMode(false); setSel({ area: areaToUrl(linesArea(items)) }); }} onClear={clearArea} />
@@ -2397,17 +2418,20 @@ export function App() {
         {([["all", "Full survey", "Historical and current stations: today's grids plus stations no longer sampled, and samples taken off the grid (underway and other programs)."],
            ["std", "CalCOFI 75-station grid", "San Diego to Point Conception, lines 76.7–93.3. CalCOFI's core grid since 1984, the same stations every cruise."],
            ["ext", "CalCOFI 113-station grid", "The 75 plus lines 60–73.3 north to Monterey and San Francisco, added on winter and spring cruises."]] as const).map(([k, name, about]) => {
-          const checked = k === "all" ? area?.kind !== "pattern" : area?.kind === "pattern" && (k === "ext") === area.patterns.includes("extended");
+          // "Full survey" is ticked only when there is no area at all; choosing it clears whatever area is in force
+          const checked = k === "all" ? !area : area?.kind === "pattern" && (k === "ext") === area.patterns.includes("extended");
           return <label key={k} className="ws-opt" onMouseEnter={(e) => setStnPeek({ k, el: e.currentTarget })} onMouseLeave={() => setStnPeek(null)}>
-            <input type="radio" name="stn-pattern" checked={checked} onChange={() => { setAreaRegionMode(false); if (k === "all") { if (area?.kind === "pattern") setSel({ area: null }); } else setSel({ area: k === "std" ? "std" : "std,ext" }); }} />
+            <input type="radio" name="stn-pattern" checked={checked} onChange={() => { setAreaRegionMode(false); setAreaLayerPick(null); setSel({ area: k === "all" ? null : k === "std" ? "std" : "std,ext" }); }} />
             <span className="ws-name">{name} <span className="ws-lines">{k === "all" ? "historical and current stations" : k === "std" ? "lines 76.7–93.3" : "lines 60–93.3"}</span>{stnAbout && <span className="ws-about">{about}</span>}</span>
           </label>; })}
         {/* like "How these are calculated": what each pattern covers opens under its name, with CalCOFI's station maps at the end */}
       </div>
       <div className="where-draw">
-        <button type="button" className="wd-btn" aria-pressed={drawing === "poly"} onClick={() => { setAreaRegionMode(false); setDrawing(drawing === "poly" ? false : "poly"); }} title="draw any shape on the map, like a lasso: only samples inside it count (Esc cancels)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 7 11 3l9 5-2 9-9 3-5-6Z" strokeDasharray="3 2" /><circle cx="4" cy="7" r="1.6" fill="currentColor" /><circle cx="20" cy="8" r="1.6" fill="currentColor" /><circle cx="9" cy="20" r="1.6" fill="currentColor" /></svg>{drawing === "poly" ? "Drawing… (Esc to cancel)" : "Draw an area on the map"}</button>
+        <button type="button" className="wd-btn" aria-pressed={drawing === "poly"} onClick={() => { setAreaRegionMode(false); setDrawing(drawing === "poly" ? false : "poly"); }} title="draw any shape on the map, like a lasso: only samples inside it count (Esc cancels)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 7 11 3l9 5-2 9-9 3-5-6Z" strokeDasharray="3 2" /><circle cx="4" cy="7" r="1.6" fill="currentColor" /><circle cx="20" cy="8" r="1.6" fill="currentColor" /><circle cx="9" cy="20" r="1.6" fill="currentColor" /></svg>{drawing === "poly" ? "Drawing… (Esc to cancel)" : "Draw an area"}</button>
+        <button type="button" className="wd-btn wd-box" aria-pressed={drawing === "box"} onClick={() => { setAreaRegionMode(false); setDrawing(drawing === "box" ? false : "box"); }} title="press at one corner on the map and drag to the other: only samples inside the box count (Esc cancels)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="4" y="6" width="16" height="12" strokeDasharray="3 2" /></svg>{drawing === "box" ? "Drag a box…" : "Draw a box"}</button>
+        <button type="button" className="wd-btn wd-view" onClick={() => { setDrawing(false); freezeView(); }} title="only what the map shows now: its lon / lat box, kept until you change it"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" /></svg>Map view</button>
       </div>
-      {(area?.kind === "poly" || area?.kind === "box") && <div className="wr-chosen">{drawnWord} <button type="button" className="linkish" onClick={clearArea}>clear</button></div>}
+      <div className="hint where-one">One area at a time: each choice here replaces the one in force.</div>
       {stnPeek && (() => {
         // a small map of the pattern: its stations in yellow, the rest of the grid in grey (the grid's own lon / lat)
         const r = stnPeek.el.getBoundingClientRect(), par = stnPeek.el.closest(".lean-steps")?.getBoundingClientRect();
@@ -2426,7 +2450,6 @@ export function App() {
           </svg>
           <div className="sp-n">{stnPeek.k === "all" ? `${fmtN(pts.length)} stations, current and historical` : stnPeek.k === "std" ? "San Diego to Point Conception" : "San Diego to Monterey and San Francisco"}</div>
         </div>; })()}
-      {area?.kind === "hex" && <div className="hex-row"><span><span className="hint">Area</span> <b>One {RES_KM[sel.res]} hexagon</b></span><button type="button" className="linkish" onClick={clearArea} title="show every hexagon again">Clear</button></div>}
     </Group>}
     <ViewAs bio={sel.realm === "bio"} lens={sel.lens} onLens={onLens} nudge={offGridOnly ? "hex" : null} />
     <div className="depth-in-view">{depthStep}</div>

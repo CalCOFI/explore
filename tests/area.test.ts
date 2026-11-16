@@ -210,3 +210,22 @@ describe("{{area_filter}} on a slice", () => {
     expect(render("station", { ...P, area_filter: "grid_key IN ('a')" })).toContain("AND grid_key IN ('a')");
   });
 });
+
+// the lean Where step names the area in force, so "Full survey" is never shown as chosen while another area is
+import { areaLabel } from "../src/area";
+describe("areaLabel", () => {
+  it("names every kind of area, and none for the full survey", () => {
+    expect(areaLabel(null)).toBeNull();
+    expect(areaLabel(parseArea("std"))).toBe("CalCOFI 75-station grid");
+    expect(areaLabel(parseArea("std,ext"))).toBe("CalCOFI 113-station grid");
+    expect(areaLabel(parseArea("in:National Marine Sanctuaries"))).toBe("Every region of National Marine Sanctuaries");
+    expect(areaLabel(parseArea("in:National Marine Sanctuaries|Cordell Bank"))).toBe("Cordell Bank");
+    expect(areaLabel(parseArea("ins:BOEM Wind Leases|A,B,C"))).toBe("3 regions of BOEM Wind Leases");
+    expect(areaLabel(parseArea("ln:90"))).toBe("Line 090.0");
+    expect(areaLabel(parseArea("ln:90/60"))).toBe("Station 090.0 060.0");
+    expect(areaLabel(parseArea("ln:90,93.3/30"))).toBe("Line 090.0, Station 093.3 030.0");
+    expect(areaLabel(parseArea("poly:-121,32~-117,32~-119,35"))).toBe("An area drawn on the map");
+    expect(areaLabel(parseArea("box:-121.5,32,-117,35"))).toBe("Box 121.5°W–117°W, 32°N–35°N");
+    expect(areaLabel(parseArea("hx:842a107ffffffff"), "23 km")).toBe("One 23 km hexagon");
+  });
+});

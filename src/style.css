@@ -2163,6 +2163,18 @@ body .den.mo-sec .den-shf { margin: 6px 0 0 0; font-size: 12.5px; color: var(--m
 .where-draw .wd-btn:hover { border-color: var(--accent); }
 .where-draw .wd-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .where-draw .wd-btn[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
+/* three ways to draw, one row: a free-hand area, a box, the map's own view (review 2026-11-16) */
+.where-draw { display: flex; flex-wrap: nowrap; gap: 6px; }
+.where-draw .wd-btn { flex: 1 1 0; min-width: 0; width: auto; padding: 7px 6px; gap: 5px; font-size: 13px; white-space: nowrap; }
+.where-one { margin-top: 4px; font-size: 12px; }
+/* the area in force, named, at the top of Where; and a step the view hides, held: what is in force and a Clear */
+.where-now { display: flex; align-items: baseline; gap: 8px; padding: 6px 9px; margin-bottom: 8px; border-radius: 6px; border: 1px solid var(--border); font-size: 13.5px; min-width: 0; }
+.where-now .k, .step-held .k { flex: none; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.where-now b, .step-held b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.where-now.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+.where-now .linkish, .step-held .linkish { flex: none; text-decoration: underline; }
+.step-held { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 8px 10px; border: 1px solid var(--accent); border-radius: 6px; background: color-mix(in srgb, var(--accent) 8%, var(--panel)); font-size: 13.5px; }
+.step-held .hint { flex-basis: 100%; font-size: 12px; }
 /* Survey area: "What are these?" at the right of the heading, like "Which view?" (Betty 2026-11-10) */
 .where-stn .ws-lab .ws-gd { font-size: 12.5px; }
 /* depth row under Line / Station */
