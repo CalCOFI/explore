@@ -53,6 +53,7 @@ import { CLIM_MIN_CRUISES, SEASON_CODE, SEASON_NAME, SEASON_WORD, anomTokens, ba
 import { PREVIEW, PREVIEW_HOME } from "./preview";
 import { feedbackEndpoint } from "./feedback";
 import { cruiseStage, hasStageCols, stageIndex, stageProbeSql, viewStage, type StageIndex } from "./stage";
+import { shipAfter, shipName, shipOfCruise } from "./ship";
 import {
   DEFAULTS, DEN_SHORT, fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LENS_DESC, LENS_ICON, RES_KM, INTERPS, INTERP_LABEL, INTERP_WORD, INTERP_HOW, SURFACES, SURFACE_LABEL, GRAIN_LABEL, GRAIN_HOW, type Surface, type Grain, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, DEN_HOW, SHF_NOTE, STAT_LABEL, YEAR_OPEN, MAP_HOME,
   type Sel, type Lens, type Den, type Stat, type PickerRow, type PanelId,
@@ -1326,7 +1327,8 @@ export function App() {
   const dayRange = (t0: number, t1: number) => { const a = dayOf(t0), b = dayOf(t1); if (a === b) return a; const [ma] = a.split(" "), [mb, db] = b.split(" "); return ma === mb ? `${a}–${db}` : `${a} – ${b}`; };
   const cruiseItemOf = (key: string, o: { t0?: number | null; t1?: number | null; n_sta?: number | null; n?: number | null; extra?: string }): PickerItem => {
     const y = key.slice(0, 4), mm = key.slice(5, 7), mon = MONTHS3[Number(mm) - 1];
-    const shipRaw = cruiseRef?.get(key)?.ship, ship = shipRaw ? shipRaw.replace(/\b\w+/g, (w) => w[0] + w.slice(1).toLowerCase()) : null;
+    // the ship worded by ship.ts (main #54: Bell M. Shimada, McArthur II), nothing where the reference has no name
+    const ship = shipName(cruiseRef, key) || null;
     const sta = o.n_sta != null ? `${o.n_sta} station${Number(o.n_sta) === 1 ? "" : "s"}` : null;
     // the cruise ID leads (Betty 2026-11-10); its month, ship, days and stations sit under it
     return { key, label: key, right: ship ?? undefined, sub: [o.t0 && o.t1 ? dayRange(o.t0, o.t1) : (mon ? `${mon} ${y}` : null), sta, o.extra].filter(Boolean).join(" · "),
@@ -1540,9 +1542,10 @@ export function App() {
     const root = loads.current.get(REG.sample_root);
     if (root) (stageRef.current = loadStages(root)).then(setStageIdx);
   }, [lensReady, sel.lens, displayLens, status, stageIdx]);
-  // the Sections lens names the cruise's month in its caption: load the cruise reference for it too
+  // the Sections lens names the cruise's month in its caption, and it and the Cruises lens name the cruise's ship: load
+  // the cruise reference for both
   useEffect(() => {
-    if (sel.lens !== "section" || cruiseRef || !catalog) return;
+    if ((sel.lens !== "section" && sel.lens !== "cruise") || cruiseRef || !catalog) return;
     let live = true;
     probeCruiseMedian().then((m) => engine.query("cruise_ref", { src: q(REG.cruise), ...cruiseTokens(m) })).then((r) => { if (live) setCruiseRef(new Map(r.map((c) => [c.cruise_key, { ship: c.ship_name ?? c.ship_nodc ?? "", nodc: c.ship_nodc ?? "", month: c.month == null ? null : Number(c.month) }]))); }).catch(console.error);
     return () => { live = false; };
@@ -1551,8 +1554,7 @@ export function App() {
     if (seriesMode !== "cruises") return null;
     const rows = (sel.lens === "cruise" && cruiseRows.length ? cruiseRows : ganttRows).filter((c) => c.t0 && c.t1);
     // the ship from the cruise reference (title case), for the hover; a key with no reference row shows its NODC code
-    const shipOf = (k: string) => { const ref = cruiseRef?.get(k); const nodc = k.split("-")[2] ?? k; return ref?.ship ? ref.ship.replace(/\b\w+/g, (w) => w[0] + w.slice(1).toLowerCase()) : nodc; };
-    const gr: GanttRow[] = rows.map((c) => ({ ...c, ship: shipOf(c.cruise_key) }));
+    const gr: GanttRow[] = rows.map((c) => ({ ...c, ship: shipOfCruise(cruiseRef, c.cruise_key) || c.cruise_key }));
     return { rows: gr, selected: sel.cruise, onPick: (k: string) => setSel({ cruise: k }) };
   }, [seriesMode, cruiseRows, ganttRows, cruiseRef, sel.lens, sel.cruise]);
   // with no year filter the boxes read the span the picked data actually covers, not the whole 1949+ record
@@ -2416,7 +2418,7 @@ export function App() {
   const depthBody = (wide: boolean) => <DepthStrip rows={depthRows} band={sel.depth} theme={theme} unit={unitLabel} empty={depthEmpty} onBand={(b) => setSel({ depth: b ?? [0, 500] })} byDataset={wide && depthDs.length ? { rows: depthDs, color: dsColor, short } : null} />;
   const yearsBody = <YearStrip rows={yearRows} monthRows={monthRows} seasonRows={seasonRows} cruiseSeasons={cruiseSeasons} quarters={sel.q} onNeedMonths={setNeedMonths} years={years} months={sel.months} yearMax={yearMax} theme={theme} mode={seriesMode} unit={unitLabel} stat={stat} log={ylog} ramp={seriesRampId} countWord={countWord}
     view={sel.yview} onView={(v) => setSel({ yview: v })} onYears={(y, m) => setSel({ years: y ?? [1949, YEAR_OPEN], months: y ? m ?? null : null })} gantt={gantt} />;
-  const sectionNote = `line ${sel.line} · ${sel.realm === "env" ? `depth section · cruise ${sel.cruise ?? "—"}${sel.anom && climCells ? ` · the difference from the ${climWord} ${baselineWord(climBase, cruiseMonthOf(sel.cruise))} normal` : ""}` : "station by year · all cruises · the tows are depth-integrated, so the axis is year"}`; // shown as the dock tab's tooltip, not as a line of its own over the plot
+  const sectionNote = `line ${sel.line} · ${sel.realm === "env" ? `depth section · cruise ${sel.cruise ?? "—"}${shipAfter(cruiseRef, sel.cruise)}${sel.anom && climCells ? ` · the difference from the ${climWord} ${baselineWord(climBase, cruiseMonthOf(sel.cruise))} normal` : ""}` : "station by year · all cruises · the tows are depth-integrated, so the axis is year"}`; // shown as the dock tab's tooltip, not as a line of its own over the plot
   const sectionBody = <SectionPlot cells={sectionCells} clim={climCells} anom={sectionAnom} base={climBase} yLabel={sel.realm === "env" ? "depth (m)" : "year"} theme={theme} unit={unitLabel} ramp={rampId}
     empty={isCast ? "a section cuts the water column —<br>a per-cast variable is one value for the whole cast"
       : sectionNoBase ? noBaselineWhy(climBase, cruiseMonthOf(sel.cruise), climWord, climSeason === true).replace(" — ", " —<br>") : null}
