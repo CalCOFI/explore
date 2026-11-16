@@ -1608,6 +1608,8 @@ export function App() {
   };
   (window as any).__download = download; // spike/verify hook
   (window as any).__picker = picker; (window as any).__sliceKey = sliceKey;
+  // scripts/lean_check.mjs compares the downloads with what the view draws: the lens rows and the panel's counts
+  (window as any).__view = { lens: displayLens, stationRows, hexRows, regionRows, cruiseRows, sectionCells, inView, viewCount, areaPending, sliceKey, sel };
   const lensTpl = () => sel.lens === "hex" ? "hex" : sel.lens === "region" ? "region" : sel.lens === "cruise" ? "cruise" : sel.lens === "section" ? (sel.realm === "env" ? "section" : "section_bio") : "station";
   const lensPar = (): Record<string, any> => sel.lens === "hex" ? { hex: hexExpr(sel.res) } : sel.lens === "region" ? { layer: sel.layer } : sel.lens === "section" ? { line: sel.line, cruise: sel.cruise } : {};
   const copy = async (kind: "sql" | "r" | "py") => {
