@@ -78,7 +78,10 @@ async function clickText(sel, txt, exact = false) {
 }
 async function click(sel) { await page.waitForSelector(sel, { timeout: 15000 }); await page.evaluate((s) => { const e = document.querySelector(s); e.scrollIntoView({ block: "center" }); e.click(); }, sel); await sleep(250); }
 const closeWhat = async () => { if (await exists(".wp .wp-cancel")) { await click(".wp .wp-cancel"); await sleep(300); } };
-const view = () => page.evaluate(() => { const v = window.__view; return { lens: v.lens, sel: v.sel, st: v.stationRows.map((r) => ({ k: r.grid_key, mean: r.mean, n: r.n })), hex: v.hexRows.map((r) => ({ k: String(r.hex), mean: r.mean, n: r.n })), reg: v.regionRows.map((r) => ({ k: r.spatial_name, key: r.spatial_key, mean: r.mean, n: r.n })), cruise: v.cruiseRows.length, sec: v.sectionCells.length, inView: v.inView, vc: v.viewCount }; });
+const view = () => page.evaluate(() => { const v = window.__view; return { lens: v.lens, sel: v.sel, st: v.stationRows.map((r) => ({ k: r.grid_key, mean: r.mean, n: r.n })), hex: v.hexRows.map((r) => ({ k: String(r.hex), mean: r.mean, n: r.n })), reg: v.regionRows.map((r) => ({ k: r.spatial_name, key: r.spatial_key, mean: r.mean, n: r.n })), cruise: v.cruiseRows.length, sec: v.sectionCells.length, inView: v.inView, vc: v.viewCount,
+  secN: v.sectionCells.reduce((a, r) => a + Number(r.n ?? 0), 0), cruiseN: v.cruiseSamples.reduce((a, r) => a + Number(r.n ?? 0), 0),
+  yearN: v.yearRows.filter((r) => Math.floor(Number(r.year)) >= v.sel.years[0] && Math.floor(Number(r.year)) <= v.sel.years[1]).reduce((a, r) => a + Number(r.n ?? 0), 0), yearBins: v.yearRows.length,
+  depthN: v.depthRows.filter((r) => r.depth_bin == null || (Number(r.depth_bin) >= v.sel.depth[0] && Number(r.depth_bin) <= v.sel.depth[1])).reduce((a, r) => a + Number(r.n ?? 0), 0), depthBins: v.depthRows.length }; });
 const lens = async (name) => { await click(`.va-tile[aria-label="${name}"]`); await sleep(400); await idle(); };
 
 // ── downloads: the browser's own download into a fresh folder per case ──────────────────────────────────────────────────
@@ -177,6 +180,16 @@ async function checkCsv(label, extra = {}) {
   // the CSV holds one row per region a sample falls in: count the records once
   const uniq = extra.region ? new Set(rows.filter((r) => r.obs_id !== "").map((r) => r.obs_id)).size : recs;
   if (v.lens !== "cruise" && v.lens !== "section" && v.vc && !v.sel.var2) check(uniq === v.vc.n, `${label}: ${uniq} records in the CSV = ${v.vc.n} in the panel's count`);
+  // a species: the panel's "N samples · K with a catch" against the CSV's samples (root_id), zero-filled tows included
+  if (v.sel.realm === "bio" && v.vc && v.lens !== "cruise" && v.lens !== "section" && !v.sel.var2 && rows[0] && "root_id" in rows[0]) {
+    const all = new Set(rows.map((r) => r.root_id)).size, found = new Set(rows.filter((r) => r.obs_id !== "").map((r) => r.root_id)).size;
+    check(found === v.vc.n_found && (!v.sel.zeros || all === v.vc.n_samples), `${label}: samples in the CSV ${all} (${found} with a catch) = the panel's ${v.vc.n_samples} (${v.vc.n_found})`);
+  }
+  // the charts: the Time strip's bars in the window, the Depth profile's bins in the band, the section's cells, the cruise's samples
+  if (v.lens !== "cruise" && v.lens !== "section" && v.vc && v.yearBins && !v.sel.months) check(v.yearN === v.vc.n, `${label}: the Time strip's bars in ${v.sel.years.join("–")} add up to the panel's count (${v.yearN} vs ${v.vc.n})`);
+  if (v.lens !== "cruise" && v.lens !== "section" && v.vc && v.depthBins && v.sel.realm === "env") check(v.depthN === v.vc.n, `${label}: the Depth profile's bins in ${v.sel.depth.join("–")} m add up to the panel's count (${v.depthN} vs ${v.vc.n})`);
+  if (v.lens === "section" && v.sec) check(v.secN === recs, `${label}: the section's cells hold the CSV's records (${v.secN} vs ${recs})`);
+  if (v.lens === "cruise" && v.cruiseN) check(v.cruiseN === recs, `${label}: the cruise's samples hold the CSV's records (${v.cruiseN} vs ${recs})`);
   if (extra.name) check(extra.name.test(f.name), `${label}: the file name ${f.name} describes the subset (${extra.name})`);
   return { f, rows, cols, v };
 }
