@@ -1,7 +1,7 @@
 // the Effort layer (`effort=on`): sql/effort_track.sql over sample_track ⋈ sample_root, run in the engine the browser
 // ships, then src/effort.ts turning its rows into PathLayer paths. One small fixture per rule.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { render, datasetFilterSql, type Params } from "../src/sqltpl";
+import { render, cruiseFilterSql, datasetFilterSql, type Params } from "../src/sqltpl";
 import { effortPath, effortPaths, effortSummary, type EffortRow } from "../src/effort";
 import { openDuck, type Duck } from "./helpers/duck";
 
@@ -62,6 +62,13 @@ describe("effort_track.sql — sample_track placed by sample_root, filtered with
     expect(keys({ cruise_src: cz, quarter_filter: "quarter IN (3)" })).toEqual([`${DS}:transect:1`, `${DS}:transect:2`, `${DS}:sighting:11`, `${DS}:sighting:12`]);
   });
   it("the dataset pills filter on dataset_key", () => expect(keys({ dataset_filter: datasetFilterSql(["other_ds"]) })).toEqual(["other_ds:transect:9"]));
+  // the lean panel's When › Cruise (`cr=`, PR #53) filters every slice; the Effort layer ignored it and drew every cruise's
+  // effort under a map of one cruise's samples
+  it("the When step's cruise list keeps those cruises' paths, sight lines included, and no path without a cruise", () => {
+    expect(keys({ cruise_filter: cruiseFilterSql(["2022-04-32SH"]) })).toEqual([`${DS}:transect:1`, `${DS}:sighting:11`]);
+    expect(keys({ cruise_filter: cruiseFilterSql(["2022-07-32SH", "2022-04-99XX"]) })).toEqual(["other_ds:transect:9", `${DS}:transect:2`]);
+    expect(keys({ cruise_filter: cruiseFilterSql(null) })).toHaveLength(6);
+  });
   it("the cruise lens keeps one cruise, its sight lines included", () => {
     expect(keys({ cruise: "2022-04-32SH" })).toEqual([`${DS}:transect:1`, `${DS}:sighting:11`]);
   });

@@ -952,22 +952,22 @@ export function App() {
     })().catch((e) => { console.error(e); setStatus(`error: ${e.message}`); });
   }, [sliceKey, sliceCurrent, sel.lens, sel.res, sel.layer, sel.line, sel.cruise, sel.grain, sel.interp === "tps", !!sel.obs, params, anomMap, climBase]);
 
-  // the Effort layer (`effort=on`): sample_track for the selected datasets in the time window, for the shown cruise in the cruise
-  // lens (sql/effort_track.sql). Its own effect on its own parameters, never the taxon, the variable or the depth band: effort
+  // the Effort layer (`effort=on`): sample_track for the selected datasets in the time window and the When step's cruises, for
+  // the shown cruise in the cruise lens (sql/effort_track.sql). Its own effect on its own parameters, never the taxon, the variable or the depth band: effort
   // is where the observers looked, whatever they saw. A release with no sample_track has no layer (the row is disabled)
   const effortAvail = hasTrack(catalog);
   const effortCruise = sel.lens === "cruise" ? sel.cruise : null;
   useEffect(() => {
     if (!sel.effort || !effortAvail || areaPending || (sel.lens === "cruise" && !effortCruise)) { setEffortPaths([]); return; }
     let live = true;
-    const ep = { track_src: q(REG.sample_track), root_src: q(REG.sample_root), ym0: params.ym0, ym1: params.ym1, quarter_filter: params.quarter_filter, dataset_filter: params.dataset_filter, area_filter: params.area_filter, cruise: effortCruise };
+    const ep = { track_src: q(REG.sample_track), root_src: q(REG.sample_root), ym0: params.ym0, ym1: params.ym1, quarter_filter: params.quarter_filter, dataset_filter: params.dataset_filter, area_filter: params.area_filter, cruise_filter: params.cruise_filter, cruise: effortCruise };
     // the path's month is the cruise's median cast month where the release's cruise table carries it, as the slice's
     Promise.all([ensure(REG.sample_track), ensure(REG.sample_root), probeCruiseMedian()])
       .then(([, , median]) => engine.query("effort_track", median ? { ...ep, cruise_src: cruiseSrcSql(q(REG.cruise)) } : ep))
       .then((r) => { if (live) setEffortPaths(toEffortPaths(r as unknown as EffortRow[])); })
       .catch((e) => { console.warn("sample_track:", e.message); if (live) setEffortPaths([]); });
     return () => { live = false; };
-  }, [sel.effort, effortAvail, areaPending, sel.lens, effortCruise, params.ym0, params.ym1, params.quarter_filter, params.dataset_filter, params.area_filter]);
+  }, [sel.effort, effortAvail, areaPending, sel.lens, effortCruise, params.ym0, params.ym1, params.quarter_filter, params.dataset_filter, params.area_filter, params.cruise_filter]);
   const effortSum = useMemo(() => effortSummary(effortPaths), [effortPaths]);
 
   // cruise playback (D37): the clock lives in a ref and the loop hands deck new layers itself — no App render per frame

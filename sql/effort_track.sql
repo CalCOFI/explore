@@ -11,7 +11,8 @@
 -- {{key_year}}); a path with no cruise (a misdated segment given none, a sight line off effort) falls back to the calendar
 -- month of datetime_beg, and one with no time either is not drawn. quarter is the season 1 = DJF … 4 = SON.
 -- {{area_filter}} reads grid_key / root_id / latitude / longitude: the path's midpoint and its root row. {{cruise}} is
--- NULL outside the cruise lens.
+-- NULL outside the cruise lens. {{cruise_filter}} is the When step's cruise list (sqltpl.ts cruiseFilterSql: TRUE or
+-- cruise_key IN (...)), as in every slice template: a path with no cruise is outside any list.
 WITH seg AS (
   SELECT t.sample_key, t.dataset_key, t.datetime_beg, t.datetime_end, r.root_id, r.grid_key, r.cruise_key
   FROM {{track_src}} t JOIN {{root_src}} r ON r.root_sample_key = t.sample_key
@@ -47,4 +48,5 @@ WHERE c_year * 100 + c_month BETWEEN {{ym0}} AND {{ym1}}
   AND {{dataset_filter}}
   AND {{area_filter}}
   AND ({{cruise}} IS NULL OR cruise_key = {{cruise}})
+  AND {{cruise_filter}}
 ORDER BY track_type, sample_key
