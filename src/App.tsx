@@ -804,8 +804,9 @@ export function App() {
   }, [var2Ready, where2]);
   // option C (Betty 2026-11-11): one map, a switch on top colours the same hexagons by the first pick or the added variable.
   // Only the colours change: the hexagons, filters, counts, cards and downloads stay the first pick's (with the added columns)
-  const [colorBy2, setColorBy2] = useState(false);
-  useEffect(() => { if (!sel.var2 || sel.lens !== "hex") setColorBy2(false); }, [sel.var2, sel.lens]);
+  // it is in the link (`color=var2`, review 2026-11-16: a reload went back to the first pick's colours); it only applies in Hexagons
+  const colorBy2 = sel.color2 && !!sel.var2 && sel.lens === "hex";
+  const setColorBy2 = (b: boolean) => setSel({ color2: b });
   const dsOn = (dk: string) => !sel.datasets || sel.datasets.includes(dk);
   // one dataset at a time by default, for species and measurements alike (Betty 2026-11-10): a click SWITCHES to that
   // dataset rather than adding it to a mix. Combining them is an explicit choice (`pool`, `datasets=all`): the lean
@@ -2286,7 +2287,9 @@ export function App() {
     // a measurement made several ways (bottle samples, CTD sensor, underway …) is plotted from ONE dataset at a time, never silently pooled:
     // the dataset button that was clicked, else the dataset with the most data. "All datasets" is a choice (the dataset chips in the title).
     const it = whatItems.find((i) => i.key === k || i.alt?.includes(k)), vr = it?.variants?.find((v) => v.key === k);
-    setSel({ realm: "env", var: k, cruise: null, datasets: ds ? [ds] : vr ? vr.datasets : it?.datasets && it.datasets.length > 1 ? [it.datasets[0]] : null, pool: false });
+    // the added variable cannot be the pick itself: picking it as the main measurement drops it as the second
+    const same = !!sel.var2 && (sel.var2 === k || it?.key === sel.var2 || !!it?.alt?.includes(sel.var2));
+    setSel({ realm: "env", var: k, ...(same ? { var2: null, color2: false } : {}), cruise: null, datasets: ds ? [ds] : vr ? vr.datasets : it?.datasets && it.datasets.length > 1 ? [it.datasets[0]] : null, pool: false });
   }
   setWhatOpen(false); };
   // "Unknown" is not offered beside real stages (Betty 2026-11-10): it shows only when it is what is in view — a dataset
@@ -2327,7 +2330,7 @@ export function App() {
     : (() => {
       return <div className="v2">
         <div className="v2-card"><div className="v2-t"><b>{var2Label}</b>{var2Unit && var2Unit !== var2Label && <small>{var2Unit}</small>}</div>
-          <span className="v2-acts"><button type="button" className="linkish" onClick={() => setVar2Open(true)}>Change</button><button type="button" className="linkish" onClick={() => setSel({ var2: null })}>Remove</button></span></div>
+          <span className="v2-acts"><button type="button" className="linkish" onClick={() => setVar2Open(true)}>Change</button><button type="button" className="linkish" onClick={() => setSel({ var2: null, color2: false })}>Remove</button></span></div>
         <div className="v2-how">Matched by hexagon ({RES_KM[sel.res]}), same years, seasons, area and depth ({sel.depth[0]}–{sel.depth[1]} m).</div>
         {var2Err ? <div className="v2-err">{var2Err}</div>
           : !var2Ready ? <div className="v2-how">loading {var2Label}…</div>
@@ -2360,7 +2363,7 @@ export function App() {
     {desk && dsBlock}
     {var2Block}
   </Group>;
-  const leanBody = var2Open ? <div className="lean-steps"><WhatPicker items={whatItems.filter((i) => !whatIsOrganism.has(i.key) && i.key !== sel.var)} isOrganism={() => false} value={sel.var2 ?? ""} onPick={(k) => { setSel({ var2: k }); setVar2Open(false); }} onClose={() => setVar2Open(false)} iconOf={(c) => (c === DERIVED_FAMILY ? "ui-line" : categoryIcon(c))} rank={categoryRank} dsShort={(dk) => (short(dk) !== dk ? short(dk) : dsCategory(dk))} dsName={(dk) => { const d = dsRow(dk); return d ? dsLongName(d) : short(dk); }} loading={whatItems.length ? null : plainStatus(status)} /></div> : whatOpen ? <div className="lean-steps"><WhatPicker items={whatItems} isOrganism={(k) => whatIsOrganism.has(k)} value={sel.realm === "bio" ? sel.taxon : sel.var} onPick={pickWhat} onClose={() => setWhatOpen(false)} iconOf={(c) => (c === DERIVED_FAMILY ? "ui-line" : categoryIcon(c))} rank={categoryRank} dsShort={(dk) => (short(dk) !== dk ? short(dk) : dsCategory(dk))} dsName={(dk) => { const d = dsRow(dk); return d ? dsLongName(d) : short(dk); }} loading={whatItems.length ? null : plainStatus(status)} /></div> : <div className="lean-steps">
+  const leanBody = var2Open ? <div className="lean-steps"><WhatPicker items={whatItems.filter((i) => !whatIsOrganism.has(i.key) && !(sel.realm === "env" && (i.key === sel.var || !!i.alt?.includes(sel.var))))} isOrganism={() => false} value={sel.var2 ?? ""} onPick={(k) => { setSel({ var2: k, color2: false }); setVar2Open(false); }} onClose={() => setVar2Open(false)} iconOf={(c) => (c === DERIVED_FAMILY ? "ui-line" : categoryIcon(c))} rank={categoryRank} dsShort={(dk) => (short(dk) !== dk ? short(dk) : dsCategory(dk))} dsName={(dk) => { const d = dsRow(dk); return d ? dsLongName(d) : short(dk); }} loading={whatItems.length ? null : plainStatus(status)} /></div> : whatOpen ? <div className="lean-steps"><WhatPicker items={whatItems} isOrganism={(k) => whatIsOrganism.has(k)} value={sel.realm === "bio" ? sel.taxon : sel.var} onPick={pickWhat} onClose={() => setWhatOpen(false)} iconOf={(c) => (c === DERIVED_FAMILY ? "ui-line" : categoryIcon(c))} rank={categoryRank} dsShort={(dk) => (short(dk) !== dk ? short(dk) : dsCategory(dk))} dsName={(dk) => { const d = dsRow(dk); return d ? dsLongName(d) : short(dk); }} loading={whatItems.length ? null : plainStatus(status)} /></div> : <div className="lean-steps">
     <div className="lean-what">
       {whatGroup}
       {lensAfter && viewBlock}

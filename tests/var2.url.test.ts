@@ -45,4 +45,14 @@ describe("var2= beside the first pick", () => {
     expect(params().get("taxon")).toBe(DEFAULTS.taxon);
     expect(params().has("var2")).toBe(false);
   });
+  // review 2026-11-16: "coloured by the added variable" was React state only, so a reload went back to the first pick's colours
+  it("colour by the added variable rides in the link (color=var2), only in Hexagons and only with var2", () => {
+    const s: Sel = { ...DEFAULTS, lens: "hex", realm: "bio", var2: "temperature", color2: true };
+    at(""); toUrl(s);
+    expect(params().get("color")).toBe("var2");
+    expect(roundTrip(s).color2).toBe(true);
+    at(""); toUrl({ ...s, lens: "station" }); expect(params().has("color")).toBe(false);
+    at(""); toUrl({ ...s, var2: null }); expect(params().has("color")).toBe(false);
+    at("?lens=hex&color=var2"); expect(fromUrl().color2).toBe(false);   // no var2: nothing to colour by
+  });
 });

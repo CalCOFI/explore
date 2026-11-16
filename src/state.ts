@@ -22,6 +22,7 @@ export interface Sel {
   taxon: string;               // bio: worms:217452
   var: string;                 // env: temperature | oxygen_ml_l
   var2: string | null;         // "Add a variable" (Ben's #3, Betty 2026-11-11): a second env variable, averaged into the same hexagons (`var2=`)
+  color2: boolean;             // the hexagons coloured by the added variable, not the first pick (`color=var2`; only with var2, in Hexagons)
   stage: string | null;        // bio life stage; null = "let the picker default it" (D8 rule 4)
   den: Den | null;             // bio denominator; null = default per rule 4
   zeros: boolean;              // bio: a tow a positive-only dataset sampled with no catch counts as 0 (default); zeros=0 = positive tows only
@@ -231,7 +232,7 @@ export const DEFAULT_TAXON = "worms:217452"; // Pacific sardine
 export const YEAR_OPEN = 9999; // "through the latest year in the release" until coverage.json says which
 
 export const DEFAULTS: Sel = {
-  lens: "station", res: 5, interp: "tps", surface: "value", grain: "site", inputs: null, labels: true, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature", var2: null,
+  lens: "station", res: 5, interp: "tps", surface: "value", grain: "site", inputs: null, labels: true, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature", var2: null, color2: false,
   stage: null, den: null, zeros: true, years: [1949, YEAR_OPEN], months: null, q: null, yview: null, depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
   line: 90, cruise: null, cruises: null, stat: "mean", anom: false, base: "month", tour: true, tourOn: false, modal: null, theme: null, release: null, station: null, datasets: null, pool: false,
   hide: DEFAULT_HIDE, max: null, map: null, bathy: null, bathyo: null, land: true, baseLabels: true, basemapo: null, layers: null, view3d: false, exag: null, cam: null, strip: null, tbin: "season", area: null, ramp: null, data: true, datao: null, lines: false, obs: null, effort: false,
@@ -246,7 +247,7 @@ export function resetPatch(): Partial<Sel> {
   return { cruises: null, lens: d.lens, res: d.res, interp: d.interp, surface: d.surface, grain: d.grain, inputs: d.inputs, labels: d.labels,
     years: d.years, months: d.months, q: d.q, yview: d.yview, depth: d.depth, layer: d.layer, region: d.region, line: d.line, cruise: d.cruise,
     stat: d.stat, anom: d.anom, base: d.base, datasets: d.datasets, area: d.area, station: d.station, view3d: d.view3d, obs: d.obs, strip: d.strip,
-    tbin: d.tbin, effort: d.effort, data: d.data, lines: d.lines, var2: null, pool: d.pool };
+    tbin: d.tbin, effort: d.effort, data: d.data, lines: d.lines, var2: null, color2: false, pool: d.pool };
 }
 
 const num = (v: string | null, d: number) => (v != null && v !== "" && !isNaN(+v) ? +v : d);
@@ -308,6 +309,7 @@ export function fromUrl(): Sel {
     taxon: p.get("taxon") ?? DEFAULTS.taxon,
     var: v ?? DEFAULTS.var,
     var2: p.get("var2") || null,
+    color2: !!p.get("var2") && p.get("color") === "var2",
     stage: p.get("stage"),
     den: den && (den in VAL_COL) ? (den as Den) : null,
     zeros: p.get("zeros") !== "0",
@@ -369,6 +371,7 @@ export function toUrl(s: Sel) {
   // the added variable is its own parameter, beside either realm's pick (it sat between the realm's if and its else, so a
   // species with an added variable lost its taxon, stage, units and zeros from the link, and a variable gained a taxon)
   if (s.var2) p.set("var2", s.var2);
+  if (s.var2 && s.color2 && s.lens === "hex") p.set("color", "var2");
   if (s.years[0] !== 1949 || s.years[1] !== YEAR_OPEN || s.months) p.set("years", fmtYears(s.years, s.months));
   if (s.q?.length && s.q.length < 4) p.set("q", s.q.join(","));
   if (s.yview && s.yview[1] > s.yview[0]) p.set("yview", `${+s.yview[0].toFixed(2)}-${+s.yview[1].toFixed(2)}`);
