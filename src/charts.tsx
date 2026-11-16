@@ -1,6 +1,7 @@
 // Plotly panels: the water-column strip (brush = depth band), the year strip (brush = year range),
 // the section heatmap (zsmooth best, anomaly toggle) and the per-cruise series (click = cruise).
 import { useEffect, useRef, useState } from "react";
+import { stationDatasets } from "./siteobs";
 import { SEASON_CODE } from "./anomaly";
 import { Icon } from "./icons";
 import { colorScale, quantileDomain } from "./map";
@@ -486,12 +487,21 @@ export function StationCard(p: {
   summary?: { datasets: { dataset_key: string; n_obs: number; n_roots: number; year_min: number; year_max: number }[] };
   detail?: { datasets: { dataset_key: string; n_obs: number; year_min: number; year_max: number; years: [number, number][]; months: number[] }[] };
   theme: string; short: (d: string) => string; yearMax: number;
+  /** the datasets in the view (picked, else holding the pick): the card shows only these; null = every dataset */
+  inView?: readonly string[] | null;
 }) {
-  const ds = p.detail?.datasets ?? p.summary?.datasets?.map((d) => ({ ...d, years: [] as [number, number][], months: [] as number[] })) ?? [];
-  return <div className="cards">
-    {!ds.length && <div className="hint">no coverage at this station</div>}
-    {ds.map((d) => <StationDatasetRow key={d.dataset_key} d={d} theme={p.theme} short={p.short} yearMax={p.yearMax} />)}
-  </div>;
+  const all = p.detail?.datasets ?? p.summary?.datasets?.map((d) => ({ ...d, years: [] as [number, number][], months: [] as number[] })) ?? [];
+  // the view's datasets only (Ben, 2026-11-16: a sightings view showed the ichthyo tows of the cell), the rest named in one line
+  const { shown: ds, others } = stationDatasets(all, p.inView);
+  const named = (ks: readonly string[]) => ks.map((k) => p.short(k)).join(", ");
+  return <>
+    <div className="stn-cards">
+      {!all.length && <div className="hint">no coverage at this station</div>}
+      {!!all.length && !ds.length && <div className="hint">nothing from {named(p.inView ?? [])} in this cell</div>}
+      {ds.map((d) => <StationDatasetRow key={d.dataset_key} d={d} theme={p.theme} short={p.short} yearMax={p.yearMax} />)}
+    </div>
+    {others.length > 0 && <div className="hint stn-others" title={named(others)}>{others.length === 1 ? "1 other dataset" : `${others.length} other datasets`} sampled this cell, not in this view: {named(others)}</div>}
+  </>;
 }
 function StationDatasetRow(p: { d: { dataset_key: string; n_obs: number; year_min: number; year_max: number; years: [number, number][]; months: number[] }; theme: string; short: (d: string) => string; yearMax: number }) {
   const ref = usePlot([p.d, p.theme, p.yearMax], (div, Plotly) => {
@@ -508,8 +518,8 @@ function StationDatasetRow(p: { d: { dataset_key: string; n_obs: number; year_mi
       yaxis2: { ...b.yaxis, showticklabels: false, showgrid: false, fixedrange: true, anchor: "x2" },
     }, CFG);
   });
-  return <div className="card">
-    <div className="row" style={{ justifyContent: "space-between", fontSize: 11 }}><b>{p.short(p.d.dataset_key)}</b><span className="hint">{p.d.n_obs.toLocaleString()} obs · {p.d.year_min}–{p.d.year_max}</span></div>
+  return <div className="stn-ds">
+    <div className="stn-ds-head"><b>{p.short(p.d.dataset_key)}</b><span className="hint">{p.d.n_obs.toLocaleString()} obs · {p.d.year_min === p.d.year_max ? p.d.year_min : `${p.d.year_min}–${p.d.year_max}`}</span></div>
     <div ref={ref} style={{ height: 84 }} />
   </div>;
 }

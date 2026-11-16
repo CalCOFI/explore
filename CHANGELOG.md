@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **a dot of the Observations layer opens what was recorded there, and when** (Ben 2026-11-16, on the cetacean
+  sightings preview: a sighting could not be clicked to see the species). A click on a site (`obs=`) opens a card pinned
+  to it: each sample there — a sighting, a net, a cast — with its date and time on the Pacific clock (PST / PDT; UTC in
+  the hover), its dataset and cruise, then what it recorded. For a species the samples are read back from the release
+  with every taxon they hold, so a *whales, dolphins and porpoises* dot names the common dolphins it stands for, the
+  pick's own records in bold; for water, the cast's values by depth bin. The selection's filters (years, seasons, depth,
+  datasets, area, cruises, zeros) hold; at most 200 records. A station dot under a site dot still takes the click and the
+  hover. `sql/site_obs.sql`, `sql/site_obs_env.sql`, `src/siteobs.ts`, `tests/siteobs.test.ts`.
+- **fix: the Station card shows the view's datasets, and its rows no longer pile up.** A station clicked in a sightings
+  view listed every dataset that ever sampled the cell (the ichthyo tows, the bottles …) from the release's coverage
+  files; it now lists the datasets picked, else the ones holding the pick, and names the others in one line. In the
+  phone's bottom sheet each dataset's row wore the floating panels' `.card` class and they were drawn on top of one
+  another; they have their own classes now. Datasets are named as the title card names them (*Cetacean sightings*).
+- **the Effort layer draws behind the data, thin and translucent.** Where several cruises ran the same transect, the 2 px
+  amber segments on a dark halo covered every station dot; they are 1 px at half strength with no halo, under the dots,
+  a cruise's samples, the Lines and the Observations (over the hexagons, regions and surfaces, which would hide them).
+
 - **the What picker says how its lists are ordered, and the order can be changed.** Each species or measurement row shows
   its observations in this release (*138 k*, *1.6 M*; the exact number and what it counts on hover), By dataset that
   dataset's own. A quiet *Sort by* beside By category / By dataset offers **Suggested** — the order it always had: the

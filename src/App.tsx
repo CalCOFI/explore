@@ -56,6 +56,7 @@ import { feedbackEndpoint } from "./feedback";
 import { cruiseStage, hasStageCols, stageIndex, stageProbeSql, viewStage, type StageIndex } from "./stage";
 import { shipAfter, shipName, shipOfCruise } from "./ship";
 import { dockBand, DOCK_EDGE, type Rect } from "./dock";
+import { groupSiteObs, pacificTime, taxonLabel, utcTime, type SiteObsRow, type SiteObsSample } from "./siteobs";
 import {
   DEFAULTS, resetPatch, DEN_SHORT, fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LENS_DESC, LENS_ICON, RES_KM, INTERPS, INTERP_LABEL, INTERP_WORD, INTERP_HOW, SURFACES, SURFACE_LABEL, GRAIN_LABEL, GRAIN_HOW, type Surface, type Grain, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, DEN_HOW, SHF_NOTE, STAT_LABEL, YEAR_OPEN, MAP_HOME,
   type Sel, type Lens, type Den, type Stat, type PickerRow, type PanelId,
@@ -716,13 +717,19 @@ export function App() {
   useEffect(() => { setRegionCard(null); }, [sel.lens, sel.layer]);
   useEffect(() => { if (!hexCard) return; const k = (e: KeyboardEvent) => { if (e.key === "Escape") setHexCard(null); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [hexCard]);
   useEffect(() => { setHexCard(null); }, [sel.lens, sel.res, sel.var, sel.taxon]);
+  // the Observations layer's click card (`obs=`, Ben 2026-11-16): what was recorded at one site and when — the dot's samples
+  // read back with every taxon they hold (sql/site_obs.sql) or, for water, the slice's own rows (site_obs_env.sql); src/siteobs.ts
+  const [obsCard, setObsCard] = useState<{ lon: number; lat: number; x: number; y: number; ll?: [number, number]; rows: SiteObsSample[] | null; nRows: number; err?: string } | null>(null);
+  const obsGen = useRef(0);
+  useEffect(() => { if (!obsCard) return; const k = (e: KeyboardEvent) => { if (e.key === "Escape") setObsCard(null); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [!!obsCard]);
+  useEffect(() => { obsGen.current++; setObsCard(null); }, [sel.obs, sel.var, sel.taxon, sel.realm, sel.lens]);
   // the popups follow the map: while one is open, every map move re-renders it (one frame at a time)
   const [, setCamTick] = useState(0);
   useEffect(() => {
-    const m = (window as any).__map; if (!m?.on || !(hexCard || regionCard)) return;
+    const m = (window as any).__map; if (!m?.on || !(hexCard || regionCard || obsCard)) return;
     let raf = 0; const h = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; setCamTick((n) => n + 1); }); };
     m.on("move", h); return () => { m.off("move", h); if (raf) cancelAnimationFrame(raf); };
-  }, [!!hexCard, !!regionCard]);
+  }, [!!hexCard, !!regionCard, !!obsCard]);
   useEffect(() => {
     if (!drawing) return;
     const m = (window as any).__map; const host: HTMLElement | undefined = m?.getContainer?.(); if (!m || !host) { setDrawing(false); return; }
@@ -1609,6 +1616,15 @@ export function App() {
     const cell = grid.find((c) => c.grid_key === sel.station);
     return { grid_key: sel.station, cell, summary, detail };
   }, [sel.station, cov, covStations, grid]);
+  // the datasets the Station card shows: the ones picked, else the ones holding the pick (the picker once the slice is in,
+  // the release's coverage.json before), so a sightings view never lists the ichthyo tows of the same cell
+  const stationInView = useMemo((): string[] | null => {
+    if (sel.datasets?.length) return sel.datasets;
+    if (dsChoices.length) return dsChoices.map(([dk]) => dk);
+    const fromCov = sel.realm === "bio" ? cov?.taxa?.find((t) => t.taxon_key === sel.taxon)?.datasets.map((d) => d.dataset_key)
+      : cov?.variables.filter((v) => v.measurement_type === sel.var).map((v) => v.dataset_key);
+    return fromCov?.length ? [...new Set(fromCov)] : null;
+  }, [sel.datasets, dsChoices, sel.realm, sel.taxon, sel.var, cov]);
 
   const onLens = (l: Lens) => { lensClickAt.current = performance.now(); setSel({ lens: l }); };
   // Share › Copy code and the bundle hand over the depth × time card's statements while it is open (src/reproduce.ts)
@@ -1749,11 +1765,30 @@ export function App() {
     }
     if (id === "regions") { const s = regionStats.get(o.properties.spatial_key); return { text: `${o.properties.name}\n${s ? `${STAT_LABEL[stat]} ${fmt(statOf(s))} · ${countText(s)} · ${s.y0}–${s.y1}` : "no data"}` }; }
     if (id === "cruise-samples" || id === "cruise-samples-next") return { text: `${o.grid_key ?? "—"} · ${new Date(o.t * 1000).toISOString().slice(0, 10)}\n${STAT_LABEL[stat]} ${fmt(statOf(o))} · ${fmtN(o.n)} observations` };
+    if (id === "obs") {
+      const when = o.y0 == null ? "" : o.y0 === o.y1 ? ` · ${o.y0}` : ` · ${o.y0}–${o.y1}`;
+      return { text: `${countText(o)}${when}\nclick for what was recorded here, and when` };
+    }
     if (id === "effort" || id === "effort-sight") return { text: `${o.track_type === "sight_line" ? "line of sight to a sighting" : "on-effort segment"} · ${short(o.dataset_key)}\n${o.t != null ? new Date(o.t * 1000).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "no time"}${o.length_km != null ? ` · ${fmt(o.length_km, 2)} km` : ""}` };
     return null;
   };
   // a popup stays on the spot it was opened from: its place is kept as a longitude / latitude and re-projected as the map moves
   const clickLL = (info: PickingInfo): [number, number] | undefined => { const ll = (window as any).__map?.unproject?.([info.x ?? 0, info.y ?? 0]); return ll ? [ll.lng, ll.lat] : undefined; };
+  // a dataset as the cards name it: the plain name the title card uses ("Cetacean sightings"), never the bare key
+  const dsLabel = (dk: string) => DS_PLAIN[dk]?.[0] ?? (dsRow(dk) ? dsName(dsRow(dk) as any) : short(dk));
+  // a dot of the Observations layer: its card opens at once ("reading…") and fills when the site's rows are back
+  const taxonOf = useMemo(() => new Map(taxa.map((t) => [String(t.taxon_key), t])), [taxa]);
+  const openObsCard = (o: any, info: PickingInfo) => {
+    const r = (window as any).__map?.getContainer?.()?.getBoundingClientRect?.();
+    const lon = Number(o.longitude), lat = Number(o.latitude), g = ++obsGen.current, limit = 200;
+    setHexCard(null); setRegionCard(null);
+    setObsCard({ lon, lat, x: (r?.left ?? 0) + (info.x ?? 0), y: (r?.top ?? 0) + (info.y ?? 0), ll: [lon, lat], rows: null, nRows: 0 });
+    (sel.realm === "bio"
+      ? engine.query("site_obs", { ...params, lon, lat, limit, src: q(REG.obs_bio), taxon: sel.taxon, net_key: bioNet ? "sample_key" : "root_id" })
+      : engine.query("site_obs_env", { ...params, lon, lat, limit }))
+      .then((rows) => { if (g === obsGen.current) setObsCard((c) => c && { ...c, nRows: rows.length, rows: groupSiteObs(rows as SiteObsRow[], (k) => taxonLabel(taxonOf.get(k) as any, k)) }); })
+      .catch((e) => { console.error("site_obs:", e); if (g === obsGen.current) setObsCard((c) => c && { ...c, rows: [], err: String(e?.message ?? e) }); });
+  };
   const cardXY = (c: { x: number; y: number; ll?: [number, number] }): { x: number; y: number } => {
     const m = (window as any).__map; if (!c.ll || !m?.project) return c;
     const p = m.project(c.ll), r = m.getContainer().getBoundingClientRect();
@@ -1761,6 +1796,8 @@ export function App() {
   };
   const onClick = (info: PickingInfo) => {
     const o: any = info.object; if (!o) return;
+    if (info.layer?.id === "obs") { openObsCard(o, info); return; }
+    if (obsCard) setObsCard(null);
     // Stations / Hexagon with Regions from: a region's data shows on hover, so a click opens nothing (Betty 2026-11-11)
     if (info.layer?.id === "area-pick") { if (regionCard) setRegionCard(null); return; }
     // a hexagon has no click card any more (Betty 2026-11-11: "just hover") — hover shows its values; a click on a
@@ -2521,7 +2558,7 @@ export function App() {
   const stationBody = <>
     {stationNote && stationNote.key === sel.station && <div className={`hint${stationNote.warn ? " warn" : ""}`} data-station-note>{stationNote.note}</div>}
     {stationCard && !stationCard.cell && grid.length > 0 && !(stationNote && stationNote.key === sel.station) && <div className="hint warn" data-station-note>{stationCard.grid_key} is not a cell of {version}'s grid</div>}
-    <StationCard summary={stationCard?.summary} detail={stationCard?.detail} theme={theme} short={short} yearMax={yearMax} />
+    <StationCard summary={stationCard?.summary} detail={stationCard?.detail} theme={theme} short={dsLabel} yearMax={yearMax} inView={stationInView} />
   </>;
   // D28 reshaped: the Sections lens (env) as a deck-only curtain scene — desktop only, the phone keeps 2-D
   const view3dOn = sel.view3d && displayLens === "section" && sel.realm === "env" && !phone;
@@ -2856,6 +2893,33 @@ export function App() {
         </div>
         {maxId && <MaxPanel id={maxId} title={titles[maxId]} icon={icons[maxId]} onRestore={() => setSel({ max: null })} actions={actions(maxId)} exportable={maxId === "select" ? undefined : exportItems(maxId)}>{body(maxId, true)}</MaxPanel>}
       </div>
+      {obsCard && sel.obs && (() => {
+        // the Observations layer's click card: every sample at the dot (a sighting, a net, a cast), when it was taken (the
+        // Pacific clock; the title gives UTC) and what it recorded — the pick's own rows in bold, the rest beside them
+        const at = cardXY(obsCard), left = Math.max(8, Math.min(at.x + 14, innerWidth - 330)), top = Math.max(8, Math.min(at.y + 14, innerHeight - 340));
+        const ss = obsCard.rows ?? [], MAX_S = 25, MAX_I = 8;
+        // the numbers are each record's value, named once in the footer by its measurement type's key in words (sightings:
+        // "group size"); the registry's description is a sentence, too long for a popup
+        const mtWord = (k: string | null) => (k ? k.replace(/_/g, " ") : "value");
+        const valueWord = [...new Set(ss.flatMap((x) => x.items.map((it) => it.mtype)).filter((k): k is string => !!k))].map(mtWord).join(", ") || "value";
+        const anyPick = ss.some((x) => x.items.some((it) => it.in_slice));
+        const ll = `${Math.abs(obsCard.lat).toFixed(2)}° ${obsCard.lat >= 0 ? "N" : "S"}, ${Math.abs(obsCard.lon).toFixed(2)}° ${obsCard.lon >= 0 ? "E" : "W"}`;
+        return <div className="hex-card obs-card" style={{ left, top }} role="dialog" aria-label="what was recorded here">
+          <div className="hc-head"><b>{obsCard.rows == null ? "Reading…" : obsCard.err ? "Could not read this site" : `${fmtN(ss.length)} ${ss.length === 1 ? "sample" : "samples"} here`}</b><span className="hint">{ll}</span><button type="button" className="hc-x" aria-label="close" onClick={() => setObsCard(null)}>×</button></div>
+          {obsCard.err && <div className="hint warn">{obsCard.err}</div>}
+          <div className="oc-list">
+            {ss.slice(0, MAX_S).map((x) => <div key={`${x.dataset_key}:${x.sample_id}`} className="oc-s">
+              <div className="oc-when" title={`${utcTime(x.t)} · ${x.sample_id}`}>{pacificTime(x.t)}<span className="hint"> · {dsLabel(x.dataset_key)}{x.cruise_key ? ` · cruise ${x.cruise_key}` : ""}</span></div>
+              {x.items.slice(0, MAX_I).map((it, i) => <div key={i} className={`oc-item${it.in_slice ? " oc-pick" : ""}`}><span>{it.label}</span><span>{fmt(it.value)}{it.units && it.units !== "count" ? ` ${it.units}` : ""}</span></div>)}
+              {x.items.length > MAX_I && <div className="hint">and {x.items.length - MAX_I} more</div>}
+            </div>)}
+          </div>
+          {ss.length > MAX_S && <div className="hint">and {fmtN(ss.length - MAX_S)} more samples — zoom in or narrow When</div>}
+          {obsCard.rows != null && !obsCard.err && ss.length > 0 && <div className="hint oc-foot">
+            {sel.realm === "bio" ? `number: ${valueWord}${anyPick ? ` · bold: ${subject}` : ""}` : `${envVar?.label ?? mtWord(sel.var)} by depth bin`}{obsCard.nRows >= 200 ? " · the first 200 records" : ""} · Pacific time</div>}
+          {obsCard.rows != null && !obsCard.err && !ss.length && <div className="hint">nothing under this selection's filters here</div>}
+        </div>;
+      })()}
       {hexCard && (() => {
         // the click card, option 2 (Betty 2026-11-11): dark like the hover card; no "hexagon" or its size — the name, the
         // value on its own colour scale, how much data and when, then what you can do with this spot
