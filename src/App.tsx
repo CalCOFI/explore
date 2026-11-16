@@ -476,6 +476,8 @@ export function App() {
   }, []);
 
   useEffect(() => { toUrl(sel); }, [sel]);
+  // Back / Forward: the link is the whole view, so the entry the browser returns to is read back in (state.ts historyMode)
+  useEffect(() => { const pop = () => setSelRaw(fromUrl()); window.addEventListener("popstate", pop); return () => window.removeEventListener("popstate", pop); }, []);
   // the header's height as --cc-header-h: a dialog's backdrop starts below the header, so a tall dialog never slides under it
   useEffect(() => {
     const h = document.querySelector(".cc-header"); if (!h) return;

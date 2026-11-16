@@ -419,7 +419,29 @@ export function toUrl(s: Sel) {
   // URLSearchParams escapes , and : (%2C %3A) though both are legal in a query string; a link people read and paste
   // keeps them raw — `cam=-121.2,32.6,7.2,40,-60`, `taxon=worms:217452` (Ben, 2026-09-10: "doesn't get so ugly")
   const url = `${location.pathname}?${p.toString().replace(/%2C/g, ",").replace(/%3A/g, ":")}`;
-  if (url !== location.pathname + location.search) history.replaceState(null, "", url);
+  if (url === location.pathname + location.search) return;
+  if (historyMode(location.search, url.slice(url.indexOf("?"))) === "push") history.pushState(null, "", url); else history.replaceState(null, "", url);
+}
+
+// browser Back / Forward (review 2026-11-16): a change of WHAT is shown — the pick, the view, the years, seasons, area, cruises,
+// depth band, the added variable, the hexagon size, the line, the layer — is a history entry, so Back undoes it; everything
+// else (the map's pan and zoom, folds, the strip's zoom, the app's own defaults filled in after a load: stage, units, dataset,
+// the cruise a view opens on) replaces the entry, so Back never lands on a half-loaded state that re-fills itself.
+const NAV: [string, string][] = [["lens", "station"], ["taxon", DEFAULT_TAXON], ["var", ""], ["years", ""], ["q", ""], ["area", ""], ["cr", ""], ["depth", ""], ["var2", ""], ["res", ""], ["line", ""], ["layer", ""], ["datasets", ""]];
+// filled in by the app itself when absent (the dataset the pick opens on): only a change from one value to another is a step
+const AUTO = new Set(["datasets"]);
+export function historyMode(prev: string, next: string): "push" | "replace" {
+  const a = new URLSearchParams(prev), b = new URLSearchParams(next);
+  const val = (q: URLSearchParams, k: string, d: string) => (k === "taxon" && q.has("var") ? "" : q.get(k) ?? d);
+  for (const [k, d] of NAV) {
+    const x = val(a, k, d), y = val(b, k, d);
+    if (x === y) continue;
+    if (AUTO.has(k) && (!x || !y)) continue;
+    return "push";
+  }
+  // the cruise a Cruise or Section view shows: picking another is a step, the app's first pick is not
+  const ca = a.get("cruise"), cb = b.get("cruise");
+  return ca && cb && ca !== cb ? "push" : "replace";
 }
 
 // the picker's rule-4 defaults, from picker.sql rows

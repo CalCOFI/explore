@@ -7,7 +7,7 @@ import { DEFAULTS, fromUrl, toUrl, type Sel } from "../src/state";
 let written = "";
 const at = (search: string) => {
   vi.stubGlobal("location", { pathname: "/explore/", search });
-  vi.stubGlobal("history", { replaceState: (_: unknown, __: string, url: string) => { written = url; } });
+  vi.stubGlobal("history", { replaceState: (_: unknown, __: string, url: string) => { written = url; }, pushState: (_: unknown, __: string, url: string) => { written = url; } });
 };
 const params = () => new URLSearchParams(written.split("?")[1] ?? "");
 const roundTrip = (s: Sel) => { at(""); toUrl(s); at(`?${written.split("?")[1]}`); return fromUrl(); };
