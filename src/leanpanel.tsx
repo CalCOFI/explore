@@ -6,13 +6,13 @@ import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "
 import { Icon, type IconName } from "./icons";
 import type { PickerItem } from "./picker";
 import { Menu, type MenuItem } from "./ui";
-import { LENSES, type Lens } from "./state";
+import { LENSES, LENS_ICON, type Lens } from "./state";
 import { shownName } from "./spatial_registry";
 import { lineStationId } from "./area";
 
 // ── the view picker ────────────────────────────────────────────────────────────────────────────────────────
-// plain names for the six lenses (the lens ids and the state they set are unchanged), each with a small picture of
-// what it draws, so a person can tell the views apart without knowing what "hexagons" or "contours" are
+// plain names for the six lenses (the lens ids and the state they set are unchanged), each with its lens glyph, so a
+// person can tell the views apart without knowing what "hexagons" or "contours" are
 export const RAIL_NAME: Record<Lens, string> = { station: "Stations", hex: "Hexagon", contour: "Contour", cruise: "By cruise", region: "By region", section: "Cross-section" };
 /** each view as what a person wants to do (the headline) and a fuller line on what it draws and what it is good for */
 const GUIDE: Record<Lens, { q: string; a: string }> = {
@@ -26,16 +26,12 @@ const GUIDE: Record<Lens, { q: string; a: string }> = {
 /** a species has no depth axis (its tows are depth-integrated), so its section runs along the line year by year */
 const guideOf = (l: Lens, bio?: boolean) => (bio && l === "section" ? { q: "Look along one CalCOFI line, year by year", a: "A slice along one line of stations, with the years running up the side, to see how it changed over time." } : GUIDE[l]);
 export const RAIL_TIP: Record<Lens, string> = Object.fromEntries((Object.keys(GUIDE) as Lens[]).map((l) => [l, `${RAIL_NAME[l]} — ${GUIDE[l].a}`])) as Record<Lens, string>;
-const hex = (cx: number, cy: number, r: number) => Array.from({ length: 6 }, (_, i) => { const a = (Math.PI / 3) * i; return `${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`; }).join(" ");
-const V = { lo: "#3b0f70", mid: "#21908c", hi: "#fde725", lt: "#7ad151" }; // the viridis stops the maps use
-const THUMB: Record<Lens, ReactNode> = {
-  station: <><circle cx="12" cy="9" r="4" fill={V.mid} /><circle cx="30" cy="20" r="4" fill={V.hi} /><circle cx="44" cy="8" r="4" fill={V.mid} /><circle cx="52" cy="22" r="4" fill={V.lo} /><circle cx="8" cy="24" r="3.4" fill={V.lo} /></>,
-  hex: <><polygon points={hex(10, 10, 7)} fill={V.lo} /><polygon points={hex(24, 10, 7)} fill={V.mid} /><polygon points={hex(38, 10, 7)} fill={V.mid} /><polygon points={hex(52, 10, 7)} fill={V.lt} /><polygon points={hex(17, 22, 7)} fill={V.hi} /><polygon points={hex(31, 22, 7)} fill={V.mid} /><polygon points={hex(45, 22, 7)} fill={V.mid} /></>,
-  contour: <><defs><linearGradient id="vr-c" x1="0" x2="1"><stop offset="0" stopColor={V.lo} /><stop offset=".5" stopColor={V.mid} /><stop offset="1" stopColor={V.hi} /></linearGradient></defs><rect x="2" y="3" width="52" height="26" rx="3" fill="url(#vr-c)" opacity=".85" /><path d="M2 20 C16 8 30 24 54 12" fill="none" stroke="#fff" strokeWidth="1" opacity=".7" /><path d="M2 26 C18 16 34 28 54 20" fill="none" stroke="#fff" strokeWidth="1" opacity=".5" /></>,
-  cruise: <><path d="M3 24 C14 6 24 30 36 14 S50 8 53 5" fill="none" stroke="currentColor" strokeWidth="2" /><circle cx="14" cy="14" r="2.6" fill="currentColor" /><circle cx="36" cy="14" r="2.6" fill="currentColor" /><circle cx="53" cy="5" r="2.6" fill="currentColor" /></>,
-  region: <><polygon points="3,6 22,4 24,26 4,28" fill="#7fb2d8" /><polygon points="24,4 42,7 44,27 24,26" fill={V.mid} /><polygon points="42,7 54,6 54,26 44,27" fill={V.hi} /></>,
-  section: <><defs><linearGradient id="vr-s" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor={V.hi} /><stop offset=".5" stopColor={V.mid} /><stop offset="1" stopColor={V.lo} /></linearGradient></defs><path d="M2 3 H54 V20 L44 28 H12 L2 20 Z" fill="url(#vr-s)" /><path d="M10 3 v3 M22 3 v3 M34 3 v3 M46 3 v3" stroke="#fff" strokeWidth="1.2" opacity=".8" /></>,
-};
+// each view's glyph is main's own lens icon (state.ts LENS_ICON, icon-paths.ts): one colour, currentColor, the same
+// mark the classic lens picker and the header use. Coloured pictures (viridis dots, hexagons, a gradient) were tried
+// here and dropped (Ben, 2026-11-16): beside the map they competed with the data it draws.
+function Glyph(p: { l: Lens }) {
+  return <span className="vr-th" aria-hidden="true"><Icon name={LENS_ICON[p.l]} /></span>;
+}
 /** step 4, "View as": the six views as one compact row of little pictures (the chosen one outlined, its name beside the heading),
  *  plus "? Guide", which opens the same views as questions. Replaces the old rail on the map's right edge. */
 const VA_SHORT: Record<Lens, string> = { station: "Stations", hex: "Hexagon", contour: "Contour", cruise: "Cruise", region: "Region", section: "Section" };
@@ -73,13 +69,13 @@ export function ViewAs(p: { lens: Lens; onLens: (l: Lens) => void; nudge?: Lens 
         {LENSES.map((l) => (
           <button key={l} type="button" className={`va-tile${l === p.lens ? " on" : ""}${l === p.nudge && l !== p.lens ? " nudge" : ""}`} aria-pressed={l === p.lens} aria-label={RAIL_NAME[l]} onClick={() => l !== p.lens && p.onLens(l)}
             onMouseEnter={(e) => !guide && peekAt(l, e.currentTarget)} onMouseLeave={() => setPeek(null)} onFocus={(e) => !guide && peekAt(l, e.currentTarget)} onBlur={() => setPeek(null)}>
-            <svg className="vr-th" viewBox="0 0 56 32" aria-hidden="true">{THUMB[l]}</svg>
+            <Glyph l={l} />
             <span className="va-lab">{VA_SHORT[l]}</span>
           </button>))}
       </div>
       {peek && !guide && <div className="vr-guide vr-peek" aria-hidden="true" style={{ top: peek.top, left: peek.left, width: peek.w }}>
         <div className={`vm-row${peek.l === p.lens ? " on" : ""}`}>
-          <span className="vm-pic"><svg className="vr-th" viewBox="0 0 56 32" aria-hidden="true">{THUMB[peek.l]}</svg><i>{RAIL_NAME[peek.l]}</i></span>
+          <span className="vm-pic"><Glyph l={peek.l} /><i>{RAIL_NAME[peek.l]}</i></span>
           <span className="vm-tx"><b>{guideOf(peek.l, p.bio).q}</b><span>{guideOf(peek.l, p.bio).a}</span></span>
         </div>
       </div>}
@@ -87,7 +83,7 @@ export function ViewAs(p: { lens: Lens; onLens: (l: Lens) => void; nudge?: Lens 
         <div className="vm-hd">WHAT DO YOU WANT TO DO?</div>
         {LENSES.map((l) => (
           <button key={l} type="button" className={`vm-row${l === p.lens ? " on" : ""}`} onClick={() => { if (l !== p.lens) p.onLens(l); setGuide(null); }}>
-            <span className="vm-pic"><svg className="vr-th" viewBox="0 0 56 32" aria-hidden="true">{THUMB[l]}</svg><i>{RAIL_NAME[l]}</i></span>
+            <span className="vm-pic"><Glyph l={l} /><i>{RAIL_NAME[l]}</i></span>
             <span className="vm-tx"><b>{guideOf(l, p.bio).q}</b><span>{guideOf(l, p.bio).a}</span></span>
           </button>))}
       </div>}
@@ -121,7 +117,7 @@ export function ViewMenu(p: { lens: Lens; onLens: (l: Lens) => void; nudge?: Len
   return (
     <div ref={box} className="view-menu" data-tour="viewmenu">
       <button type="button" className={`vm-btn${nudge ? " nudge" : ""}`} aria-haspopup="true" aria-expanded={open} title="Change the view" onClick={() => show(!open)}>
-        <svg className="vr-th" viewBox="0 0 56 32" aria-hidden="true">{THUMB[p.lens]}</svg>
+        <Glyph l={p.lens} />
         {RAIL_NAME[p.lens]}
         <Icon name={open ? "ui-up" : "ui-down"} size="0.95em" />
       </button>
@@ -130,7 +126,7 @@ export function ViewMenu(p: { lens: Lens; onLens: (l: Lens) => void; nudge?: Len
         <div className="vm-hd">WHAT DO YOU WANT TO DO?</div>
         {LENSES.map((l) => (
           <button key={l} type="button" className={`vm-row${l === p.lens ? " on" : ""}`} aria-pressed={l === p.lens} onClick={() => { if (l !== p.lens) p.onLens(l); setOpen(false); }}>
-            <span className="vm-pic"><svg className="vr-th" viewBox="0 0 56 32" aria-hidden="true">{THUMB[l]}</svg><i>{RAIL_NAME[l]}</i></span>
+            <span className="vm-pic"><Glyph l={l} /><i>{RAIL_NAME[l]}</i></span>
             <span className="vm-tx"><b>{guideOf(l, p.bio).q}</b><span>{guideOf(l, p.bio).a}</span></span>
           </button>))}
       </div>}

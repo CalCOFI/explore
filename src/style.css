@@ -2345,3 +2345,12 @@ body .den.mo-sec .den-shf { margin: 6px 0 0 0; font-size: 12.5px; color: var(--m
 .deck-tooltip .tt2 .tt2-bar { background: color-mix(in srgb, var(--fg) 12%, transparent); }
 .deck-tooltip .tt2 .tt2-bar i { background: var(--accent); }
 .deck-tooltip .tt2 .tt2-f { border-top-color: var(--border); }
+
+/* the views' glyphs: main's monochrome lens icons (LENS_ICON, filled in currentColor), not coloured pictures — a picture in
+   the data's own colours competed with the map. The glyph takes the tile's text colour, and the chosen view's accent. */
+.vr-th { display: inline-grid; place-items: center; background: transparent; color: inherit; font-size: 20px; }
+.va-tile .vr-th { width: 100%; height: 28px; font-size: 22px; }
+.vm-btn .vr-th, .vm-row .vr-th { width: 18px; height: 18px; font-size: 18px; background: transparent; }
+.vm-pic .vr-th { display: grid; width: 54px; height: 31px; font-size: 24px; background: var(--panel-2); color: var(--fg); }
+.va-tile.on .vr-th, .vm-row.on .vm-pic .vr-th { color: var(--accent); }
+:root[data-theme="dark"] .va-tile.on .vr-th, :root[data-theme="dark"] .vm-row.on .vm-pic .vr-th { color: var(--wh); }
