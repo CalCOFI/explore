@@ -322,6 +322,59 @@ for (const [what, qs] of [["species", `${SARDINE}&stage=larva&den=per_10m2`], ["
   });
 }
 
+// every What category, picked as a person picks it: open What, open the category, take its first item
+C("what_categories", async () => {
+  await ready(`var=temperature&years=2015-2019`); await closeWhat();
+  await click(".what-card"); await sleep(500);
+  const cats = await page.evaluate(() => [...document.querySelectorAll(".wp .wp-row .wp-name")].map((e) => e.textContent.trim()));
+  check(cats.length >= 10, `What lists ${cats.length} categories (${cats.join(", ")})`);
+  for (const cat of cats) {
+    if (!(await exists(".wp"))) { await click(".what-card"); await sleep(500); }
+    await page.evaluate((c) => { const r = [...document.querySelectorAll(".wp .wp-row")].find((b) => b.querySelector(".wp-name")?.textContent.trim() === c); if (r && r.getAttribute("aria-expanded") !== "true") r.click(); }, cat);
+    await sleep(400);
+    const item = await page.evaluate(() => { const b = document.querySelector(".wp .wp-group.open .wp-item"); if (!b) return null; const t = b.querySelector(".wp-name")?.textContent.trim(); b.click(); return t; });
+    if (!item) { fail(`${cat}: no item to pick`); continue; }
+    await sleep(500); await idle(120000);
+    const v = await view();
+    const drew = v.st.length + v.hex.length;
+    // nothing at a station in these years is fine when the view says why (off-grid samples: "See it in the Hexagon view")
+    const why = drew ? "" : await page.evaluate(() => (document.body.innerText.match(/No data collected at stations[^\n]*|No observations[^\n]*|No [^\n]* caught under these choices[^\n]*/) ?? [""])[0]);
+    check(!(await exists(".wp")) && (drew > 0 || !!why), `${cat} › ${item}: the map draws ${v.st.length} stations${why ? ` and says "${why}"` : ""} (${v.sel.realm === "bio" ? v.sel.taxon : v.sel.var}${v.sel.datasets ? ` · ${v.sel.datasets}` : ""})`);
+    if (drew > 0) await checkCsv(`${cat} › ${item}`);
+    noErrors(`${cat} › ${item}`);
+  }
+});
+
+C("what_by_dataset", async () => {
+  await ready(`var=temperature&years=2015-2019`); await closeWhat();
+  await click(".what-card"); await sleep(500);
+  await clickText(".wp-tabs button", "By dataset"); await sleep(400);
+  const ds = await page.evaluate(() => [...document.querySelectorAll(".wp .wp-row .wp-name")].map((e) => e.textContent.trim()));
+  check(ds.length > 5, `By dataset lists ${ds.length} datasets`);
+  for (const d of ds.slice(0, 4)) {
+    if (!(await exists(".wp"))) { await click(".what-card"); await sleep(500); await clickText(".wp-tabs button", "By dataset"); await sleep(400); }
+    await page.evaluate((c) => { const r = [...document.querySelectorAll(".wp .wp-row")].find((b) => b.querySelector(".wp-name")?.textContent.trim() === c); if (r && r.getAttribute("aria-expanded") !== "true") r.click(); }, d);
+    await sleep(400);
+    const item = await page.evaluate(() => { const b = document.querySelector(".wp .wp-group.open .wp-item"); if (!b) return null; const t = b.querySelector(".wp-name")?.textContent.trim(); b.click(); return t; });
+    if (!item) { fail(`${d}: no item`); continue; }
+    await sleep(500); await idle(120000);
+    const v = await view();
+    check(v.st.length > 0 || v.vc?.n === 0, `By dataset › ${d} › ${item}: ${v.st.length} stations, datasets ${v.sel.datasets}`);
+    if (v.st.length) await checkCsv(`By dataset › ${d} › ${item}`);
+    noErrors(`By dataset › ${d}`);
+  }
+});
+
+C("ramp_boundaries", async () => {
+  await ready(`var=temperature&years=2015-2019&lens=hex&ramp=thermal_r&layers=off`); await closeWhat();
+  check((await qp()).ramp === "thermal_r" && (await qp()).layers === "off", "a colour ramp and no boundary layers from the link");
+  noErrors("ramp + layers=off");
+  await roundTrip("ramp + layers=off");
+  await ready(`var=temperature&years=2015-2019&lens=region&layers=noaa_onms_sanctuaries,data`); await closeWhat();
+  await shot("lean_boundaries_region");
+  noErrors("sanctuaries layer in the Region view");
+});
+
 C("view_header_sync", async () => {
   await ready("var=temperature"); await closeWhat();
   await click(".vm-btn"); await sleep(300); await clickText(".vm-list .vm-row", "Hexagon"); await idle();
