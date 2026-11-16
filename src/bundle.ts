@@ -222,7 +222,7 @@ export async function buildObservationsCsv(ctx: ReproCtx, opts: { zeros?: boolea
   const where = [whereSql(ctx), ...own].join(" AND ");
   const cnt = (await engine.exec(`SELECT count(*) AS n FROM slice WHERE ${where}`, "csv_count"))[0];
   const n = Number(cnt.n);
-  if (n > 1_000_000) throw new Error(`${n.toLocaleString()} rows is too many for one CSV — use "Everything as a package", which carries parquet`);
+  if (n > 1_000_000) throw new Error(`${n.toLocaleString()} rows is too many for one CSV — narrow the years or the area, or use Zip, which carries parquet`);
   await engine.exec(`COPY (${viewRows(where, ctx, opts.regionCols, statsWhere, opts.var2Cols)}) TO '${fn}.csv' (FORMAT csv, HEADER)`, "obs_csv");
   const buf = await takeFile(`${fn}.csv`);
   const what = String(ctx.sel.realm === "bio" ? ctx.sel.taxon : ctx.sel.var).replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 60);

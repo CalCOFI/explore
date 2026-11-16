@@ -2123,6 +2123,10 @@ body .den.mo-sec .den-shf { margin: 6px 0 0 0; font-size: 12.5px; color: var(--m
 .ds-c-opt .tx { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .ds-c-opt .tx small, .ds-c-opt .rt small { font-size: 12px; color: color-mix(in srgb, var(--fg) 62%, var(--panel)); }
 .ds-c-opt .tx small.how { margin-top: 1px; }
+/* combining the datasets: the menu's last row (an explicit opt-in), and the button while combined */
+.ds-c-sel .dots, .ds-c-pool .dots { display: inline-flex; gap: 2px; flex: none; }
+.ds-c-pool .dots { margin-top: 5px; }
+.ds-c-pool { border-top: 1px dashed var(--border); }
 .ds-c-opt .rt { flex: none; text-align: right; display: flex; flex-direction: column; }
 .ds-c-opt .rt .num { font-size: 13px; color: color-mix(in srgb, var(--fg) 75%, var(--panel)); font-variant-numeric: tabular-nums; }
 .ds-c-menu .ds-why { margin: 0; padding: 7px 10px; background: color-mix(in srgb, var(--fg) 3%, var(--panel)); }

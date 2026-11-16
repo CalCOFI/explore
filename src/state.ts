@@ -46,6 +46,7 @@ export interface Sel {
   release: string | null;      // ?release=vYYYY.MM.DD; null = latest.txt
   station: string | null;      // a selected grid cell (its coverage card)
   datasets: string[] | null;   // dataset filter (pills); null = every dataset in the slice
+  pool: boolean;               // combine datasets (`datasets=all`, or a list of two or more): an explicit opt-in — by default the app shows ONE dataset, the one with the most data (review 2026-11-16)
   theme: "dark" | "light" | null;
   hide: PanelId[];             // folded rails (D11 rule 4: `hide=depth,years`, absent when it is the viewport default)
   max: PanelId | null;         // the maximized panel (`max=section`)
@@ -232,7 +233,7 @@ export const YEAR_OPEN = 9999; // "through the latest year in the release" until
 export const DEFAULTS: Sel = {
   lens: "station", res: 5, interp: "tps", surface: "value", grain: "site", inputs: null, labels: true, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature", var2: null,
   stage: null, den: null, zeros: true, years: [1949, YEAR_OPEN], months: null, q: null, yview: null, depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
-  line: 90, cruise: null, cruises: null, stat: "mean", anom: false, base: "month", tour: true, tourOn: false, modal: null, theme: null, release: null, station: null, datasets: null,
+  line: 90, cruise: null, cruises: null, stat: "mean", anom: false, base: "month", tour: true, tourOn: false, modal: null, theme: null, release: null, station: null, datasets: null, pool: false,
   hide: DEFAULT_HIDE, max: null, map: null, bathy: null, bathyo: null, land: true, baseLabels: true, basemapo: null, layers: null, view3d: false, exag: null, cam: null, strip: null, tbin: "season", area: null, ramp: null, data: true, datao: null, lines: false, obs: null, effort: false,
 };
 
@@ -245,7 +246,7 @@ export function resetPatch(): Partial<Sel> {
   return { cruises: null, lens: d.lens, res: d.res, interp: d.interp, surface: d.surface, grain: d.grain, inputs: d.inputs, labels: d.labels,
     years: d.years, months: d.months, q: d.q, yview: d.yview, depth: d.depth, layer: d.layer, region: d.region, line: d.line, cruise: d.cruise,
     stat: d.stat, anom: d.anom, base: d.base, datasets: d.datasets, area: d.area, station: d.station, view3d: d.view3d, obs: d.obs, strip: d.strip,
-    tbin: d.tbin, effort: d.effort, data: d.data, lines: d.lines, var2: null };
+    tbin: d.tbin, effort: d.effort, data: d.data, lines: d.lines, var2: null, pool: d.pool };
 }
 
 const num = (v: string | null, d: number) => (v != null && v !== "" && !isNaN(+v) ? +v : d);
@@ -278,6 +279,15 @@ function parseMap(v: string | null): [number, number, number] | null {
   return sameMap(m as [number, number, number], MAP_HOME) ? null : (m as [number, number, number]);
 }
 const fmtYears = (y: [number, number], m: [number, number] | null) => m ? `${y[0]}-${String(m[0]).padStart(2, "0")}:${y[1]}-${String(m[1]).padStart(2, "0")}` : `${y[0]}-${y[1]}`;
+
+/** `datasets=`: absent = one dataset, the app's pick; `datasets=a` = that one; `datasets=all` = every dataset combined;
+ *  `datasets=a,b` = those combined (a list of two or more is pooling, whichever layout wrote it) */
+export function parseDatasets(v: string | null): { datasets: string[] | null; pool: boolean } {
+  if (v === "all") return { datasets: null, pool: true };
+  const ds = (v ?? "").split(",").filter(Boolean);
+  return { datasets: ds.length ? ds : null, pool: ds.length > 1 };
+}
+export const datasetsParam = (s: Pick<Sel, "datasets" | "pool">): string | null => s.datasets?.length ? s.datasets.join(",") : s.pool ? "all" : null;
 
 export function fromUrl(): Sel {
   const p = new URLSearchParams(location.search);
@@ -317,7 +327,7 @@ export function fromUrl(): Sel {
     modal: p.get("modal") === "sources" ? "sources" : null,
     release: p.get("release"),
     station: p.get("station"),
-    datasets: p.get("datasets") ? p.get("datasets")!.split(",").filter(Boolean) : null,
+    ...parseDatasets(p.get("datasets")),
     theme: (p.get("theme") as Sel["theme"]) ?? null,
     hide: hideFromUrl(p),
     max: (PANEL_IDS as string[]).includes(p.get("max") ?? "") ? (p.get("max") as PanelId) : null,
@@ -376,7 +386,7 @@ export function toUrl(s: Sel) {
   if (s.modal) p.set("modal", s.modal);
   if (s.release) p.set("release", s.release);
   if (s.station) p.set("station", s.station);
-  if (s.datasets?.length) p.set("datasets", s.datasets.join(","));
+  const ds = datasetsParam(s); if (ds) p.set("datasets", ds);
   if (s.theme) p.set("theme", s.theme);
   const shown = DEFAULT_HIDE.filter((x) => !s.hide.includes(x)), hidden = s.hide.filter((x) => !DEFAULT_HIDE.includes(x));
   if (hidden.length) p.set("hide", hidden.join(","));

@@ -562,7 +562,8 @@ export function App() {
         // the stage and denominator default from the datasets IN VIEW: a dataset link to CUFES (eggs, no effort) must not
         // inherit ichthyo's larva · per 10 m² and open on 0 observations (Ben, 2026-09-07)
         // no dataset chosen yet: open on the program's main dataset for this pick (defaultDataset), and its biggest stage
-        const ds0 = sel.datasets?.filter((d) => present.has(d)).length ? sel.datasets.filter((d) => present.has(d)) : [defaultDataset(rows)];
+        // … unless combining was asked for (`datasets=all`): then every dataset in the slice
+        const ds0 = sel.datasets?.filter((d) => present.has(d)).length ? sel.datasets.filter((d) => present.has(d)) : sel.pool ? [...present] : [defaultDataset(rows)];
         const inView = rows.filter((r) => ds0.includes(r.dataset_key));
         const base = inView.length ? inView : rows;
         const stages = new Set(base.map((r) => r.life_stage));
@@ -806,9 +807,18 @@ export function App() {
   const [colorBy2, setColorBy2] = useState(false);
   useEffect(() => { if (!sel.var2 || sel.lens !== "hex") setColorBy2(false); }, [sel.var2, sel.lens]);
   const dsOn = (dk: string) => !sel.datasets || sel.datasets.includes(dk);
-  // one dataset at a time, for species and measurements alike (Betty 2026-11-10): datasets are never pooled, so a click
-  // SWITCHES to that dataset rather than adding it to a mix
-  const toggleDataset = (dk: string) => setSel({ datasets: [dk] });
+  // one dataset at a time by default, for species and measurements alike (Betty 2026-11-10): a click SWITCHES to that
+  // dataset rather than adding it to a mix. Combining them is an explicit choice (`pool`, `datasets=all`): the lean
+  // dataset list's last row, or the classic Refine tab's pills, which add and remove (review 2026-11-16)
+  const toggleDataset = (dk: string) => setSel({ datasets: [dk], pool: false });
+  const poolAll = () => setSel({ datasets: null, pool: true });
+  const toggleDatasetClassic = (dk: string) => {
+    const all = [...new Set(picker.map((r) => r.dataset_key))];
+    const cur = sel.datasets ?? (sel.pool ? all : all.filter(dsOn));
+    const next = cur.includes(dk) ? cur.filter((d) => d !== dk) : [...cur, dk];
+    if (!next.length) return; // never none: the last one stays
+    setSel(next.length === 1 ? { datasets: next, pool: false } : { datasets: next.length === all.length ? null : next, pool: true });
+  };
 
   // the slice on hand is the one for the CURRENT pick. While a new measurement or species is still being fetched, sliceKey is the
   // old pick's: the lens must not run (it would filter the old data by the new pick's dataset and report "nothing in the selection").
@@ -1181,11 +1191,12 @@ export function App() {
   // with the most data. The others are listed under it to switch to.
   useEffect(() => {
     if (sliceKey !== (sel.realm === "bio" ? `bio:${sel.taxon}` : `env:${sel.var}`) || !dsChoices.length) return;
+    if (sel.pool) return; // combining was asked for: every dataset (datasets null) or the set chosen
     const keys = dsChoices.map(([dk]) => dk);
     if (keys.length === 1) { if (sel.datasets && !sel.datasets.includes(keys[0])) setSel({ datasets: null }); return; }
     if (sel.datasets?.length === 1 && keys.includes(sel.datasets[0])) return;
     setSel({ datasets: [sel.datasets?.find((d) => keys.includes(d)) ?? keys[0]] });
-  }, [sliceKey, dsChoices, sel.datasets, sel.realm, sel.taxon, sel.var]);
+  }, [sliceKey, dsChoices, sel.datasets, sel.pool, sel.realm, sel.taxon, sel.var]);
   const denInfo = (den: Den) => {
     const ok = new Set<string>(), all = new Set<string>();
     let excluded = 0, rows = 0;
@@ -2008,22 +2019,35 @@ export function App() {
           const { rows, raw, flagged } = dsList, cur = rows[0], n = rows.length - 1;
           if (!n && desk) return null;   // one dataset: the Source line in the title already names it
           const stLine = (r: typeof cur) => (r.st && !r.st.includes(",") && r.st !== "unknown" && rows.some((o) => o.st.includes(",")) ? `${r.st} only` : r.st);
+          // combining: an explicit last row, only among the datasets that hold this pick in the slice (dsChoices); while combined,
+          // every dataset row is a way back to one (review 2026-11-16: the PR had made combining impossible)
+          const canPool = dsChoices.length > 1, pooled = canPool && sel.pool;
+          const inSlice = new Set(dsChoices.map(([dk]) => dk));
+          const pooledN = pooled ? (sel.datasets?.length ?? dsChoices.length) : 0;
+          const goOf = (r: typeof cur) => (pooled && inSlice.has(r.dk) ? () => toggleDataset(r.dk) : r.go);
           return <div className="ds-f ds-c mo-sec" onKeyDown={(e) => { if (e.key === "Escape") setDsOpen(false); }}>
-            <div className="ds-c-h"><span className="k">Choose dataset</span></div>
-            <button type="button" className={`ds-c-sel${dsOpen ? " open" : ""}`} aria-haspopup="listbox" aria-expanded={dsOpen} disabled={!n}
-              onClick={() => setDsOpen(!dsOpen)} title={`${cur.long}${cur.how ? ` — ${cur.how}` : ""}`}>
-              <i className="dot" style={{ background: dsColor(cur.dk) }} /><b className="nm">{cur.nm}{raw ? " ⚠" : ""}</b>
-              {n > 0 && <span className="cnt">{n} other{n > 1 ? "s" : ""}</span>}{n > 0 && <Icon name={dsOpen ? "ui-up" : "ui-down"} size="0.85rem" />}
+            <div className="ds-c-h"><span className="k">{pooled ? "Datasets combined" : "Choose dataset"}</span></div>
+            <button type="button" className={`ds-c-sel${dsOpen ? " open" : ""}${pooled ? " pooled" : ""}`} aria-haspopup="listbox" aria-expanded={dsOpen} disabled={!n}
+              onClick={() => setDsOpen(!dsOpen)} title={pooled ? "every dataset that holds this pick, combined — open to show one at a time" : `${cur.long}${cur.how ? ` — ${cur.how}` : ""}`}>
+              {pooled ? <><span className="dots">{dsChoices.filter(([dk]) => dsOn(dk)).map(([dk]) => <i key={dk} className="dot" style={{ background: dsColor(dk) }} />)}</span><b className="nm">{pooledN === dsChoices.length ? `All ${pooledN} datasets` : `${pooledN} datasets`}, combined</b></>
+                : <><i className="dot" style={{ background: dsColor(cur.dk) }} /><b className="nm">{cur.nm}{raw ? " ⚠" : ""}</b>
+                {n > 0 && <span className="cnt">{n} other{n > 1 ? "s" : ""}</span>}</>}{n > 0 && <Icon name={dsOpen ? "ui-up" : "ui-down"} size="0.85rem" />}
             </button>
             {dsOpen && n > 0 && <div className="ds-c-menu" role="listbox" aria-label="dataset">
-              {rows.map((r) => <button type="button" role="option" aria-selected={!r.go} key={r.dk} className={`ds-c-opt${r.go ? "" : " cur"}`}
-                onClick={() => { r.go?.(); setDsOpen(false); }} title={r.long}>
+              {rows.map((r) => { const go = goOf(r); return <button type="button" role="option" aria-selected={!go} key={r.dk} className={`ds-c-opt${go ? "" : " cur"}`}
+                onClick={() => { go?.(); setDsOpen(false); }} title={r.long}>
                 <i className="dot" style={{ background: dsColor(r.dk) }} />
                 <span className="tx"><b className="nm">{r.nm}</b>{r.st && <small>{stLine(r)}</small>}{r.how && <small className="how">{r.how}</small>}</span>
-                <span className="rt">{r.tot != null && <span className="num">{!r.go && "✓ "}{fmtN(r.tot)}</span>}{r.tot != null && <small>records</small>}
-                  {!r.go && flagged ? <small>{fmtN(flagged)} flagged</small> : null}</span>
-              </button>)}
-              <div className="ds-why">Different gear and units, so shown one at a time.</div>
+                <span className="rt">{r.tot != null && <span className="num">{!go && "✓ "}{fmtN(r.tot)}</span>}{r.tot != null && <small>records</small>}
+                  {!go && flagged ? <small>{fmtN(flagged)} flagged</small> : null}</span>
+              </button>; })}
+              {canPool && <button type="button" role="option" aria-selected={pooled} className={`ds-c-opt ds-c-pool${pooled ? " cur" : ""}`} onClick={() => { if (!pooled) poolAll(); setDsOpen(false); }}
+                title="average every dataset that holds this pick together — their gear and methods differ, so read the result with care">
+                <span className="dots">{dsChoices.map(([dk]) => <i key={dk} className="dot" style={{ background: dsColor(dk) }} />)}</span>
+                <span className="tx"><b className="nm">Combine all {dsChoices.length}</b><small className="how">one map from every dataset — gear and methods differ</small></span>
+                <span className="rt">{pooled && <span className="num">✓</span>}</span>
+              </button>}
+              <div className="ds-why">Different gear and units, so shown one at a time unless you combine them.</div>
             </div>}
           </div>;
         })();
@@ -2145,8 +2169,10 @@ export function App() {
     </Group>
     {depthGroup}
     <Group title="Datasets" icon="ui-data">
-      <div className="pills">{datasetsInSlice.map((dk) => <button key={dk} type="button" className={`pill act${dsOn(dk) ? "" : " off"}`} onClick={() => toggleDataset(dk)} title="show this dataset"><i className="dot" style={{ background: dsColor(dk) }} />{short(dk)}</button>)}{!datasetsInSlice.length && <span className="pill off">{status}</span>}</div>
-      <div className="hint">{datasetsInSlice.length > 1 ? "one dataset at a time — click another to switch" : "the only dataset with this pick"}</div>
+      <div className="pills">{datasetsInSlice.map((dk) => <button key={dk} type="button" className={`pill act${dsOn(dk) ? "" : " off"}`} onClick={() => toggleDatasetClassic(dk)} title="click to add this dataset to the view, or to leave it out"><i className="dot" style={{ background: dsColor(dk) }} />{short(dk)}</button>)}{!datasetsInSlice.length && <span className="pill off">{status}</span>}</div>
+      <div className="hint">{datasetsInSlice.length <= 1 ? "the only dataset with this pick"
+        : sel.pool ? <>{sel.datasets?.length ?? datasetsInSlice.length} of {datasetsInSlice.length} combined · <button type="button" className="linkish" onClick={() => toggleDataset(datasetsInSlice.find(dsOn) ?? datasetsInSlice[0])}>one dataset</button></>
+        : <>one dataset — click another to add it · <button type="button" className="linkish" onClick={poolAll}>all datasets</button></>}</div>
     </Group>
   </>;
   // Share: the data, the code, the citations, the link or the image, a product, feedback, the SQL
@@ -2256,11 +2282,11 @@ export function App() {
   // "Reset all": state.ts resetPatch() — every filter and view setting back to its default, keeping the pick (with its stage and units)
   const resetAll = () => { setAreaRegionMode(false); setAreaLayerPick(null); setSel(resetPatch()); };
   const whatSel = whatItems.find((i) => i.key === (sel.realm === "bio" ? sel.taxon : sel.var) || (sel.realm === "env" && i.alt?.includes(sel.var)));
-  const pickWhat = (k: string, ds?: string) => { if (whatIsOrganism.has(k)) setSel({ realm: "bio", taxon: k, stage: null, den: null, cruise: null, datasets: ds ? [ds] : null }); else {
+  const pickWhat = (k: string, ds?: string) => { if (whatIsOrganism.has(k)) setSel({ realm: "bio", taxon: k, stage: null, den: null, cruise: null, datasets: ds ? [ds] : null, pool: false }); else {
     // a measurement made several ways (bottle samples, CTD sensor, underway …) is plotted from ONE dataset at a time, never silently pooled:
     // the dataset button that was clicked, else the dataset with the most data. "All datasets" is a choice (the dataset chips in the title).
     const it = whatItems.find((i) => i.key === k || i.alt?.includes(k)), vr = it?.variants?.find((v) => v.key === k);
-    setSel({ realm: "env", var: k, cruise: null, datasets: ds ? [ds] : vr ? vr.datasets : it?.datasets && it.datasets.length > 1 ? [it.datasets[0]] : null });
+    setSel({ realm: "env", var: k, cruise: null, datasets: ds ? [ds] : vr ? vr.datasets : it?.datasets && it.datasets.length > 1 ? [it.datasets[0]] : null, pool: false });
   }
   setWhatOpen(false); };
   // "Unknown" is not offered beside real stages (Betty 2026-11-10): it shows only when it is what is in view — a dataset
