@@ -1260,16 +1260,18 @@ export function App() {
   // the pooled datasets as their release rows; before `dataset.parquet` lands, a stand-in carrying the key, so the
   // Sources line names the datasets from the first paint rather than appearing late
   const viewDatasetRows = useMemo(() => viewDatasetKeys.map((dk) => dsRow(dk) ?? { dataset_key: dk, dataset_name_short: short(dk), provider: dk.split("_")[0], category: dsCategory(dk) }), [viewDatasetKeys, datasets]);
+  // a taxon's observations per dataset, from taxa.sql's / coverage.json's "key=n,…" (the What picker's By dataset counts)
+  const dsCounts = (x: string | null | undefined): Record<string, number> | undefined => { if (!x) return undefined; const m: Record<string, number> = {}; for (const s of x.split(",")) { const i = s.lastIndexOf("="); if (i > 0) m[s.slice(0, i)] = Number(s.slice(i + 1)); } return m; };
   const organismItems = useMemo<PickerItem[]>(() => (taxa.length ? taxa : (cov?.taxa ?? []).map((t) => ({
     taxon_key: t.taxon_key, scientific_name: t.scientific_name, common_name: t.common_name, class: t.class, n: t.n_obs, y0: t.year_min, y1: t.year_max,
-    datasets: t.datasets.slice().sort((a, b) => b.n_obs - a.n_obs).map((d) => d.dataset_key).join(","), rank: t.rank }))).map((t: Row) => {
+    datasets: t.datasets.slice().sort((a, b) => b.n_obs - a.n_obs).map((d) => d.dataset_key).join(","), ds_n: t.datasets.map((d) => `${d.dataset_key}=${d.n_obs}`).join(","), rank: t.rank }))).map((t: Row) => {
     const ds: string[] = (t.datasets ?? "").split(",").filter(Boolean);
     const local = !/^(worms|itis):/.test(t.taxon_key); // a dataset-local class (zooscan eggs, phyto "other"): the code, and the dataset as its subtitle
     // a dataset-local class with no name in the source (a bare code such as "218"): "Class 218", listed after the named ones
     const code = local ? t.taxon_key.replace(/^[^:]+:/, "") : "";
     const unnamed = !t.common_name && !t.scientific_name && /^[\d.\-]+$/.test(code);
     return { unnamed, key: t.taxon_key, label: unnamed ? `Class ${code}` : titleCaseCommonName(t.common_name) ?? t.scientific_name ?? (local ? humanizeCode(code) : t.taxon_key), sub: t.common_name ? t.scientific_name : unnamed ? "no name in the source" : undefined, subItalic: !!t.common_name, n: t.n, year: t.y1, year0: t.y0,
-      datasets: ds, groups: { category: dsCategory(ds[0]), dataset: ds[0] ?? "—", class: t.class ?? "—" }, search: t.taxon_key };
+      datasets: ds, dsN: dsCounts(t.ds_n), groups: { category: dsCategory(ds[0]), dataset: ds[0] ?? "—", class: t.class ?? "—" }, search: t.taxon_key };
   }), [taxa, cov, datasets]);
   const organismGroups = useMemo<GroupOpt[]>(() => [
     { key: "category", label: "category", icon: (c) => categoryIcon(c), rank: categoryRank },

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **the What picker says how its lists are ordered, and the order can be changed.** Each species or measurement row shows
+  its observations in this release (*138 k*, *1.6 M*; the exact number and what it counts on hover), By dataset that
+  dataset's own. A quiet *Sort by* beside By category / By dataset offers **Suggested** — the order it always had: the
+  familiar measurements first (temperature, salinity, oxygen …), measured before derived, then most observations, with
+  sensor copies, raw versions and unidentified or unnamed taxa last — **Most observations** and **Name A–Z**. It applies
+  inside each category and topic (Temperature, Salinity …; Fish, Squid and octopus …), which stay, and to search results;
+  the browser remembers it and the link does not carry it. A category's pill says on hover that it counts what is listed,
+  not observations. Classic's Browse tree follows its list's sort buttons (A–Z, most observations, most recent) instead of
+  always A–Z. `src/pickersort.ts`, `tests/pickersort.test.ts`, `scripts/lean_check.mjs`.
 - **fix: the Time panel never covers the Find data panel.** A Time panel dragged or resized while the panel was folded (or in
   classic, where it runs the full width) came back from the browser's memory at the map's left edge, over the lower half of
   the open panel, its rows showing through the chart. The bottom docks — Time, the Section / Cruise result, the depth ×

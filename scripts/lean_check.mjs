@@ -760,6 +760,40 @@ C("dock_clear", async () => {
   noErrors("dock_clear");
 });
 
+// the What picker's Sort by (src/pickersort.ts): each row shows its observations; switching the sort reorders the open
+// category (topics kept); the choice is remembered by the browser and is not in the link
+C("what_sort", async () => {
+  await ready(`${SARDINE}&stage=larva&den=per_10m2`, { width: 1400, height: 850 });
+  if (!(await exists(".wp"))) { await click(".what-card"); await sleep(500); }
+  const setSort = async (lab) => { await click(".wp-sortrow .sp-btn"); await sleep(200); await page.evaluate((l) => [...document.querySelectorAll(".wp-sortrow .sp-list li")].find((x) => x.textContent.includes(l))?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })), lab); await sleep(400); };
+  const rows = () => page.evaluate(() => [...document.querySelectorAll(".wp-group.open .wp-items > *")].map((e) => e.classList.contains("wp-sub") ? { sub: e.textContent } : { name: e.querySelector(".wp-name")?.firstChild?.textContent ?? "", n: Number((e.querySelector(".wp-n")?.getAttribute("aria-label") ?? "").replace(/,/g, "").match(/^\d+/)?.[0] ?? NaN) }));
+  const inOrder = (xs, cmp) => xs.every((x, i) => i === 0 || cmp(xs[i - 1], x) <= 0);
+  const groups = (rs) => rs.reduce((a, r) => { if (r.sub || !a.length) a.push([]); if (!r.sub) a[a.length - 1].push(r); return a; }, []);
+  await setSort("Suggested");
+  for (const cat of ["Fish Eggs and Larvae", "Water Properties"]) {
+    await page.evaluate((c) => { document.querySelector(".wp-group.open > .wp-row")?.click(); const r = [...document.querySelectorAll(".wp .wp-row")].find((b) => b.querySelector(".wp-name")?.textContent.trim() === c); if (r && r.getAttribute("aria-expanded") !== "true") r.click(); }, cat);
+    await sleep(500);
+    const r0 = await rows(), items0 = r0.filter((r) => !r.sub), subs0 = r0.filter((r) => r.sub).map((r) => r.sub);
+    check(items0.length > 3 && items0.every((r) => Number.isFinite(r.n) && r.n > 0), `${cat}: every row shows its observations (${items0.length} rows; first ${items0[0]?.name} ${items0[0]?.n})`);
+    const badge = await page.evaluate(() => document.querySelector(".wp-group.open .wp-badge")?.getAttribute("aria-label") ?? "");
+    check(/not of observations/.test(badge), `${cat}: the category pill says what it counts ("${badge}")`);
+    await setSort("Name A–Z");
+    const r1 = await rows(), coll = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
+    check(JSON.stringify(r1.filter((r) => !r.sub).map((r) => r.name)) !== JSON.stringify(items0.map((r) => r.name)), `${cat}: Name A–Z reorders the open category`);
+    check(groups(r1).every((g) => inOrder(g.map((r) => r.name.replace(/^(the|a|an)\s+/i, "")), (a, b) => coll.compare(a, b))), `${cat}: A–Z within each topic`);
+    check(JSON.stringify(r1.filter((r) => r.sub).map((r) => r.sub)) === JSON.stringify(subs0), `${cat}: the topics stay (${subs0.join(", ") || "none"})`);
+    await setSort("Most observations");
+    const r2 = await rows();
+    check(groups(r2).every((g) => inOrder(g, (a, b) => b.n - a.n)), `${cat}: Most observations, largest first within each topic (${r2.filter((r) => !r.sub).slice(0, 3).map((r) => `${r.name} ${r.n}`).join(", ")})`);
+  }
+  check(!/sort/i.test(await url()), `the sort is not in the link (${await url()})`);
+  await page.reload({ waitUntil: "domcontentloaded" }); await idle();
+  if (!(await exists(".wp"))) { await click(".what-card"); await sleep(500); }
+  check(/Most observations/.test(await text(".wp-sortrow .sp-btn") ?? ""), "the sort is remembered by the browser");
+  await setSort("Suggested");
+  noErrors("what_sort");
+});
+
 if (opt.list) { console.log(CASES.map((c) => c.name).join("\n")); process.exit(0); }
 for (const c of CASES) {
   if (only && !only.test(c.name)) continue;

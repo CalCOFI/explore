@@ -2090,6 +2090,20 @@ body .den.mo-sec .den-shf { margin: 6px 0 0 0; font-size: 12.5px; color: var(--m
 .wp-nds-btn { all: unset; box-sizing: border-box; position: absolute; right: 8px; top: 6px; display: inline-flex; align-items: center; gap: 2px; font-size: 11.5px; color: var(--accent); cursor: pointer; padding: 2px 4px; border-radius: 4px; white-space: nowrap; }
 .wp-nds-btn:hover { text-decoration: underline; }
 .wp-nds-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* the What picker's Sort by row and each row's observations (pickersort.ts): quiet — small, muted, one right-hand column */
+.wp-sortrow { display: flex; align-items: center; gap: 2px; font-size: 12px; color: var(--muted); padding: 0 2px; }
+.wp-sortrow .sp-btn, :root[data-theme="dark"] .wp-sortrow .sp-btn { background: none; color: var(--accent); font-size: 12.5px; gap: 3px; padding: 2px 5px; }
+.wp-sortrow .sp-btn:hover, .wp-sortrow .sp-btn[aria-expanded="true"],
+:root[data-theme="dark"] .wp-sortrow .sp-btn:hover, :root[data-theme="dark"] .wp-sortrow .sp-btn[aria-expanded="true"] { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.wp-sortrow .sp-list li { font-size: 13px; padding: 5px 12px 5px 8px; }
+.wp-ncap { margin-left: auto; font-size: 11.5px; padding-right: 8px; cursor: help; }
+.wp-item .wp-l2 { flex-basis: 100%; display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.wp-item .wp-l2 small { flex: 1 1 auto; min-width: 0; }
+.wp-l2-gap { flex: 1 1 auto; }
+.wp-n { flex: none; margin-left: auto; font-size: 11.5px; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wp-item.on .wp-n { color: color-mix(in srgb, var(--accent) 70%, var(--muted)); }
+/* a row with the "N datasets" button keeps that button on its first line; the second line runs under it to the common column */
+.wp-itemwrap > .wp-item.multi .wp-l2 { flex-basis: calc(100% + 86px); margin-right: -86px; } /* the basis makes up for the margin, so it still wraps */
 /* the panel's dataset line: closed = one line; opened = the radio list and why datasets are not combined */
 .ds-f .ds-from { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
 .ds-f .ds-from .k { font-size: 12px; color: color-mix(in srgb, var(--fg) 62%, var(--panel)); flex: none; }

@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon, type IconName } from "./icons";
 import { useAnchor } from "./ui";
+import { compareNames, sortItems } from "./pickersort";
 
 export interface PickerItem {
   key: string;
@@ -171,8 +172,10 @@ export function Picker(p: {
     const opt = p.groups?.find((g) => g.key === browseBy);
     return [...by.entries()].sort((a, b) => (opt?.rank ? opt.rank(a[0]) - opt.rank(b[0]) : 0) || sortKey(opt?.short ? opt.short(a[0]) : a[0]).localeCompare(sortKey(opt?.short ? opt.short(b[0]) : b[0])))
       .map(([g, items]) => { const ys = items.map((i) => i.year0).filter((y): y is number => y != null), ye = items.map((i) => i.year).filter((y): y is number => y != null);
-        return { key: g, title: opt?.short ? opt.short(g) : g, icon: opt?.icon?.(g), items: items.slice().sort((a, b) => sortKey(a.label).localeCompare(sortKey(b.label))), n: items.reduce((a, it) => a + it.n, 0), y0: ys.length ? Math.min(...ys) : null, y1: ye.length ? Math.max(...ye) : null, ds: [...new Set(items.flatMap((i) => i.datasets ?? []))] }; });
-  }, [p.items, p.browse, browseBy, p.groups]);
+        // the tree follows the list's Sort (A–Z by default, most observations, most recent) inside each group
+        const sorted = sort === "n" || sort === "az" ? sortItems(items, sort) : items.slice().sort((a, b) => (sort === "old" ? (a.year ?? 9999) - (b.year ?? 9999) : (b.year ?? -1) - (a.year ?? -1)) || compareNames(a.label, b.label));
+        return { key: g, title: opt?.short ? opt.short(g) : g, icon: opt?.icon?.(g), items: sorted, n: items.reduce((a, it) => a + it.n, 0), y0: ys.length ? Math.min(...ys) : null, y1: ye.length ? Math.max(...ye) : null, ds: [...new Set(items.flatMap((i) => i.datasets ?? []))] }; });
+  }, [p.items, p.browse, browseBy, p.groups, sort]);
   // what each group shows: filtered to the search when typing (every matching group open), else by its open state
   const treeRows = useMemo(() => browseGroups.map((g) => {
     const items = toks.length ? g.items.filter(matches) : g.items;
@@ -219,7 +222,11 @@ export function Picker(p: {
               value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={tab === "browse" ? onKeyTree : onKey} placeholder={p.placeholder ?? "search…"} autoComplete="off" spellCheck={false} />
             {p.sheet && !p.browse && <button type="button" className="cc-icon-button" aria-label="Close" onClick={() => setOpen(false)}><Icon name="ui-close" size="1.25rem" /></button>}
           </div>
-          {tab === "browse" ? <div className="hint picker-count">{toks.length ? `${fmtN(treeMatches)} of ${fmtN(p.items.length)}` : `${fmtN(p.items.length)} in ${fmtN(browseGroups.length)} ${browseBy === "category" ? "categories" : "datasets"}`} · {p.countLabel ?? "observations"}, log scale</div> : <>
+          {tab === "browse" ? <div className="row picker-tools">
+            {sorts.length > 1 && <span className="seg" role="group" aria-label="sort">
+              {sorts.map((s) => <button key={s} type="button" className={sort === s ? "on" : ""} title={`sort: ${SORT_LABEL[s][0]}`} aria-label={`sort: ${SORT_LABEL[s][0]}`} aria-pressed={sort === s} onClick={() => setSort(s)}><Icon name={SORT_LABEL[s][1]} /></button>)}
+            </span>}
+            <span className="hint picker-count">{toks.length ? `${fmtN(treeMatches)} of ${fmtN(p.items.length)}` : `${fmtN(p.items.length)} in ${fmtN(browseGroups.length)} ${browseBy === "category" ? "categories" : "datasets"}`} · {p.countLabel ?? "observations"}, log scale</span></div> : <>
           {p.plain ? <div className="picker-bar"><span>{fmtN(flat.length)}{flat.length !== p.items.length ? ` of ${fmtN(p.items.length)}` : ""} {p.plain}</span>
             {/* every order in view, the current one in dark text: no hidden cycling through one link */}
             {/* the order, short: one date link that flips Newest ↓ / Oldest ↑, then any other order (Ship) — the current one dark */}
@@ -245,7 +252,7 @@ export function Picker(p: {
             <li key={g.key} role="treeitem" aria-expanded={on} className={`browse-group${on ? " open" : ""}${mode === "sel" ? " partial" : ""}`}>
               <div className="browse-row" onClick={() => toggleGroup(g.key)} title={mode === "all" ? "fold" : mode === "sel" ? `show all ${fmtN(items.length)}` : "expand"}>
                 <Icon name={on ? "ui-down" : "ui-right"} className="chev" />{g.icon && <Icon name={g.icon} className="gicon" />}
-                <span className="lab">{g.title}<small>{toks.length ? `${fmtN(items.length)} of ${fmtN(g.items.length)}` : `${fmtN(g.items.length)} ${g.items.length === 1 ? "item" : "items"}`}{span(g.y0, g.y1) ? ` · ${span(g.y0, g.y1)}` : ""}</small></span>
+                <span className="lab">{g.title}<small title={`${fmtN(g.items.length)} ${g.items.length === 1 ? "item" : "items"} listed (a count of what is listed, not of ${p.countLabel ?? "observations"})`}>{toks.length ? `${fmtN(items.length)} of ${fmtN(g.items.length)}` : `${fmtN(g.items.length)} ${g.items.length === 1 ? "item" : "items"}`}{span(g.y0, g.y1) ? ` · ${span(g.y0, g.y1)}` : ""}</small></span>
                 <span className="dots">{g.ds.slice(0, 6).map(dot)}</span>
                 <span className="cnt" title={`${fmtN(g.n)} ${p.countLabel ?? "observations"}`}><span className="bar" style={{ width: `${Math.max(1, Math.round(44 * Math.log10(g.n + 1) / Math.log10(Math.max(1, ...browseGroups.map((x) => x.n)) + 1)))}px` }} /><span>{fmtN(g.n)}</span></span>
               </div>
@@ -253,7 +260,7 @@ export function Picker(p: {
                 <span className="dots">{(it.datasets ?? []).map(dot)}</span>
                 <span className="lab">{it.right ? <span className="lab-line"><span>{it.label}</span><span className="lab-rt">{it.right}</span></span> : it.label}{(it.sub || it.badge) && <small className={it.subItalic ? "i" : ""}>{it.badge && <i className={`badge${it.badgeWarn ? " warn" : ""}`}>{it.badge}</i>}{it.sub}</small>}</span>
                 <span className="hint span">{span(it.year0, it.year)}</span>
-                <span className="cnt"><span className="bar" style={{ width: `${Math.max(1, Math.round(44 * Math.log10(it.n + 1) / Math.log10(maxN + 1)))}px` }} /><span>{fmtN(it.n)}</span></span>
+                <span className="cnt" title={`${fmtN(it.n)} ${p.countLabel ?? "observations"}`}><span className="bar" style={{ width: `${Math.max(1, Math.round(44 * Math.log10(it.n + 1) / Math.log10(maxN + 1)))}px` }} /><span>{fmtN(it.n)}</span></span>
               </li>)}
               {more > 0 && <li role="treeitem" className="browse-item more" onClick={() => setOpenGroups((o) => ({ ...o, [g.key]: "all" }))} title={`the other ${fmtN(more)} in ${g.title}`}>
                 <span className="dots" /><span className="lab">… {fmtN(more)} more in {g.title}</span><span /><span className="cnt"><Icon name="ui-down" /></span>

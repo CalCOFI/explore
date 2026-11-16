@@ -9,6 +9,7 @@ import { Menu, type MenuItem } from "./ui";
 import { LENSES, LENS_ICON, type Lens } from "./state";
 import { shownName } from "./spatial_registry";
 import { lineStationId } from "./area";
+import { compactN, countTip, loadSort, saveSort, sortItems, SUGGESTED_TIP, WHAT_SORTS, type WhatSort } from "./pickersort";
 
 // ── the view picker ────────────────────────────────────────────────────────────────────────────────────────
 // plain names for the six lenses (the lens ids and the state they set are unchanged), each with its lens glyph, so a
@@ -354,6 +355,11 @@ const bioTopicOf = (it: PickerItem) => {
 const BIO_SPLIT = new Set(["Fish Eggs & Larvae"]);
 const topicOf = (it: PickerItem) => { const t = `${it.label} ${it.desc ?? ""} ${it.key.replace(/_/g, " ")}`; return TOPIC_TEST.find(([, re]) => re.test(t))?.[0] ?? "Other"; };
 const orderOf = (name: string) => { const i = ORDER.findIndex((o) => o.toLowerCase() === name.toLowerCase()); return i < 0 ? 99 : i; };
+/** "Suggested", the picker's own order inside a category: named before unnamed codes, headline before secondary versions,
+ *  the well-known measurements first, measured before derived, then most observations, then the name */
+const suggestedCmp = (a: PickerItem, b: PickerItem) => Number(!!a.unnamed) - Number(!!b.unnamed) || secondary(a) - secondary(b) || famousness(a) - famousness(b) || Number(!!a.badge) - Number(!!b.badge) || b.n - a.n || sortKey(a.label).localeCompare(sortKey(b.label), undefined, { numeric: true }) || a.key.localeCompare(b.key);
+/** the number a row shows: listed under one dataset (By dataset), that dataset's observations; else all of them */
+const rowCount = (it: PickerItem) => (it.inDs && it.dsN?.[it.inDs] != null ? it.dsN[it.inDs] : it.n);
 
 export function WhatPicker(p: {
   items: PickerItem[]; isOrganism: (key: string) => boolean; value: string; onPick: (key: string, dataset?: string) => void; onClose: () => void;
@@ -365,6 +371,10 @@ export function WhatPicker(p: {
   const [open, setOpen] = useState<string | null>(null);
   const [all, setAll] = useState<string | null>(null);
   const [ex, setEx] = useState<string | null>(null); // the measurement whose dataset choices are showing
+  // Sort by: Suggested (the order below) · Most observations · Name A–Z, within each category and topic and over the search
+  // results; remembered per browser, never in the link (pickersort.ts)
+  const [sortBy, setSortByRaw] = useState<WhatSort>(loadSort);
+  const setSortBy = (k: WhatSort) => { setSortByRaw(k); saveSort(k); };
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => { input.current?.focus(); }, []);
   const kindOf = (it: PickerItem): Kind => (p.isOrganism(it.key) ? "life" : "water");
@@ -382,16 +392,18 @@ export function WhatPicker(p: {
     }
     const by = (kind: Kind) => [...m.values()].filter((e) => e.kind === kind)
       .sort((a, b) => (tab === "category" ? orderOf(a.name) - orderOf(b.name) || p.rank(a.cat) - p.rank(b.cat) : 0) || a.name.localeCompare(b.name))
-      .map((e) => ({ ...e, items: e.items.sort((a, b) => Number(!!a.unnamed) - Number(!!b.unnamed) || secondary(a) - secondary(b) || famousness(a) - famousness(b) || Number(!!a.badge) - Number(!!b.badge) || b.n - a.n || sortKey(a.label).localeCompare(sortKey(b.label), undefined, { numeric: true }) || a.key.localeCompare(b.key)) }));
+      .map((e) => ({ ...e, items: sortItems(e.items, sortBy, suggestedCmp, rowCount) }));
     return { life: by("life"), water: by("water") };
-  }, [p.items, tab]);
+  }, [p.items, tab, sortBy]);
   const toks = norm(q).split(/\s+/).filter(Boolean);
   const found = useMemo(() => {
     if (!toks.length) return null;
     const hay = (it: PickerItem) => { const t = `${it.label} ${it.sub ?? ""} ${it.desc ?? ""} ${it.search ?? ""} ${it.key}`; return norm(t) + " " + stemmed(t); };
     const lead = (it: PickerItem) => (norm(it.label).startsWith(toks[0]) ? 0 : 1);
-    return p.items.filter((it) => toks.every((t) => { const h = hay(it); return h.includes(t) || h.includes(stem(t)); })).sort((a, b) => Number(!!a.unnamed) - Number(!!b.unnamed) || lead(a) - lead(b) || secondary(a) - secondary(b) || b.n - a.n || a.label.localeCompare(b.label));
-  }, [p.items, q]);
+    // Suggested, for a search: the names that start with the first word first (then as inside a category)
+    const hits = p.items.filter((it) => toks.every((t) => { const h = hay(it); return h.includes(t) || h.includes(stem(t)); }));
+    return sortItems(hits, sortBy, (a, b) => Number(!!a.unnamed) - Number(!!b.unnamed) || lead(a) - lead(b) || secondary(a) - secondary(b) || b.n - a.n || a.label.localeCompare(b.label));
+  }, [p.items, q, sortBy]);
   // a measurement made in several datasets (bottle, CTD …) is never picked for you: the row opens in place and you choose the dataset
   const choicesOf = (it: PickerItem) => {
     // a species counted in several datasets (anchovy: CUFES eggs, ichthyoplankton …) opens the same chooser (Betty 2026-11-10)
@@ -400,6 +412,14 @@ export function WhatPicker(p: {
     for (const v of it.variants?.length ? it.variants : [{ key: it.key, datasets: it.datasets ?? [] }]) for (const d of v.datasets) if (!seen.has(d)) { seen.add(d); out.push({ key: v.key, ds: d }); }
     return out.length > 1 ? out : null;
   };
+  // the row's observations, short ("1.2 M"), right-aligned on its second line; the hover and screen readers get the exact number
+  const count = (it: PickerItem) => {
+    const n = rowCount(it), one = it.inDs && it.dsN?.[it.inDs] != null, k = it.datasets?.length ?? 0;
+    const where = one ? `in ${dsName(it.inDs!)}` : k > 1 ? `across ${k} datasets` : k === 1 ? `in ${dsName(it.datasets![0])}` : "";
+    const tip = countTip(n, p.isOrganism(it.key) ? "observations (all life stages)" : "observations", where);
+    return <span className="wp-n" role="img" aria-label={tip} title={tip}>{compactN(n)}</span>;
+  };
+  const line2 = (it: PickerItem, second: string | undefined) => <span className="wp-l2">{second ? <small className={it.subItalic ? "i" : ""}>{second}</small> : <span className="wp-l2-gap" />}{count(it)}</span>;
   const itemBtn = (it: PickerItem, tag?: string) => {
     const second = p.isOrganism(it.key) ? it.sub : it.desc ?? it.sub;
     // listed under one dataset (By dataset): no chooser — the click opens this row's data from THAT dataset
@@ -409,7 +429,7 @@ export function WhatPicker(p: {
       return <button key={it.key} type="button" className={`wp-item${isSel(it) ? " on" : ""}`} onClick={() => p.onPick(v?.key ?? it.key, it.inDs)} title={it.tip ?? it.desc}>
         <span className="wp-name">{it.label}{it.badge && <i className="badge">{it.badge}</i>}</span>{tag && <em>{tag}</em>}
         {n > 1 && <em className="wp-nds">also in {n - 1} other{n > 2 ? "s" : ""}</em>}
-        {second && <small className={it.subItalic ? "i" : ""}>{second}</small>}</button>;
+        {line2(it, second)}</button>;
     }
     const ch = choicesOf(it), isOpen = !!ch && ex === it.key;
     // a click on the row just opens it — the app picks the dataset (Betty 2026-11-10: step 1 asks one thing). The quiet
@@ -417,7 +437,7 @@ export function WhatPicker(p: {
     const btn = <button key={it.key} type="button" className={`wp-item${isSel(it) ? " on" : ""}${ch ? " multi" : ""}`}
       onClick={() => p.onPick(it.key)} title={it.tip ?? it.desc}>
       <span className="wp-name">{it.label}{it.badge && <i className="badge">{it.badge}</i>}</span>{tag && <em>{tag}</em>}
-      {second && <small className={it.subItalic ? "i" : ""}>{second}</small>}</button>;
+      {line2(it, second)}</button>;
     if (!ch) return btn;
     return <div key={it.key} className="wp-itemwrap">{btn}
       <button type="button" className="wp-nds-btn" aria-expanded={isOpen} onClick={() => setEx(isOpen ? null : it.key)} title="this is in several datasets — choose one yourself">
@@ -427,6 +447,8 @@ export function WhatPicker(p: {
         {ch.map((c) => <button key={c.ds} type="button" className="wp-dsrow" onClick={() => p.onPick(c.key, c.ds)}><span className="wp-dsname">{dsName(c.ds)}</span><span className="wp-dsgo" aria-hidden="true">→</span></button>)}
       </div>}</div>;
   };
+  // the category's pill counts what it lists — species or measurements — not observations (those are on each row)
+  const badgeTip = (kind: Kind, n: number) => `${n.toLocaleString()} ${kind === "life" ? (n === 1 ? "species or other taxon" : "species and other taxa") : n === 1 ? "measurement" : "measurements"} listed ${tab === "category" ? "in this category" : "from this dataset"} (a count of items, not of observations)`;
   const section = (title: string, rows: typeof sections.life) => rows.length ? <>
     <div className="wp-sec">{title}</div>
     <div className="wp-list">{rows.map((g) => {
@@ -439,7 +461,7 @@ export function WhatPicker(p: {
           requestAnimationFrame(() => requestAnimationFrame(() => { if (box && btn.isConnected) box.scrollTop += btn.getBoundingClientRect().top - y0; }));
         }}>
           {tab === "category" && <span className="wp-ic">{ic && <Icon name={ic} />}</span>}
-          <span className="wp-name">{g.name}</span><span className="wp-badge">{g.items.length.toLocaleString()}</span><Icon name={on ? "ui-down" : "ui-right"} className="wp-chev" size="0.9rem" /></button>
+          <span className="wp-name">{g.name}</span><span className="wp-badge" role="img" aria-label={badgeTip(g.kind, g.items.length)} title={badgeTip(g.kind, g.items.length)}>{g.items.length.toLocaleString()}</span><Icon name={on ? "ui-down" : "ui-right"} className="wp-chev" size="0.9rem" /></button>
         {on && (() => {
           // a long environmental category reads in topics (Temperature, Salinity, Oxygen …), each keeping the list's order
           const topics = tab !== "category" || g.items.length <= 8 ? []
@@ -458,6 +480,10 @@ export function WhatPicker(p: {
         <input ref={input} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search species or measurements" aria-label="Search species or measurements" /></label>
       {!found && <div className="wp-tabs" role="tablist"><button type="button" role="tab" aria-selected={tab === "category"} className={tab === "category" ? "on" : ""} onClick={() => { setTab("category"); setOpen(null); }}>By category</button>
         <button type="button" role="tab" aria-selected={tab === "dataset"} className={tab === "dataset" ? "on" : ""} onClick={() => { setTab("dataset"); setOpen(null); }}>By dataset</button></div>}
+      <div className="wp-sortrow" title={sortBy === "suggested" ? SUGGESTED_TIP : undefined}>
+        <span className="wp-sort-l">Sort by</span><StatPick value={sortBy} options={WHAT_SORTS} onChange={(k) => setSortBy(k as WhatSort)} label="Sort by" />
+        <span className="wp-ncap" title="the number on each row: how many observations this release holds for it">observations</span>
+      </div>
     </div>
     {p.loading && <div className="hint">{p.loading}</div>}
     {found ? <div className="wp-list">
@@ -489,7 +515,7 @@ export function StatPick(p: { value: string; options: [string, string][]; onChan
   }, [idx]);
   const pick = (k: string) => { p.onChange(k); setOpen(false); };
   const onKey = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") { setOpen(false); return; }
+    if (e.key === "Escape") { if (open) e.stopPropagation(); setOpen(false); return; } // closes the list, not the panel it sits in
     if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); if (!open) { setHi(idx); setOpen(true); } else setHi((h) => (h + (e.key === "ArrowDown" ? 1 : p.options.length - 1)) % p.options.length); }
     else if ((e.key === "Enter" || e.key === " ") && open) { e.preventDefault(); pick(p.options[hi][0]); }
   };
