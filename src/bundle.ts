@@ -8,8 +8,8 @@ import { members } from "./variables";
 import { csv, saveBlob } from "./export";
 import { citationMd } from "./cite";
 // the SQL the view ran against the release's URLs, and the R / Python that runs it: pure, in reproduce.ts
-import { copyAs, isCast, pyBody, rBody, resolvedSql, whereSql, type ReproCtx } from "./reproduce";
-export { saveBlob, copyAs, resolvedSql };
+import { copyAs, isCast, lensOwnSql, pyBody, rBody, resolvedSql, whereSql, type ReproCtx } from "./reproduce";
+export { saveBlob, copyAs, resolvedSql, lensOwnSql };
 
 export interface BundleCtx extends ReproCtx {
   summary: Row[]; summaryKey: string; grid: { grid_key: string; line: number; station: number; home: [number, number] }[];
@@ -121,7 +121,9 @@ export async function buildBundle(ctx: BundleCtx): Promise<{ blob: Blob; name: s
   // 2. the observation rows behind the view (CSV under 300k rows; parquet always)
   say("observations…");
   const ft = `bundle_obs_${Date.now()}`;
-  const where = whereSql(ctx); // the filter the lens applied (was read off sqls[2], the depth-strip query a per-cast variable does not have)
+  // the filter the lens applied (was read off sqls[2], the depth-strip query a per-cast variable does not have), and the view's own line / cruise
+  const own = lensOwnSql(sel);
+  const where = [whereSql(ctx), ...own].join(" AND ");
   const cnt = (await engine.exec(`SELECT count(obs_id) AS n, count(*) FILTER (WHERE obs_id IS NULL) AS n_filled FROM slice WHERE ${where}`, "bundle_count"))[0];
   const nObs = cnt.n as number, nFilled = cnt.n_filled as number;
   await engine.exec(`COPY (${viewRows(where, ctx, ctx.regionCols, where, ctx.var2Cols)}) TO '${ft}.parquet' (FORMAT parquet, COMPRESSION zstd)`, "bundle_parquet");
@@ -161,6 +163,7 @@ export async function buildBundle(ctx: BundleCtx): Promise<{ blob: Blob; name: s
       : `variable: ${sel.var} = ${members(sel.var).join(" + ")} (${ctx.unit})`,
     ...(sel.datasets ? [`datasets: ${sel.datasets.join(", ")} (pill filter)`] : []),
     `quality: qual_ok (calcofi4r::cc_qual_ok_sql) · years ${sel.months ? `${sel.years[0]}-${String(sel.months[0]).padStart(2, "0")} to ${sel.years[1]}-${String(sel.months[1]).padStart(2, "0")} (month-resolved)` : `${sel.years[0]}–${sel.years[1]}`}${sel.q?.length && sel.q.length < 4 ? ` · quarters ${sel.q.join(", ")}` : ""}${cast ? "" : ` · depth band ${sel.depth[0]}–${sel.depth[1]} m`}`,
+    ...(own.length ? [`the observations are the view's own: ${own.join(" AND ")}, as on the screen`] : []),
     `lens: ${sel.lens}${sel.lens === "hex" ? ` (H3 res ${ctx.hexRes})` : ""}${sel.lens === "region" ? ` (layer ${sel.layer}; membership = sample_spatial, exact per root sample)` : ""}${sel.cruise ? ` · cruise ${sel.cruise}` : ""}${sel.lens === "section" ? ` · line ${sel.line}` : ""}${sel.lens === "contour" ? ` (surface: ${sel.interp} over the station summary; ${sel.surface}; the CSV is the station table the surface interpolates)` : ""}`,
     ...(ctx.var2Cols ? [`added variable: ${ctx.var2Cols.key}, matched by hexagon (${ctx.var2Cols.km} km): its mean and count in the row's hexagon, same years, seasons, area and depth band`] : []),
     ...(ctx.regionCols ? [`regions: ${ctx.regionCols.layer}${ctx.regionCols.names?.length ? ` (${ctx.regionCols.names.join("; ")})` : " (every region of the layer)"}; each observation row carries region and region_name (one row per region a sample falls in)`] : []),
@@ -196,12 +199,7 @@ async function takeFile(name: string): Promise<Uint8Array> {
  *  is the wrong container: the package carries parquet) */
 /** how many of the CSV's rows are zero-filled tows (no catch, obs_id NULL) under the same filters and lens line — the panel says it beside the count */
 export async function countZeroRows(ctx: ReproCtx): Promise<{ rows: number; zeros: number }> {
-  const q = (v: unknown) => `'${String(v).replace(/'/g, "''")}'`;
-  const own: string[] = [];
-  if (ctx.sel.lens === "section" && Number.isFinite(Number(ctx.sel.line))) {
-    own.push(`line = ${Number(ctx.sel.line)}`);
-    if (ctx.sel.realm !== "bio" && ctx.sel.cruise) own.push(`cruise_key = ${q(ctx.sel.cruise)}`);
-  } else if (ctx.sel.lens === "cruise" && ctx.sel.cruise) own.push(`cruise_key = ${q(ctx.sel.cruise)}`);
+  const own = lensOwnSql(ctx.sel);
   const where = [whereSql(ctx), ...own].join(" AND ");
   const r = (await engine.exec(`SELECT count(*) AS n, count(*) FILTER (WHERE obs_id IS NULL) AS z FROM slice WHERE ${where}`, "csv_zero_count"))[0];
   return { rows: Number(r.n), zeros: Number(r.z) };
@@ -211,12 +209,7 @@ export async function buildObservationsCsv(ctx: ReproCtx, opts: { zeros?: boolea
   const fn = `obs_only_${Date.now()}`;
   // the file is what the screen shows: the lens's own line / cruise on top of the filters, and — when the person unticks it —
   // without the zero-filled tows (obs_id NULL), which are most of the rows of a common taxon
-  const q = (v: unknown) => `'${String(v).replace(/'/g, "''")}'`;
-  const own: string[] = [];
-  if (ctx.sel.lens === "section" && Number.isFinite(Number(ctx.sel.line))) {
-    own.push(`line = ${Number(ctx.sel.line)}`);
-    if (ctx.sel.realm !== "bio" && ctx.sel.cruise) own.push(`cruise_key = ${q(ctx.sel.cruise)}`);
-  } else if (ctx.sel.lens === "cruise" && ctx.sel.cruise) own.push(`cruise_key = ${q(ctx.sel.cruise)}`);
+  const own = lensOwnSql(ctx.sel);
   const statsWhere = [whereSql(ctx), ...own].join(" AND ");
   if (opts.zeros === false) own.push("obs_id IS NOT NULL");
   const where = [whereSql(ctx), ...own].join(" AND ");

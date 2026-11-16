@@ -204,6 +204,7 @@ async function checkZip(label, extra = {}) {
 const noErrors = (label) => { const e = errs.splice(0); check(!e.length, `${label}: no console errors${e.length ? ` — ${e.slice(0, 3).join(" | ")}` : ""}`); };
 /** the URL round-trip: the same link in a fresh page draws the same state and the same numbers */
 async function roundTrip(label) {
+  await page.mouse.move(5, 5); await sleep(200);   // no hover card over the panel text
   const href = await page.evaluate(() => location.href), a = await view(), pa = await text(".lean-steps");
   const p2 = await browser.newPage(); await p2.setViewport(page.viewport());
   const old = page; page = p2;
@@ -435,7 +436,7 @@ C("where_hex", async () => {
   const v = await view();
   const cell = v.hex.sort((a, b) => b.n - a.n)[0]?.k;
   await ready(`var=temperature&lens=hex&res=4&area=hx:${cell}&effort=on`); await closeWhat();
-  check(await exists(".hex-row"), "Where says one hexagon is the area");
+  check(/one .*hexagon/i.test((await text(".where-now")) ?? ""), `Where says one hexagon is the area (${await text(".where-now")})`);
   await checkCsv("single hexagon", { hex: cell });
   noErrors("where_hex (effort on)");
 });
@@ -495,7 +496,11 @@ C("depth_band", async () => {
 C("layers", async () => {
   for (const lq of ["station", "hex", "contour", "region", "cruise", "section"]) {
     await ready(`${SARDINE}&lens=${lq}`); await closeWhat();
-    for (const L of ["Lines", "Observations", "Effort", "Sea floor"]) {
+    if (!(await exists(".card-layers"))) { await click(".map-layers-btn"); await sleep(400); }
+    const eff = await page.evaluate(() => [...document.querySelectorAll(".layers-row.layers-main")].find((r) => r.querySelector("b")?.textContent.trim() === "Effort")?.textContent.replace(/\s+/g, " ").trim());
+    const effOn = !/not in this release/.test(eff ?? "");
+    if (lq === "station") console.log(`  (the Effort row reads "${eff}")`);
+    for (const L of ["Lines", "Observations", ...(effOn ? ["Effort"] : []), "Sea floor"]) {
       await layerToggle(L); noErrors(`${lq}: ${L} on`);
       await layerToggle(L); noErrors(`${lq}: ${L} off`);
     }
@@ -609,13 +614,14 @@ C("tour", async () => {
     await page.evaluate(() => window.__tourDriver?.destroy()); await sleep(300);
     noErrors(`${ui} tour`);
   }
+  await ready("ui=lean");   // ?ui=classic is remembered by the browser: hand the next case the lean panel
 });
 
 C("more_tools", async () => {
   await ready(`var=temperature`); await closeWhat();
   check(await exists(".dl-more"), "the download area has a More disclosure");
   if (await exists(".dl-more")) {
-    await click(".dl-more"); await sleep(300);
+    await click(".dl-more .menu-btn"); await sleep(300);
     const items = await page.evaluate(() => [...document.querySelectorAll(".menu-list .menu-item, .dl-more-list button")].map((b) => b.textContent.trim()));
     for (const w of ["picture", "BibTeX", "citation", "SQL"]) check(items.some((t) => t.toLowerCase().includes(w.toLowerCase())), `More offers ${w} (${items.join(" · ")})`);
     await page.keyboard.press("Escape");
