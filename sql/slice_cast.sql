@@ -8,7 +8,8 @@
 --     (the band never filters a per-cast value), depth_strip.sql returns nothing, and so does section.sql
 --   · dataset_key is the MEASUREMENT's (calcofi_ctd-derived), never the cast's own (calcofi_ctd-cast): it is what the
 --     pills, the Sources line and the citations read. The derived dataset publishes no sample of its own
---   · obs_id is sample_measurement_id; root_id is the cast's (sample_spatial joins on it); sample_key, appended, is
+--   · obs_id is sample_measurement_id; root_id is the cast's (sample_spatial joins on it), and so is sample_id (what the
+--     templates count as a sample, slice_env.sql's rule); sample_key, appended, is
 --     the cast — the key back to `sample` and to the cast's profile in obs_env / obs_ctd_full
 --   · qual_ok is the quality predicate over the measurement's own dataset_key + measurement_qual: qualOkSQL("sm")
 --     (src/qual.ts), the twin of calcofi4r::cc_qual_ok_sql("sm") / calcofi4py.qual_ok_sql("sm")
@@ -32,7 +33,7 @@ SELECT sm.sample_measurement_id AS obs_id, sm.dataset_key, r.root_id, r.grid_key
        sm.measurement_value AS value, sm.measurement_qual, {{qual_ok}} AS qual_ok,
        NULL::VARCHAR AS tow_type, NULL::DOUBLE AS std_haul_factor, NULL::DOUBLE AS prop_sorted, NULL::DOUBLE AS volume_sampled_m3,
        NULL::DOUBLE AS density_per_10m2, NULL::DOUBLE AS density_per_1000m3, NULL::VARCHAR AS effort_class, {{root_hex7}} AS hex7,
-       r.c_month::TINYINT AS cruise_month, r.c_season_year::SMALLINT AS season_year,
+       r.c_month::TINYINT AS cruise_month, r.c_season_year::SMALLINT AS season_year, r.root_id::VARCHAR AS sample_id,
        sm.sample_key
 FROM {{sm_src}} sm
 JOIN (SELECT r.*, COALESCE(COALESCE(year(cz.date_median), {{key_year}}), year(datetime)) AS c_year, COALESCE((CASE WHEN COALESCE(cz.month_median, {{key_month}}) IN (12, 1, 2) THEN 1 WHEN COALESCE(cz.month_median, {{key_month}}) IN (3, 4, 5) THEN 2 WHEN COALESCE(cz.month_median, {{key_month}}) IN (6, 7, 8) THEN 3 WHEN COALESCE(cz.month_median, {{key_month}}) IN (9, 10, 11) THEN 4 END), (CASE WHEN month(datetime) IN (12, 1, 2) THEN 1 WHEN month(datetime) IN (3, 4, 5) THEN 2 WHEN month(datetime) IN (6, 7, 8) THEN 3 WHEN month(datetime) IN (9, 10, 11) THEN 4 END)) AS c_quarter,

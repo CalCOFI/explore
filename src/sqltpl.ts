@@ -14,7 +14,7 @@ export interface Params { [k: string]: Param }
 // tbl is the table a map lens summarizes: `slice`, or `slice_anom` (sql/anom_slice.sql) when it draws an anomaly;
 // clim_loc is the slice column a baseline cell is found by (anomaly.ts anomLoc()), clim_period the slice's cruise month or
 // season ({{cruise_month}} / {{cruise_quarter}}, anomaly.ts anomTokens())
-const RAW = new Set(["val", "hex", "where", "where_nodepth", "where_noyear", "src", "taxon_src", "root_src", "spatial_src", "clim_src", "dataset_filter", "quarter_filter", "bin", "sm_src", "mt_src", "qual_ok", "root_hex7", "tbl", "clim_loc", "clim_period", "area_filter", "cruise_filter", "net_key", "track_src",
+const RAW = new Set(["val", "hex", "where", "where_nodepth", "where_noyear", "src", "taxon_src", "root_src", "spatial_src", "clim_src", "dataset_filter", "quarter_filter", "bin", "sm_src", "mt_src", "qual_ok", "root_hex7", "tbl", "clim_loc", "clim_period", "area_filter", "cruise_filter", "net_key", "track_src", "track_hex7",
   "cruise_month", "cruise_quarter", "cruise_year", "cruise_src", "key_month", "key_year", "key_quarter", "cs_year", "cs_quarter", "cs_month"]);
 
 // THE CRUISE'S MONTH AND SEASON. Since release v2026.11 (calcofi4db 4.34.0; Rasmus Swalethorp 2026-10-16, Ben Best
@@ -48,6 +48,8 @@ export const NO_CRUISE_SRC = "(SELECT NULL::VARCHAR AS cruise_key, NULL::DATE AS
 const BUILTIN: Params = { cruise_month: CRUISE_MONTH_SQL, cruise_quarter: CRUISE_QUARTER_SQL, cruise_year: CRUISE_YEAR_SQL, tbl: "slice", area_filter: "TRUE", cruise_filter: "TRUE",
   // sql/slice_bio.sql zero-fills per net: sample_key where obs_bio carries it (App.tsx probes), else per visit
   net_key: "root_id",
+  // sql/effort_track.sql: the path's H3 cell from its sample_root row (`r.hex7`, App.tsx probes the column), else none
+  track_hex7: "NULL::UBIGINT",
   cruise_src: NO_CRUISE_SRC, key_month: KEY_MONTH_SQL, key_year: KEY_YEAR_SQL, key_quarter: KEY_QUARTER_SQL,
   // the cruise table's own month / season / season year (sql/cruise_seasons.sql, cruise_ref.sql): the key rule unless App.tsx
   // has probed the median columns and passes month_median / season_year

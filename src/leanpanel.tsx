@@ -6,13 +6,14 @@ import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "
 import { Icon, type IconName } from "./icons";
 import type { PickerItem } from "./picker";
 import { Menu, type MenuItem } from "./ui";
-import { LENSES, type Lens } from "./state";
+import { LENSES, LENS_ICON, type Lens } from "./state";
 import { shownName } from "./spatial_registry";
 import { lineStationId } from "./area";
+import { compactN, countTip, loadSort, saveSort, sortItems, SUGGESTED_TIP, WHAT_SORTS, type WhatSort } from "./pickersort";
 
 // ── the view picker ────────────────────────────────────────────────────────────────────────────────────────
-// plain names for the six lenses (the lens ids and the state they set are unchanged), each with a small picture of
-// what it draws, so a person can tell the views apart without knowing what "hexagons" or "contours" are
+// plain names for the six lenses (the lens ids and the state they set are unchanged), each with its lens glyph, so a
+// person can tell the views apart without knowing what "hexagons" or "contours" are
 export const RAIL_NAME: Record<Lens, string> = { station: "Stations", hex: "Hexagon", contour: "Contour", cruise: "By cruise", region: "By region", section: "Cross-section" };
 /** each view as what a person wants to do (the headline) and a fuller line on what it draws and what it is good for */
 const GUIDE: Record<Lens, { q: string; a: string }> = {
@@ -26,16 +27,12 @@ const GUIDE: Record<Lens, { q: string; a: string }> = {
 /** a species has no depth axis (its tows are depth-integrated), so its section runs along the line year by year */
 const guideOf = (l: Lens, bio?: boolean) => (bio && l === "section" ? { q: "Look along one CalCOFI line, year by year", a: "A slice along one line of stations, with the years running up the side, to see how it changed over time." } : GUIDE[l]);
 export const RAIL_TIP: Record<Lens, string> = Object.fromEntries((Object.keys(GUIDE) as Lens[]).map((l) => [l, `${RAIL_NAME[l]} — ${GUIDE[l].a}`])) as Record<Lens, string>;
-const hex = (cx: number, cy: number, r: number) => Array.from({ length: 6 }, (_, i) => { const a = (Math.PI / 3) * i; return `${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`; }).join(" ");
-const V = { lo: "#3b0f70", mid: "#21908c", hi: "#fde725", lt: "#7ad151" }; // the viridis stops the maps use
-const THUMB: Record<Lens, ReactNode> = {
-  station: <><circle cx="12" cy="9" r="4" fill={V.mid} /><circle cx="30" cy="20" r="4" fill={V.hi} /><circle cx="44" cy="8" r="4" fill={V.mid} /><circle cx="52" cy="22" r="4" fill={V.lo} /><circle cx="8" cy="24" r="3.4" fill={V.lo} /></>,
-  hex: <><polygon points={hex(10, 10, 7)} fill={V.lo} /><polygon points={hex(24, 10, 7)} fill={V.mid} /><polygon points={hex(38, 10, 7)} fill={V.mid} /><polygon points={hex(52, 10, 7)} fill={V.lt} /><polygon points={hex(17, 22, 7)} fill={V.hi} /><polygon points={hex(31, 22, 7)} fill={V.mid} /><polygon points={hex(45, 22, 7)} fill={V.mid} /></>,
-  contour: <><defs><linearGradient id="vr-c" x1="0" x2="1"><stop offset="0" stopColor={V.lo} /><stop offset=".5" stopColor={V.mid} /><stop offset="1" stopColor={V.hi} /></linearGradient></defs><rect x="2" y="3" width="52" height="26" rx="3" fill="url(#vr-c)" opacity=".85" /><path d="M2 20 C16 8 30 24 54 12" fill="none" stroke="#fff" strokeWidth="1" opacity=".7" /><path d="M2 26 C18 16 34 28 54 20" fill="none" stroke="#fff" strokeWidth="1" opacity=".5" /></>,
-  cruise: <><path d="M3 24 C14 6 24 30 36 14 S50 8 53 5" fill="none" stroke="currentColor" strokeWidth="2" /><circle cx="14" cy="14" r="2.6" fill="currentColor" /><circle cx="36" cy="14" r="2.6" fill="currentColor" /><circle cx="53" cy="5" r="2.6" fill="currentColor" /></>,
-  region: <><polygon points="3,6 22,4 24,26 4,28" fill="#7fb2d8" /><polygon points="24,4 42,7 44,27 24,26" fill={V.mid} /><polygon points="42,7 54,6 54,26 44,27" fill={V.hi} /></>,
-  section: <><defs><linearGradient id="vr-s" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor={V.hi} /><stop offset=".5" stopColor={V.mid} /><stop offset="1" stopColor={V.lo} /></linearGradient></defs><path d="M2 3 H54 V20 L44 28 H12 L2 20 Z" fill="url(#vr-s)" /><path d="M10 3 v3 M22 3 v3 M34 3 v3 M46 3 v3" stroke="#fff" strokeWidth="1.2" opacity=".8" /></>,
-};
+// each view's glyph is main's own lens icon (state.ts LENS_ICON, icon-paths.ts): one colour, currentColor, the same
+// mark the classic lens picker and the header use. Coloured pictures (viridis dots, hexagons, a gradient) were tried
+// here and dropped (Ben, 2026-11-16): beside the map they competed with the data it draws.
+function Glyph(p: { l: Lens }) {
+  return <span className="vr-th" aria-hidden="true"><Icon name={LENS_ICON[p.l]} /></span>;
+}
 /** step 4, "View as": the six views as one compact row of little pictures (the chosen one outlined, its name beside the heading),
  *  plus "? Guide", which opens the same views as questions. Replaces the old rail on the map's right edge. */
 const VA_SHORT: Record<Lens, string> = { station: "Stations", hex: "Hexagon", contour: "Contour", cruise: "Cruise", region: "Region", section: "Section" };
@@ -73,13 +70,13 @@ export function ViewAs(p: { lens: Lens; onLens: (l: Lens) => void; nudge?: Lens 
         {LENSES.map((l) => (
           <button key={l} type="button" className={`va-tile${l === p.lens ? " on" : ""}${l === p.nudge && l !== p.lens ? " nudge" : ""}`} aria-pressed={l === p.lens} aria-label={RAIL_NAME[l]} onClick={() => l !== p.lens && p.onLens(l)}
             onMouseEnter={(e) => !guide && peekAt(l, e.currentTarget)} onMouseLeave={() => setPeek(null)} onFocus={(e) => !guide && peekAt(l, e.currentTarget)} onBlur={() => setPeek(null)}>
-            <svg className="vr-th" viewBox="0 0 56 32" aria-hidden="true">{THUMB[l]}</svg>
+            <Glyph l={l} />
             <span className="va-lab">{VA_SHORT[l]}</span>
           </button>))}
       </div>
       {peek && !guide && <div className="vr-guide vr-peek" aria-hidden="true" style={{ top: peek.top, left: peek.left, width: peek.w }}>
         <div className={`vm-row${peek.l === p.lens ? " on" : ""}`}>
-          <span className="vm-pic"><svg className="vr-th" viewBox="0 0 56 32" aria-hidden="true">{THUMB[peek.l]}</svg><i>{RAIL_NAME[peek.l]}</i></span>
+          <span className="vm-pic"><Glyph l={peek.l} /><i>{RAIL_NAME[peek.l]}</i></span>
           <span className="vm-tx"><b>{guideOf(peek.l, p.bio).q}</b><span>{guideOf(peek.l, p.bio).a}</span></span>
         </div>
       </div>}
@@ -87,7 +84,7 @@ export function ViewAs(p: { lens: Lens; onLens: (l: Lens) => void; nudge?: Lens 
         <div className="vm-hd">WHAT DO YOU WANT TO DO?</div>
         {LENSES.map((l) => (
           <button key={l} type="button" className={`vm-row${l === p.lens ? " on" : ""}`} onClick={() => { if (l !== p.lens) p.onLens(l); setGuide(null); }}>
-            <span className="vm-pic"><svg className="vr-th" viewBox="0 0 56 32" aria-hidden="true">{THUMB[l]}</svg><i>{RAIL_NAME[l]}</i></span>
+            <span className="vm-pic"><Glyph l={l} /><i>{RAIL_NAME[l]}</i></span>
             <span className="vm-tx"><b>{guideOf(l, p.bio).q}</b><span>{guideOf(l, p.bio).a}</span></span>
           </button>))}
       </div>}
@@ -121,7 +118,7 @@ export function ViewMenu(p: { lens: Lens; onLens: (l: Lens) => void; nudge?: Len
   return (
     <div ref={box} className="view-menu" data-tour="viewmenu">
       <button type="button" className={`vm-btn${nudge ? " nudge" : ""}`} aria-haspopup="true" aria-expanded={open} title="Change the view" onClick={() => show(!open)}>
-        <svg className="vr-th" viewBox="0 0 56 32" aria-hidden="true">{THUMB[p.lens]}</svg>
+        <Glyph l={p.lens} />
         {RAIL_NAME[p.lens]}
         <Icon name={open ? "ui-up" : "ui-down"} size="0.95em" />
       </button>
@@ -130,7 +127,7 @@ export function ViewMenu(p: { lens: Lens; onLens: (l: Lens) => void; nudge?: Len
         <div className="vm-hd">WHAT DO YOU WANT TO DO?</div>
         {LENSES.map((l) => (
           <button key={l} type="button" className={`vm-row${l === p.lens ? " on" : ""}`} aria-pressed={l === p.lens} onClick={() => { if (l !== p.lens) p.onLens(l); setOpen(false); }}>
-            <span className="vm-pic"><svg className="vr-th" viewBox="0 0 56 32" aria-hidden="true">{THUMB[l]}</svg><i>{RAIL_NAME[l]}</i></span>
+            <span className="vm-pic"><Glyph l={l} /><i>{RAIL_NAME[l]}</i></span>
             <span className="vm-tx"><b>{guideOf(l, p.bio).q}</b><span>{guideOf(l, p.bio).a}</span></span>
           </button>))}
       </div>}
@@ -241,25 +238,41 @@ export function LineStation(p: { lines: number[]; stationsOf: (line: number) => 
 }
 
 // ── the Download bar ───────────────────────────────────────────────────────────────────────────────────
-/** how many rows, one prominent Download CSV (the filtered observations), a ▾ for the other formats, and the two small
- *  links people reach for next. The zip package lives only in the ▾ — it used to be a second, competing button */
-export function DownloadBar(p: { count: ReactNode; sub?: ReactNode; busy: string | null; disabled: boolean; onCsv: () => void; onZip: () => void; onCopy: (k: "sql" | "r" | "py") => void; onCite: () => void; onLink: () => void; onReset?: () => void; zerosOpt?: { checked: boolean; onChange: (b: boolean) => void } | null }) {
+/** how many rows, one prominent Download CSV (the data behind the view, filters applied) with the Zip package beside it,
+ *  and a row of small tools: How to cite, Copy link and More ▾ — the picture of the whole view, the numbers it shows, the
+ *  citation as text or BibTeX, the code, and the SQL & timing card. It stays pinned to the panel's bottom (style.css), so
+ *  it is reachable without scrolling whatever the steps above it hold. */
+export interface DownloadMore { picture: (how: "copy" | "download") => void; numbers: () => void; numbersLabel: string; cite: (kind: "text" | "bibtex") => void; timing: () => void; timingOn: boolean }
+export function DownloadBar(p: { count: ReactNode; sub?: ReactNode; busy: string | null; disabled: boolean; onCsv: () => void; onZip: () => void; onCopy: (k: "sql" | "r" | "py") => void; onCite: () => void; onLink: () => void; onReset?: () => void; zerosOpt?: { checked: boolean; onChange: (b: boolean) => void } | null; more?: DownloadMore }) {
+  const m = p.more;
+  const moreItems: MenuItem[] = [
+    ...(m ? [
+      { label: "Picture of the view", icon: "ui-image" as IconName, hint: "PNG, stamped with the selection and link", onSelect: () => m.picture("download") },
+      { label: "Copy the picture", icon: "ui-copy" as IconName, hint: "to the clipboard", onSelect: () => m.picture("copy") },
+      { label: "Numbers shown", icon: "ui-data" as IconName, hint: m.numbersLabel, onSelect: m.numbers },
+      { label: "Copy the citation", icon: "ui-cite" as IconName, hint: "plain text, every dataset in view", onSelect: () => m.cite("text") },
+      { label: "Copy BibTeX", icon: "ui-code" as IconName, hint: "one @misc per dataset", onSelect: () => m.cite("bibtex") },
+    ] : []),
+    { label: "Copy SQL", icon: "ui-code", hint: "the query this view ran", onSelect: () => p.onCopy("sql") },
+    { label: "Copy R code", icon: "ui-code", onSelect: () => p.onCopy("r") },
+    { label: "Copy Python code", icon: "ui-code", onSelect: () => p.onCopy("py") },
+    ...(m ? [{ label: m.timingOn ? "Hide SQL & timing" : "Show SQL & timing", icon: "ui-sql" as IconName, hint: "the queries and how long they took", onSelect: m.timing, selected: m.timingOn }] : []),
+  ];
   return (
     <div className="dl-foot" data-tour="share">
       <div className="dl-count"><b>{p.count}</b></div>
       {p.sub && <div className="dl-sub">{p.sub}</div>}
       <div className="dl-split">
-        <button type="button" className="dl-main" disabled={p.disabled || !!p.busy} onClick={p.onCsv} title="every observation behind this view, with your filters applied, as one CSV">
+        <button type="button" className="dl-main" disabled={p.disabled || !!p.busy} onClick={p.onCsv} title="the data behind this view: every observation, with your filters applied, as one CSV">
           <Icon name="ui-download" />{p.busy ?? "Download CSV"}</button>
-        <button type="button" className="dl-zip" disabled={p.disabled || !!p.busy} onClick={p.onZip} title="everything as a package: the data, the citation, and the exact SQL, R and Python"><Icon name="ui-download" size="0.9rem" />Zip</button>
+        <button type="button" className="dl-zip" disabled={p.disabled || !!p.busy} onClick={p.onZip} title="everything as a package: the data, the numbers shown, the citation, and the exact SQL, R and Python"><Icon name="ui-download" size="0.9rem" />Zip</button>
       </div>
       {p.zerosOpt && <label className="dl-zeros" title="a sampled tow with no catch is a row with a value of 0 and no observation ID — most rows of a common species"><input type="checkbox" checked={p.zerosOpt.checked} onChange={(e) => p.zerosOpt!.onChange(e.target.checked)} />Include tows with no catch</label>}
       <div className="dl-tools">
         <button type="button" className="dl-tool" onClick={p.onCite} title="the sources and citations for this view"><Icon name="ui-cite" size="0.95rem" />How to cite</button>
         <button type="button" className="dl-tool" onClick={p.onLink} title="copy a link that reopens this exact view"><Icon name="ui-link" size="0.95rem" />Copy link</button>
-        <Menu className="dl-tool-menu" icon="ui-code" label="Code" align="right" title="copy the code that reproduces this view"
-          items={[{ label: "Copy SQL", icon: "ui-code", hint: "the query this view ran", onSelect: () => p.onCopy("sql") }, { label: "Copy R code", icon: "ui-code", onSelect: () => p.onCopy("r") }, { label: "Copy Python code", icon: "ui-code", onSelect: () => p.onCopy("py") }]} />
-        {p.onReset && <button type="button" className="dl-tool" onClick={p.onReset} title="back to the defaults: Stations, all years, all seasons, all depths, everywhere, every dataset — keeps your variable">Reset all</button>}
+        <Menu className="dl-tool-menu dl-more" icon="ui-more" label="More" align="right" title="the picture of the view, the numbers shown, the citation as text or BibTeX, the code, and the SQL & timing" items={moreItems} />
+        {p.onReset && <button type="button" className="dl-tool" onClick={p.onReset} title="back to the defaults: Stations, all years, all seasons, all depths, everywhere — keeps your pick">Reset all</button>}
       </div>
     </div>);
 }
@@ -342,6 +355,11 @@ const bioTopicOf = (it: PickerItem) => {
 const BIO_SPLIT = new Set(["Fish Eggs & Larvae"]);
 const topicOf = (it: PickerItem) => { const t = `${it.label} ${it.desc ?? ""} ${it.key.replace(/_/g, " ")}`; return TOPIC_TEST.find(([, re]) => re.test(t))?.[0] ?? "Other"; };
 const orderOf = (name: string) => { const i = ORDER.findIndex((o) => o.toLowerCase() === name.toLowerCase()); return i < 0 ? 99 : i; };
+/** "Suggested", the picker's own order inside a category: named before unnamed codes, headline before secondary versions,
+ *  the well-known measurements first, measured before derived, then most observations, then the name */
+const suggestedCmp = (a: PickerItem, b: PickerItem) => Number(!!a.unnamed) - Number(!!b.unnamed) || secondary(a) - secondary(b) || famousness(a) - famousness(b) || Number(!!a.badge) - Number(!!b.badge) || b.n - a.n || sortKey(a.label).localeCompare(sortKey(b.label), undefined, { numeric: true }) || a.key.localeCompare(b.key);
+/** the number a row shows: listed under one dataset (By dataset), that dataset's observations; else all of them */
+const rowCount = (it: PickerItem) => (it.inDs && it.dsN?.[it.inDs] != null ? it.dsN[it.inDs] : it.n);
 
 export function WhatPicker(p: {
   items: PickerItem[]; isOrganism: (key: string) => boolean; value: string; onPick: (key: string, dataset?: string) => void; onClose: () => void;
@@ -353,6 +371,10 @@ export function WhatPicker(p: {
   const [open, setOpen] = useState<string | null>(null);
   const [all, setAll] = useState<string | null>(null);
   const [ex, setEx] = useState<string | null>(null); // the measurement whose dataset choices are showing
+  // Sort by: Suggested (the order below) · Most observations · Name A–Z, within each category and topic and over the search
+  // results; remembered per browser, never in the link (pickersort.ts)
+  const [sortBy, setSortByRaw] = useState<WhatSort>(loadSort);
+  const setSortBy = (k: WhatSort) => { setSortByRaw(k); saveSort(k); };
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => { input.current?.focus(); }, []);
   const kindOf = (it: PickerItem): Kind => (p.isOrganism(it.key) ? "life" : "water");
@@ -370,16 +392,18 @@ export function WhatPicker(p: {
     }
     const by = (kind: Kind) => [...m.values()].filter((e) => e.kind === kind)
       .sort((a, b) => (tab === "category" ? orderOf(a.name) - orderOf(b.name) || p.rank(a.cat) - p.rank(b.cat) : 0) || a.name.localeCompare(b.name))
-      .map((e) => ({ ...e, items: e.items.sort((a, b) => Number(!!a.unnamed) - Number(!!b.unnamed) || secondary(a) - secondary(b) || famousness(a) - famousness(b) || Number(!!a.badge) - Number(!!b.badge) || b.n - a.n || sortKey(a.label).localeCompare(sortKey(b.label), undefined, { numeric: true }) || a.key.localeCompare(b.key)) }));
+      .map((e) => ({ ...e, items: sortItems(e.items, sortBy, suggestedCmp, rowCount) }));
     return { life: by("life"), water: by("water") };
-  }, [p.items, tab]);
+  }, [p.items, tab, sortBy]);
   const toks = norm(q).split(/\s+/).filter(Boolean);
   const found = useMemo(() => {
     if (!toks.length) return null;
     const hay = (it: PickerItem) => { const t = `${it.label} ${it.sub ?? ""} ${it.desc ?? ""} ${it.search ?? ""} ${it.key}`; return norm(t) + " " + stemmed(t); };
     const lead = (it: PickerItem) => (norm(it.label).startsWith(toks[0]) ? 0 : 1);
-    return p.items.filter((it) => toks.every((t) => { const h = hay(it); return h.includes(t) || h.includes(stem(t)); })).sort((a, b) => Number(!!a.unnamed) - Number(!!b.unnamed) || lead(a) - lead(b) || secondary(a) - secondary(b) || b.n - a.n || a.label.localeCompare(b.label));
-  }, [p.items, q]);
+    // Suggested, for a search: the names that start with the first word first (then as inside a category)
+    const hits = p.items.filter((it) => toks.every((t) => { const h = hay(it); return h.includes(t) || h.includes(stem(t)); }));
+    return sortItems(hits, sortBy, (a, b) => Number(!!a.unnamed) - Number(!!b.unnamed) || lead(a) - lead(b) || secondary(a) - secondary(b) || b.n - a.n || a.label.localeCompare(b.label));
+  }, [p.items, q, sortBy]);
   // a measurement made in several datasets (bottle, CTD …) is never picked for you: the row opens in place and you choose the dataset
   const choicesOf = (it: PickerItem) => {
     // a species counted in several datasets (anchovy: CUFES eggs, ichthyoplankton …) opens the same chooser (Betty 2026-11-10)
@@ -388,6 +412,14 @@ export function WhatPicker(p: {
     for (const v of it.variants?.length ? it.variants : [{ key: it.key, datasets: it.datasets ?? [] }]) for (const d of v.datasets) if (!seen.has(d)) { seen.add(d); out.push({ key: v.key, ds: d }); }
     return out.length > 1 ? out : null;
   };
+  // the row's observations, short ("1.2 M"), right-aligned on its second line; the hover and screen readers get the exact number
+  const count = (it: PickerItem) => {
+    const n = rowCount(it), one = it.inDs && it.dsN?.[it.inDs] != null, k = it.datasets?.length ?? 0;
+    const where = one ? `in ${dsName(it.inDs!)}` : k > 1 ? `across ${k} datasets` : k === 1 ? `in ${dsName(it.datasets![0])}` : "";
+    const tip = countTip(n, p.isOrganism(it.key) ? "observations (all life stages)" : "observations", where);
+    return <span className="wp-n" role="img" aria-label={tip} title={tip}>{compactN(n)}</span>;
+  };
+  const line2 = (it: PickerItem, second: string | undefined) => <span className="wp-l2">{second ? <small className={it.subItalic ? "i" : ""}>{second}</small> : <span className="wp-l2-gap" />}{count(it)}</span>;
   const itemBtn = (it: PickerItem, tag?: string) => {
     const second = p.isOrganism(it.key) ? it.sub : it.desc ?? it.sub;
     // listed under one dataset (By dataset): no chooser — the click opens this row's data from THAT dataset
@@ -397,7 +429,7 @@ export function WhatPicker(p: {
       return <button key={it.key} type="button" className={`wp-item${isSel(it) ? " on" : ""}`} onClick={() => p.onPick(v?.key ?? it.key, it.inDs)} title={it.tip ?? it.desc}>
         <span className="wp-name">{it.label}{it.badge && <i className="badge">{it.badge}</i>}</span>{tag && <em>{tag}</em>}
         {n > 1 && <em className="wp-nds">also in {n - 1} other{n > 2 ? "s" : ""}</em>}
-        {second && <small className={it.subItalic ? "i" : ""}>{second}</small>}</button>;
+        {line2(it, second)}</button>;
     }
     const ch = choicesOf(it), isOpen = !!ch && ex === it.key;
     // a click on the row just opens it — the app picks the dataset (Betty 2026-11-10: step 1 asks one thing). The quiet
@@ -405,7 +437,7 @@ export function WhatPicker(p: {
     const btn = <button key={it.key} type="button" className={`wp-item${isSel(it) ? " on" : ""}${ch ? " multi" : ""}`}
       onClick={() => p.onPick(it.key)} title={it.tip ?? it.desc}>
       <span className="wp-name">{it.label}{it.badge && <i className="badge">{it.badge}</i>}</span>{tag && <em>{tag}</em>}
-      {second && <small className={it.subItalic ? "i" : ""}>{second}</small>}</button>;
+      {line2(it, second)}</button>;
     if (!ch) return btn;
     return <div key={it.key} className="wp-itemwrap">{btn}
       <button type="button" className="wp-nds-btn" aria-expanded={isOpen} onClick={() => setEx(isOpen ? null : it.key)} title="this is in several datasets — choose one yourself">
@@ -415,6 +447,8 @@ export function WhatPicker(p: {
         {ch.map((c) => <button key={c.ds} type="button" className="wp-dsrow" onClick={() => p.onPick(c.key, c.ds)}><span className="wp-dsname">{dsName(c.ds)}</span><span className="wp-dsgo" aria-hidden="true">→</span></button>)}
       </div>}</div>;
   };
+  // the category's pill counts what it lists — species or measurements — not observations (those are on each row)
+  const badgeTip = (kind: Kind, n: number) => `${n.toLocaleString()} ${kind === "life" ? (n === 1 ? "species or other taxon" : "species and other taxa") : n === 1 ? "measurement" : "measurements"} listed ${tab === "category" ? "in this category" : "from this dataset"} (a count of items, not of observations)`;
   const section = (title: string, rows: typeof sections.life) => rows.length ? <>
     <div className="wp-sec">{title}</div>
     <div className="wp-list">{rows.map((g) => {
@@ -427,7 +461,7 @@ export function WhatPicker(p: {
           requestAnimationFrame(() => requestAnimationFrame(() => { if (box && btn.isConnected) box.scrollTop += btn.getBoundingClientRect().top - y0; }));
         }}>
           {tab === "category" && <span className="wp-ic">{ic && <Icon name={ic} />}</span>}
-          <span className="wp-name">{g.name}</span><span className="wp-badge">{g.items.length.toLocaleString()}</span><Icon name={on ? "ui-down" : "ui-right"} className="wp-chev" size="0.9rem" /></button>
+          <span className="wp-name">{g.name}</span><span className="wp-badge" role="img" aria-label={badgeTip(g.kind, g.items.length)} title={badgeTip(g.kind, g.items.length)}>{g.items.length.toLocaleString()}</span><Icon name={on ? "ui-down" : "ui-right"} className="wp-chev" size="0.9rem" /></button>
         {on && (() => {
           // a long environmental category reads in topics (Temperature, Salinity, Oxygen …), each keeping the list's order
           const topics = tab !== "category" || g.items.length <= 8 ? []
@@ -446,6 +480,10 @@ export function WhatPicker(p: {
         <input ref={input} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search species or measurements" aria-label="Search species or measurements" /></label>
       {!found && <div className="wp-tabs" role="tablist"><button type="button" role="tab" aria-selected={tab === "category"} className={tab === "category" ? "on" : ""} onClick={() => { setTab("category"); setOpen(null); }}>By category</button>
         <button type="button" role="tab" aria-selected={tab === "dataset"} className={tab === "dataset" ? "on" : ""} onClick={() => { setTab("dataset"); setOpen(null); }}>By dataset</button></div>}
+      <div className="wp-sortrow" title={sortBy === "suggested" ? SUGGESTED_TIP : undefined}>
+        <span className="wp-sort-l">Sort by</span><StatPick value={sortBy} options={WHAT_SORTS} onChange={(k) => setSortBy(k as WhatSort)} label="Sort by" />
+        <span className="wp-ncap" title="the number on each row: how many observations this release holds for it">observations</span>
+      </div>
     </div>
     {p.loading && <div className="hint">{p.loading}</div>}
     {found ? <div className="wp-list">
@@ -477,7 +515,7 @@ export function StatPick(p: { value: string; options: [string, string][]; onChan
   }, [idx]);
   const pick = (k: string) => { p.onChange(k); setOpen(false); };
   const onKey = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") { setOpen(false); return; }
+    if (e.key === "Escape") { if (open) e.stopPropagation(); setOpen(false); return; } // closes the list, not the panel it sits in
     if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); if (!open) { setHi(idx); setOpen(true); } else setHi((h) => (h + (e.key === "ArrowDown" ? 1 : p.options.length - 1)) % p.options.length); }
     else if ((e.key === "Enter" || e.key === " ") && open) { e.preventDefault(); pick(p.options[hi][0]); }
   };

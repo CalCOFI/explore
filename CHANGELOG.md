@@ -12,6 +12,90 @@
   measured, 0 only from the zero-fill. "Copy as SQL" hands over the statements against the release's object URLs. Water
   measurements are those with a per-bin `obs_env` object (a per-cast-only type is not listed yet). `src/builder/query.ts`,
   `tests/builder.sql.test.ts`.
+- **a dot of the Observations layer opens what was recorded there, and when** (Ben 2026-11-16, on the cetacean
+  sightings preview: a sighting could not be clicked to see the species). A click on a site (`obs=`) opens a card pinned
+  to it: each sample there — a sighting, a net, a cast — with its date and time on the Pacific clock (PST / PDT; UTC in
+  the hover), its dataset and cruise, then what it recorded. For a species the samples are read back from the release
+  with every taxon they hold, so a *whales, dolphins and porpoises* dot names the common dolphins it stands for, the
+  pick's own records in bold; for water, the cast's values by depth bin. The selection's filters (years, seasons, depth,
+  datasets, area, cruises, zeros) hold; at most 200 records. A station dot under a site dot still takes the click and the
+  hover. `sql/site_obs.sql`, `sql/site_obs_env.sql`, `src/siteobs.ts`, `tests/siteobs.test.ts`.
+- **fix: the Station card shows the view's datasets, and its rows no longer pile up.** A station clicked in a sightings
+  view listed every dataset that ever sampled the cell (the ichthyo tows, the bottles …) from the release's coverage
+  files; it now lists the datasets picked, else the ones holding the pick, and names the others in one line. In the
+  phone's bottom sheet each dataset's row wore the floating panels' `.card` class and they were drawn on top of one
+  another; they have their own classes now. Datasets are named as the title card names them (*Cetacean sightings*).
+- **the Effort layer draws behind the data, thin and translucent.** Where several cruises ran the same transect, the 2 px
+  amber segments on a dark halo covered every station dot; they are 1 px at half strength with no halo, under the dots,
+  a cruise's samples, the Lines and the Observations (over the hexagons, regions and surfaces, which would hide them).
+
+- **the What picker says how its lists are ordered, and the order can be changed.** Each species or measurement row shows
+  its observations in this release (*138 k*, *1.6 M*; the exact number and what it counts on hover), By dataset that
+  dataset's own. A quiet *Sort by* beside By category / By dataset offers **Suggested** — the order it always had: the
+  familiar measurements first (temperature, salinity, oxygen …), measured before derived, then most observations, with
+  sensor copies, raw versions and unidentified or unnamed taxa last — **Most observations** and **Name A–Z**. It applies
+  inside each category and topic (Temperature, Salinity …; Fish, Squid and octopus …), which stay, and to search results;
+  the browser remembers it and the link does not carry it. A category's pill says on hover that it counts what is listed,
+  not observations. Classic's Browse tree follows its list's sort buttons (A–Z, most observations, most recent) instead of
+  always A–Z. `src/pickersort.ts`, `tests/pickersort.test.ts`, `scripts/lean_check.mjs`.
+- **fix: the Time panel never covers the Find data panel.** A Time panel dragged or resized while the panel was folded (or in
+  classic, where it runs the full width) came back from the browser's memory at the map's left edge, over the lower half of
+  the open panel, its rows showing through the chart. The bottom docks — Time, the Section / Cruise result, the depth ×
+  time card and the collapsed pills — now start just right of the panel as it stands (moved, resized wider, opened), step
+  clear of it when their own remembered place would cover it, and take the full width when it is folded. In classic, an
+  open species or variable list now sits above the Time panel rather than under it; the phone's bottom sheet is
+  unchanged. `src/dock.ts`, `tests/dock.test.ts`, `scripts/lean_check.mjs`.
+- **fix: a species' counts count the nets its mean divides by.** The zeros are per net (`sample_key`; confirmed by Ben
+  2026-11-16), but *found in K of N samples*, the hovers, the Time strip, the Regions list and the download line counted
+  station visits (`root_id`), so Pacific sardine larvae per 10 m² read *found in 5,817 of 49,208 samples* under a mean of
+  35.9 over 52,780 nets; it now reads *found in 6,273 of 52,780 samples*. Every slice carries `sample_id` (the net for a
+  species, `root_id` on a release without `sample_key`; the cast for water, so water counts are unchanged), every
+  template counts it, and the CSV carries it with a column-dictionary entry. `tests/zerofill.counts.test.ts`,
+  `scripts/lean_check.mjs` (the CSV's samples per station / hexagon / region and the Time strip's against the panel).
+- **the lean "Find data" panel is the default (PR #53); `?ui=classic` brings back Select / Refine / Share.** One
+  top-down panel: What (one search over species and measurements, by category or by dataset, with the life stage, the
+  units, Count zeros and the dataset under it) → When (years, seasons, cruises) → Where (regions, line / station, the
+  CalCOFI grids, a drawn area, a box or the map view) → View as (the six views as main's monochrome lens icons, the same
+  choice as the header's view menu) → the depth profile and the summary statistic, with the downloads pinned at the
+  panel's bottom. `scripts/lean_check.mjs` drives it in Chrome — every What category × view × When × Where, the layers,
+  Reset, the link, Back / Forward, classic, light / dark and a 375 px window — and opens every CSV and zip it downloads,
+  checking each row against the filters in force and the per-station / hexagon / region numbers against the map.
+- **the download area is pinned and complete.** It stays at the bottom of the panel, reachable without scrolling.
+  Download CSV is the data behind the view; Zip the package; How to cite and Copy link beside them; More ▾ holds a picture
+  of the view (PNG or the clipboard), the numbers the map shows (its table as CSV), the citation as text or BibTeX, the
+  SQL / R / Python, and the SQL & timing card — all of which the lean panel had lost.
+- **fix: download file names say which subset they hold** (`src/filename.ts`): `calcofi_pacific-sardine_larva_per10m2_
+  1990-2005_spring-summer_75-station-grid_hex4_v2026.11.14_20261116.csv`, each part only when in force. Every CSV of a
+  species was `calcofi_<taxon>_<release>.csv`, so two subsets overwrote each other. `tests/filename.test.ts`.
+- **combining datasets is an explicit choice again, in both layouts.** One dataset (the one with the most data) stays
+  the default; the lean dataset list ends with *Combine all N*, classic's Refine pills add and remove again with *all
+  datasets* / *one dataset*. The link says `datasets=all` (or the list); the PR had forced one dataset everywhere, so
+  classic's *all datasets* could not stick. `tests/pool.url.test.ts`.
+- **fix: Where tells the truth.** It opens with the area in force, named (*Area: CalCOFI 75-station grid · Clear*;
+  `area.ts areaLabel()`), *Full survey* is ticked only when no area is set (it looked chosen under a region, a line or a
+  drawing) and choosing it clears any area, and a line says each choice replaces the one before. Unticking the last region
+  drops the area instead of silently meaning every region. The Cruise and Section views (which hide When and Where) and
+  the Region view (which hides Where) show the filters still in force, collapsed, with why they apply and a Clear.
+- **fix: Draw an area dropped a loop closed exactly on its start point** (`simplifyPath` measured every point as 0 from
+  a chord of no length, so the shape fell to two points and read as a click).
+- **fix: Reset all kept the filters' leftovers and dropped the pick's.** It keeps the species with its life stage, units
+  and zeros (they were reset, so the panel fell back to no stage), and turns the Lines layer and the added variable off
+  (they were left on). `state.ts resetPatch()`, `tests/reset.test.ts`.
+- **fix: the added variable.** *Color by* it is in the link (`color=var2`; a reload went back to the first pick's
+  colours); beside a species the list offers every measurement (it left out the last one viewed); picking it as the main
+  measurement drops it as the second. `tests/var2.url.test.ts`.
+- **fix: the Effort layer with a one-hexagon area** (`area=hx:`): the effort query filtered on `hex7`, which it had no
+  column for, and failed. Each path now takes its `sample_root` row's cell when the release carries one.
+  `tests/effort.sql.test.ts`.
+- **Back and Forward step through the view** (`state.ts historyMode()`): a change of what is shown — the pick, the view,
+  years, seasons, area, cruises, depth band, added variable, hexagon size, line, layer, datasets — is a history entry; the
+  map's pan and zoom, folds and the defaults the app fills in replace it. Before, Back left the app. `tests/history.test.ts`.
+- **fix: By region kept zooming a close look out to the whole coast**; a map already showing some of the layer's regions
+  now stays where it is.
+- **fix: the tour in classic** pointed two steps (*Six ways to view it*, *Download and share*) at lean-only anchors.
+- **fix: a Section or Cruise view's zip held every line.** Its CSV took the view's own line / cruise on top of the
+  filters and the zip's observations did not; both read `reproduce.ts lensOwnSql()` now, and the README says so.
+  `tests/lensown.test.ts`.
 - **fix: an anomaly section with no baseline drew empty axes under a legend left over from the map.**
   `?lens=section&var=temperature&line=93.3&anom=1&cruise=2025-04-3322`: the cruise's median cast month is March, and no
   March reached 5 cruises in 1993–2013 on line 93.3 (release v2026.11.09 holds no monthly temperature mean there for March,

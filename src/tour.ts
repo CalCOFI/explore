@@ -44,7 +44,7 @@ export const TOUR_STEPS: TourStep[] = [
   // the phone has no title sentence (the sheet's summary line says the same), so the step anchors there
   { id: "sentence", element: q('[data-tour="sentence"], .sheet-summary'), side: "bottom", title: "What you are looking at",
     description: "The title says what the map shows, in plain words, with the colour scale beside it. Source names the dataset behind it, and Attribution opens the citations.", before: (a) => { if (a.phone) a.sheet("select", "peek"); } },
-  { id: "lenses", element: qFirst('[data-tour="viewlist"]', '[data-tour="lens"]'), side: "right", align: "start", title: "Six ways to view it",
+  { id: "lenses", element: qFirst('[data-tour="viewlist"]', '[data-tour="lens"]', '[data-tour="lenses"]'), side: "right", align: "start", title: "Six ways to view it",
     description: "Stations, Hexagon, By region, Contour, By cruise and Cross-section are six views of the same data. Each row says what it answers — pick one here, or from View as in the panel.",
     ui: { menu: true }, before: (a) => { if (a.phone) a.sheet("select", "half"); }, wait: 400 },
   { id: "realm", element: qFirst('[data-tour="what-list"]', '[data-tour="realm"]'), side: "right", align: "start", title: "Biological or Environmental",
@@ -68,8 +68,9 @@ export const TOUR_STEPS: TourStep[] = [
   { id: "layers", element: q('[data-tour="layers"]'), side: "left", align: "end", title: "Layers — the sea floor, and the boundaries you can draw on top",
     description: "The sea floor is GEBCO 2025 — shaded relief, depth colour and isobaths — under the OpenStreetMap coast, and the registry's boundary and reference layers (EEZ, sanctuaries, MPAs, counties, undersea feature names …) stack over it in the order you set. Every choice lands in the URL, so a shared link reopens the same map." },
   { id: "share", element: q('[data-tour="share"]'), side: "right", align: "end", title: "Download and share",
-    description: "Download CSV gives the table behind the view. Zip beside it is the full package: the data, the citations, and the exact SQL, R and Python to reproduce it. Copy SQL, R or Python puts that code on your clipboard. How to cite opens the sources and citations; Copy link shares the whole view, map extent included.",
-    before: (a) => { rail(a, "select"); if (a.phone) a.expand("export"); }, wait: 300 },
+    description: "Download CSV gives the data behind the view, every filter applied. Zip beside it is the full package: the data, the numbers shown, the citations, and the exact SQL, R and Python to reproduce it. More holds a picture of the view, the numbers the map shows, the citation as text or BibTeX, the code and the SQL & timing card. How to cite opens the sources; Copy link shares the whole view, map extent included.",
+    // the lean panel's download area is always there; the classic panel's Share tab has to be opened for it
+    before: (a) => { rail(a, "select"); if (a.phone || !q('[data-tour="share"]')()) a.expand("export"); }, wait: 300 },
   // the anchor is the feedback button now that it has left the Help menu; Help ▾ sits immediately left of it, so the
   // popover covers both. `q()` falls back to Help if the button is ever hidden, so the step always has a real element.
   { id: "feedback", element: qFirst('[data-tour="feedback"]', '[data-tour="help"]'), side: "bottom", align: "end", title: "Tell us what you see, and where to read more",

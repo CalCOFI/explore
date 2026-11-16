@@ -145,7 +145,7 @@ describe("depthtime.ts — the grid, the window, the hover, the empty card", () 
 describe("the card in the URL — `show=depthtime`, its baseline, round-trip", () => {
   let href = "/explore/";
   const open = (qs: string) => { href = `/explore/?${qs}`; vi.stubGlobal("location", { pathname: "/explore/", get search() { return href.split("?")[1] ? `?${href.split("?")[1]}` : ""; } }); };
-  beforeAll(() => vi.stubGlobal("history", { replaceState: (_: unknown, __: string, u: string) => { href = u; } }));
+  beforeAll(() => vi.stubGlobal("history", { replaceState: (_: unknown, __: string, u: string) => { href = u; }, pushState: (_: unknown, __: string, u: string) => { href = u; } }));
   afterAll(() => vi.unstubAllGlobals());
   const round = (qs: string): { sel: Sel; url: string } => { open(qs); const sel = fromUrl(); toUrl(sel); return { sel, url: href }; };
   it("folded by default: a link from before the card never opens it", () => {

@@ -77,13 +77,13 @@ describe("slice_cast.sql — one row per cast value, placed by the cast's sample
     expect(db.exec("SELECT obs_id, year, quarter, units FROM slice ORDER BY obs_id")).toEqual([
       { obs_id: 1, year: 2020, quarter: 1, units: "m" }, { obs_id: 3, year: 2021, quarter: 3, units: "m" }, { obs_id: 4, year: 2020, quarter: 1, units: "m" }]);
   });
-  it("carries the columns of slice_env.sql in the same order, plus sample_key — so every lens template runs on it", () => {
+  it("carries the columns of slice_env.sql in the same order (sample_id = the cast), plus sample_key — so every lens template runs on it", () => {
     const cols = db.exec("DESCRIBE slice").map((r) => `${r.column_name}:${r.column_type}`);
     expect(cols).toEqual(["obs_id:BIGINT", "dataset_key:VARCHAR", "root_id:INTEGER", "grid_key:VARCHAR", "site_key:VARCHAR", "line:DOUBLE", "station:DOUBLE",
       "cruise_key:VARCHAR", "latitude:DOUBLE", "longitude:DOUBLE", "datetime:TIMESTAMP", "year:SMALLINT", "quarter:TINYINT",
       "depth_min_m:DOUBLE", "depth_max_m:DOUBLE", "depth_bin:INTEGER", "taxon_key:VARCHAR", "life_stage:VARCHAR", "measurement_type:VARCHAR", "units:VARCHAR", "value:DOUBLE",
       "measurement_qual:VARCHAR", "qual_ok:BOOLEAN", "tow_type:VARCHAR", "std_haul_factor:DOUBLE", "prop_sorted:DOUBLE", "volume_sampled_m3:DOUBLE",
-      "density_per_10m2:DOUBLE", "density_per_1000m3:DOUBLE", "effort_class:VARCHAR", "hex7:UBIGINT", "cruise_month:TINYINT", "season_year:SMALLINT", "sample_key:VARCHAR"]);
+      "density_per_10m2:DOUBLE", "density_per_1000m3:DOUBLE", "effort_class:VARCHAR", "hex7:UBIGINT", "cruise_month:TINYINT", "season_year:SMALLINT", "sample_id:VARCHAR", "sample_key:VARCHAR"]);
   });
   it("a registry with a repeated row cannot double a cast (units is a scalar lookup, not a join)", () => {
     db.exec("CREATE OR REPLACE TABLE mt2 AS SELECT * FROM mt UNION ALL SELECT * FROM mt");

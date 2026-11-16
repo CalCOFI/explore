@@ -157,6 +157,20 @@ export function lineKeys(a: { line: number; station: number | null }, allKeys: s
 /** CalCOFI's standard station ID: line and station as LLL.L SSS.S ("093.3 026.7", the bottle database's Sta_ID) */
 export const staId = (n: number) => n.toFixed(1).padStart(5, "0");
 export const lineStationId = (i: { line: number; station: number | null }) => i.station != null ? `${staId(i.line)} ${staId(i.station)}` : `Line ${staId(i.line)}`;
+/** the lean Where step's "in force" line (review 2026-11-16: "Full survey" looked selected while a region, a line or a
+ *  drawing was the area): what the area is, as a short noun phrase; null = no area, the full survey */
+export function areaLabel(a: Area | null, hexKm?: string): string | null {
+  if (!a) return null;
+  switch (a.kind) {
+    case "pattern": return a.patterns.includes("extended") ? "CalCOFI 113-station grid" : "CalCOFI 75-station grid";
+    case "region": return a.names == null ? `Every region of ${a.layer}` : a.names.length === 1 ? a.names[0] : `${a.names.length} regions of ${a.layer}`;
+    case "hex": return `One ${hexKm ? `${hexKm} ` : ""}hexagon`;
+    case "line": return a.station != null ? `Station ${lineStationId(a)}` : lineStationId(a);
+    case "lines": return a.items.length <= 2 ? a.items.map((i) => (i.station != null ? `Station ${lineStationId(i)}` : lineStationId(i))).join(", ") : `${a.items.length} lines and stations`;
+    case "poly": return "An area drawn on the map";
+    case "box": { const [w, s, e, n] = a.bbox, lon = (x: number) => `${Math.abs(r3(x))}°${x < 0 ? "W" : "E"}`, lat = (y: number) => `${Math.abs(r3(y))}°${y < 0 ? "S" : "N"}`; return `Box ${lon(w)}–${lon(e)}, ${lat(s)}–${lat(n)}`; }
+  }
+}
 export function areaWord(a: Area | null): string {
   if (!a) return "everywhere";
   if (a.kind === "region") {
@@ -258,9 +272,12 @@ export const polyFeature = (pts: [number, number][]) => ({ type: "Feature", prop
 /** Douglas–Peucker on a drawn path (pixels): thins a freehand stroke to a few dozen corners, so the link and the SQL stay short */
 export function simplifyPath(pts: [number, number][], eps: number): [number, number][] {
   if (pts.length < 3) return pts;
-  const [ax, ay] = pts[0], [bx, by] = pts[pts.length - 1], dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy) || 1;
+  const [ax, ay] = pts[0], [bx, by] = pts[pts.length - 1], dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy);
+  // a loop closed back on its start has no chord to measure from: the distance is then to the start point itself (it measured
+  // 0 for every point, so a carefully closed loop simplified to two points and was dropped as "a click" — review 2026-11-16)
+  const dist = (q: [number, number]) => (L < 1e-9 ? Math.hypot(q[0] - ax, q[1] - ay) : Math.abs(dy * (q[0] - ax) - dx * (q[1] - ay)) / L);
   let k = -1, md = 0;
-  for (let i = 1; i < pts.length - 1; i++) { const d = Math.abs(dy * (pts[i][0] - ax) - dx * (pts[i][1] - ay)) / L; if (d > md) { md = d; k = i; } }
+  for (let i = 1; i < pts.length - 1; i++) { const d = dist(pts[i]); if (d > md) { md = d; k = i; } }
   if (md <= eps) return [pts[0], pts[pts.length - 1]];
   return [...simplifyPath(pts.slice(0, k + 1), eps).slice(0, -1), ...simplifyPath(pts.slice(k), eps)];
 }

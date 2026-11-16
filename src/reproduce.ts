@@ -119,3 +119,16 @@ export function copyAs(kind: "sql" | "r" | "py", ctx: Pick<ReproCtx, "sel" | "ca
   if (kind === "sql") return sqls.map(([f, s]) => `-- ${f}\n${s};`).join("\n\n") + "\n";
   return kind === "r" ? rBody(ctx.version, ctx.sel.lens, sqls, true, cast) : pyBody(ctx.version, ctx.sel.lens, sqls, true, cast);
 }
+
+/** the view's own choice on top of the filters (the Section view's line, and an env section's or the Cruise view's cruise):
+ *  the rows the screen draws. The CSV, its zero-row count and the zip's observations all read it (review 2026-11-16: the
+ *  zip of a Section view carried every line, the CSV one) */
+export function lensOwnSql(sel: { lens: string; realm: string; line: number; cruise: string | null }): string[] {
+  const q = (v: unknown) => `'${String(v).replace(/'/g, "''")}'`;
+  const own: string[] = [];
+  if (sel.lens === "section" && Number.isFinite(Number(sel.line))) {
+    own.push(`line = ${Number(sel.line)}`);
+    if (sel.realm !== "bio" && sel.cruise) own.push(`cruise_key = ${q(sel.cruise)}`);
+  } else if (sel.lens === "cruise" && sel.cruise) own.push(`cruise_key = ${q(sel.cruise)}`);
+  return own;
+}

@@ -8,8 +8,8 @@ import { members } from "./variables";
 import { csv, saveBlob } from "./export";
 import { citationMd } from "./cite";
 // the SQL the view ran against the release's URLs, and the R / Python that runs it: pure, in reproduce.ts
-import { copyAs, isCast, pyBody, rBody, resolvedSql, whereSql, type ReproCtx } from "./reproduce";
-export { saveBlob, copyAs, resolvedSql };
+import { copyAs, isCast, lensOwnSql, pyBody, rBody, resolvedSql, whereSql, type ReproCtx } from "./reproduce";
+export { saveBlob, copyAs, resolvedSql, lensOwnSql };
 
 export interface BundleCtx extends ReproCtx {
   summary: Row[]; summaryKey: string; grid: { grid_key: string; line: number; station: number; home: [number, number] }[];
@@ -17,6 +17,7 @@ export interface BundleCtx extends ReproCtx {
   regionCols?: RegionCols | null;
   var2Cols?: Var2Cols | null;
   onStatus?: (s: string) => void;
+  fileName?: string;   // the subset's own name (src/filename.ts); absent = the generic one
 }
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -30,9 +31,10 @@ export interface Var2Cols { key: string; hex: string; km: string; where: string 
 const lit = (v: string) => `'${v.replace(/'/g, "''")}'`;
 /** the column dictionary the zip carries (Betty 2026-11-11: "value" alone does not say it is the raw sardine count) */
 const DICT: Record<string, string> = {
-  obs_id: "observation id in the release; blank = a tow that sampled this taxon's dataset but caught none (zero-filled)",
+  obs_id: "observation id in the release; blank = a tow (one net, sample_id) that sampled this taxon's dataset but caught none (zero-filled)",
   dataset_key: "the dataset the row comes from (names and citations: data/reference/dataset.csv)",
-  root_id: "the sample (tow or cast) the observation belongs to",
+  root_id: "the root sample the row belongs to: for a species the station visit (every net towed at one station on one cruise), for water the cast",
+  sample_id: "the sample the counts count (\"found in K of N samples\"): for a species one net tow — the release's sample_key (root_id on a release without it), the unit its zeros and mean run over; for water the cast (root_id)",
   grid_key: "CalCOFI station-grid cell; blank = taken off the station grid",
   site_key: "line and station as recorded (\"LLL.L SSS.S\")",
   line: "CalCOFI line number (from site_key)", station: "CalCOFI station number (from site_key)",
@@ -51,10 +53,10 @@ const DICT: Record<string, string> = {
   hex7: "H3 hexagon cell at resolution 7, as an integer (internal)", cruise_month: "the cruise's month (its median cast month)",
   season_year: "the season's year (December counts toward the next winter)",
   hex: "the map's hexagon this row falls in (H3 index)", hex_size_km: "that hexagon's size, km",
-  hex_mean: "mean of the map's value in this hexagon (map's units)", hex_median: "median of the map's value in this hexagon", hex_n: "records in this hexagon (for a species: samples that caught it — zero-filled tows are in the mean, not in this count)",
-  station_mean: "mean of the map's value at this station (map's units)", station_median: "median of the map's value at this station", station_n: "records at this station (for a species: samples that caught it — zero-filled tows are in the mean, not in this count)",
+  hex_mean: "mean of the map's value in this hexagon (map's units)", hex_median: "median of the map's value in this hexagon", hex_n: "records in this hexagon (for a species: its catch records — the zero-filled tows are in the mean, not in this count)",
+  station_mean: "mean of the map's value at this station (map's units)", station_median: "median of the map's value at this station", station_n: "records at this station (for a species: its catch records — the zero-filled tows are in the mean, not in this count)",
   region: "the boundary layer (e.g. Marine Protected Areas)", region_name: "the region within it this sample falls in; a sample in two overlapping regions is one row per region",
-  region_mean: "mean of the map's value in this region (map's units)", region_median: "median of the map's value in this region", region_n: "records in this region (for a species: samples that caught it — zero-filled tows are in the mean, not in this count)",
+  region_mean: "mean of the map's value in this region (map's units)", region_median: "median of the map's value in this region", region_n: "records in this region (for a species: its catch records — the zero-filled tows are in the mean, not in this count)",
 };
 const describeCol = (c: string, unit: string) => {
   const m = /^(.+)_hex_(mean|n)$/.exec(c);
@@ -120,7 +122,9 @@ export async function buildBundle(ctx: BundleCtx): Promise<{ blob: Blob; name: s
   // 2. the observation rows behind the view (CSV under 300k rows; parquet always)
   say("observations…");
   const ft = `bundle_obs_${Date.now()}`;
-  const where = whereSql(ctx); // the filter the lens applied (was read off sqls[2], the depth-strip query a per-cast variable does not have)
+  // the filter the lens applied (was read off sqls[2], the depth-strip query a per-cast variable does not have), and the view's own line / cruise
+  const own = lensOwnSql(sel);
+  const where = [whereSql(ctx), ...own].join(" AND ");
   const cnt = (await engine.exec(`SELECT count(obs_id) AS n, count(*) FILTER (WHERE obs_id IS NULL) AS n_filled FROM slice WHERE ${where}`, "bundle_count"))[0];
   const nObs = cnt.n as number, nFilled = cnt.n_filled as number;
   await engine.exec(`COPY (${viewRows(where, ctx, ctx.regionCols, where, ctx.var2Cols)}) TO '${ft}.parquet' (FORMAT parquet, COMPRESSION zstd)`, "bundle_parquet");
@@ -160,6 +164,7 @@ export async function buildBundle(ctx: BundleCtx): Promise<{ blob: Blob; name: s
       : `variable: ${sel.var} = ${members(sel.var).join(" + ")} (${ctx.unit})`,
     ...(sel.datasets ? [`datasets: ${sel.datasets.join(", ")} (pill filter)`] : []),
     `quality: qual_ok (calcofi4r::cc_qual_ok_sql) · years ${sel.months ? `${sel.years[0]}-${String(sel.months[0]).padStart(2, "0")} to ${sel.years[1]}-${String(sel.months[1]).padStart(2, "0")} (month-resolved)` : `${sel.years[0]}–${sel.years[1]}`}${sel.q?.length && sel.q.length < 4 ? ` · quarters ${sel.q.join(", ")}` : ""}${cast ? "" : ` · depth band ${sel.depth[0]}–${sel.depth[1]} m`}`,
+    ...(own.length ? [`the observations are the view's own: ${own.join(" AND ")}, as on the screen`] : []),
     `lens: ${sel.lens}${sel.lens === "hex" ? ` (H3 res ${ctx.hexRes})` : ""}${sel.lens === "region" ? ` (layer ${sel.layer}; membership = sample_spatial, exact per root sample)` : ""}${sel.cruise ? ` · cruise ${sel.cruise}` : ""}${sel.lens === "section" ? ` · line ${sel.line}` : ""}${sel.lens === "contour" ? ` (surface: ${sel.interp} over the station summary; ${sel.surface}; the CSV is the station table the surface interpolates)` : ""}`,
     ...(ctx.var2Cols ? [`added variable: ${ctx.var2Cols.key}, matched by hexagon (${ctx.var2Cols.km} km): its mean and count in the row's hexagon, same years, seasons, area and depth band`] : []),
     ...(ctx.regionCols ? [`regions: ${ctx.regionCols.layer}${ctx.regionCols.names?.length ? ` (${ctx.regionCols.names.join("; ")})` : " (every region of the layer)"}; each observation row carries region and region_name (one row per region a sample falls in)`] : []),
@@ -178,7 +183,7 @@ export async function buildBundle(ctx: BundleCtx): Promise<{ blob: Blob; name: s
   ], metadata: { kernelspec: { name: "python3", display_name: "Python 3", language: "python" } }, nbformat: 4, nbformat_minor: 5 }, null, 1));
   say("zipping…");
   const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
-  return { blob, name: `calcofi_explore_${sel.lens}_${version}_${today().replace(/-/g, "")}.zip` };
+  return { blob, name: ctx.fileName ?? `calcofi_explore_${sel.lens}_${version}_${today().replace(/-/g, "")}.zip` };
 }
 
 
@@ -195,35 +200,25 @@ async function takeFile(name: string): Promise<Uint8Array> {
  *  is the wrong container: the package carries parquet) */
 /** how many of the CSV's rows are zero-filled tows (no catch, obs_id NULL) under the same filters and lens line — the panel says it beside the count */
 export async function countZeroRows(ctx: ReproCtx): Promise<{ rows: number; zeros: number }> {
-  const q = (v: unknown) => `'${String(v).replace(/'/g, "''")}'`;
-  const own: string[] = [];
-  if (ctx.sel.lens === "section" && Number.isFinite(Number(ctx.sel.line))) {
-    own.push(`line = ${Number(ctx.sel.line)}`);
-    if (ctx.sel.realm !== "bio" && ctx.sel.cruise) own.push(`cruise_key = ${q(ctx.sel.cruise)}`);
-  } else if (ctx.sel.lens === "cruise" && ctx.sel.cruise) own.push(`cruise_key = ${q(ctx.sel.cruise)}`);
+  const own = lensOwnSql(ctx.sel);
   const where = [whereSql(ctx), ...own].join(" AND ");
   const r = (await engine.exec(`SELECT count(*) AS n, count(*) FILTER (WHERE obs_id IS NULL) AS z FROM slice WHERE ${where}`, "csv_zero_count"))[0];
   return { rows: Number(r.n), zeros: Number(r.z) };
 }
 
-export async function buildObservationsCsv(ctx: ReproCtx, opts: { zeros?: boolean; regionCols?: RegionCols | null; var2Cols?: Var2Cols | null } = {}): Promise<{ blob: Blob; name: string; n: number }> {
+export async function buildObservationsCsv(ctx: ReproCtx, opts: { zeros?: boolean; regionCols?: RegionCols | null; var2Cols?: Var2Cols | null; fileName?: string } = {}): Promise<{ blob: Blob; name: string; n: number }> {
   const fn = `obs_only_${Date.now()}`;
   // the file is what the screen shows: the lens's own line / cruise on top of the filters, and — when the person unticks it —
   // without the zero-filled tows (obs_id NULL), which are most of the rows of a common taxon
-  const q = (v: unknown) => `'${String(v).replace(/'/g, "''")}'`;
-  const own: string[] = [];
-  if (ctx.sel.lens === "section" && Number.isFinite(Number(ctx.sel.line))) {
-    own.push(`line = ${Number(ctx.sel.line)}`);
-    if (ctx.sel.realm !== "bio" && ctx.sel.cruise) own.push(`cruise_key = ${q(ctx.sel.cruise)}`);
-  } else if (ctx.sel.lens === "cruise" && ctx.sel.cruise) own.push(`cruise_key = ${q(ctx.sel.cruise)}`);
+  const own = lensOwnSql(ctx.sel);
   const statsWhere = [whereSql(ctx), ...own].join(" AND ");
   if (opts.zeros === false) own.push("obs_id IS NOT NULL");
   const where = [whereSql(ctx), ...own].join(" AND ");
   const cnt = (await engine.exec(`SELECT count(*) AS n FROM slice WHERE ${where}`, "csv_count"))[0];
   const n = Number(cnt.n);
-  if (n > 1_000_000) throw new Error(`${n.toLocaleString()} rows is too many for one CSV — use "Everything as a package", which carries parquet`);
+  if (n > 1_000_000) throw new Error(`${n.toLocaleString()} rows is too many for one CSV — narrow the years or the area, or use Zip, which carries parquet`);
   await engine.exec(`COPY (${viewRows(where, ctx, opts.regionCols, statsWhere, opts.var2Cols)}) TO '${fn}.csv' (FORMAT csv, HEADER)`, "obs_csv");
   const buf = await takeFile(`${fn}.csv`);
   const what = String(ctx.sel.realm === "bio" ? ctx.sel.taxon : ctx.sel.var).replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 60);
-  return { blob: new Blob([buf as BlobPart], { type: "text/csv" }), name: `calcofi_${what}_${ctx.version}_${today().replace(/-/g, "")}.csv`, n };
+  return { blob: new Blob([buf as BlobPart], { type: "text/csv" }), name: opts.fileName ?? `calcofi_${what}_${ctx.version}_${today().replace(/-/g, "")}.csv`, n };
 }

@@ -21,6 +21,7 @@ beforeAll(async () => {
   // the cruise's month and season year, as slice_env.sql stamps them (the key's MM here)
   db.exec(`ALTER TABLE slice ADD COLUMN cruise_month TINYINT`); db.exec(`UPDATE slice SET cruise_month = CAST(substr(cruise_key, 6, 2) AS TINYINT)`);
   db.exec(`ALTER TABLE slice ADD COLUMN season_year SMALLINT`); db.exec(`UPDATE slice SET season_year = year`);
+  db.exec(`ALTER TABLE slice ADD COLUMN sample_id VARCHAR`); db.exec(`UPDATE slice SET sample_id = root_id::VARCHAR`); // the sample the templates count (slice_env.sql: the cast)
   db.exec(`CREATE TABLE cruise AS SELECT * FROM (VALUES ('1998-01-RL'), ('1998-07-RL'), ('1998-11-NH'), ('2022-04-3322'), ('bad-key')) t(cruise_key)`);
 });
 afterAll(() => db.close());

@@ -6,7 +6,7 @@ import { commitNum, ordered, stepYears, yearComplete } from "./ranges";
 
 /** a popover's fixed-position box under (or, when the room is short, over) its anchor — so a rail's or a
  *  card's overflow never clips it; re-measured on resize and on any scroll */
-export function useAnchor(open: boolean, ref: RefObject<HTMLElement | null>, minWidth = 0, maxHeight = 560, popRef?: RefObject<HTMLElement | null>) {
+export function useAnchor(open: boolean, ref: RefObject<HTMLElement | null>, minWidth = 0, maxHeight = 560, popRef?: RefObject<HTMLElement | null>, end = false) {
   const [box, setBox] = useState<React.CSSProperties | null>(null);
   useLayoutEffect(() => {
     if (!open) { setBox(null); return; }
@@ -17,7 +17,8 @@ export function useAnchor(open: boolean, ref: RefObject<HTMLElement | null>, min
       const r = ref.current?.getBoundingClientRect(); if (!r) return null;
       const vw = innerWidth, vh = innerHeight, gap = 3, pad = 8;
       const width = Math.min(Math.max(r.width, minWidth), vw - 2 * pad);
-      const left = Math.min(Math.max(pad, r.left), vw - pad - width);
+      // `end`: the popover's right edge on the anchor's (a right-aligned menu stays over its own panel, not the one beside it)
+      const left = Math.min(Math.max(pad, end ? r.right - width : r.left), vw - pad - width);
       const below = vh - r.bottom - pad, above = r.top - pad;
       const sr = sc?.getBoundingClientRect(), gone = !!sr && (r.bottom < sr.top || r.top > sr.bottom);
       const vis = gone ? "hidden" as const : "visible" as const;
@@ -60,7 +61,7 @@ export function Menu(p: { label: ReactNode; items: MenuItem[]; className?: strin
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
   const btn = useRef<HTMLButtonElement>(null);
-  const box = useAnchor(open, btn, 200, 400);
+  const box = useAnchor(open, btn, 200, 400, undefined, p.align === "right");
   useEffect(() => {
     if (!open) return;
     const off = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };

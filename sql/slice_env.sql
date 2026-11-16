@@ -9,11 +9,14 @@ CREATE OR REPLACE TABLE slice AS
 -- ({{key_month}} / {{key_year}}) where the table does not carry them, the release's own column only where the key is
 -- missing or malformed. quarter is the season, 1 = DJF … 4 = SON; season_year counts December toward the next winter.
 -- The season filter keeps a July cruise's 30 June stations in JJA (explore#17). The same rule as the release's own columns.
+-- sample_id is what the templates count as a sample (n_samples, n_found): for water the cast, root_id; slice_bio.sql's is
+-- the net (sample_key), the unit its zeros and its mean run over.
 SELECT obs_id, dataset_key, root_id, grid_key, site_key,
        TRY_CAST(split_part(site_key, ' ', 1) AS DOUBLE) AS line, TRY_CAST(split_part(site_key, ' ', 2) AS DOUBLE) AS station,
        cruise_key, latitude, longitude, datetime, COALESCE(COALESCE(year(cz.date_median), {{key_year}}), year)::SMALLINT AS year, COALESCE((CASE WHEN COALESCE(cz.month_median, {{key_month}}) IN (12, 1, 2) THEN 1 WHEN COALESCE(cz.month_median, {{key_month}}) IN (3, 4, 5) THEN 2 WHEN COALESCE(cz.month_median, {{key_month}}) IN (6, 7, 8) THEN 3 WHEN COALESCE(cz.month_median, {{key_month}}) IN (9, 10, 11) THEN 4 END), quarter)::TINYINT AS quarter,
        depth_min_m, depth_max_m, depth_bin,
        taxon_key, life_stage, measurement_type, units, value, measurement_qual, qual_ok,
        tow_type, std_haul_factor, prop_sorted, volume_sampled_m3, density_per_10m2, density_per_1000m3, effort_class, hex7,
-       COALESCE(cz.month_median, {{key_month}})::TINYINT AS cruise_month, (CASE WHEN COALESCE(cz.month_median, {{key_month}}) = 12 THEN COALESCE(year(cz.date_median), {{key_year}}) + 1 ELSE COALESCE(year(cz.date_median), {{key_year}}) END)::SMALLINT AS season_year
+       COALESCE(cz.month_median, {{key_month}})::TINYINT AS cruise_month, (CASE WHEN COALESCE(cz.month_median, {{key_month}}) = 12 THEN COALESCE(year(cz.date_median), {{key_year}}) + 1 ELSE COALESCE(year(cz.date_median), {{key_year}}) END)::SMALLINT AS season_year,
+       root_id::VARCHAR AS sample_id
 FROM {{src}} o LEFT JOIN {{cruise_src}} cz USING (cruise_key)

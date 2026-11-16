@@ -115,10 +115,66 @@ describe("slice_bio.sql: zeros per net", () => {
   it("per net: the empty net B is a 0, the egg-only net C is not, the one-net visit 2 is a 0", () => {
     d.exec(render("slice_bio", { src: "src", taxon: ANCHOVY, net_key: "sample_key" }));
     expect(larva()).toEqual([{ root_id: 1, obs_id: 1, v: 10 }, { root_id: 1, obs_id: null, v: 0 }, { root_id: 2, obs_id: null, v: 0 }]);
-    expect(d.exec(render("count", P))[0]).toEqual({ n: 1, n_samples: 2, n_found: 1 });
+    // a sample is a net (sample_id): A, B and D — not the 2 visits (2026-11-16)
+    expect(d.exec(render("count", P))[0]).toEqual({ n: 1, n_samples: 3, n_found: 1 });
   });
   it("per visit (a release without sample_key): visit 1 has its catch and no 0, visit 2 a 0", () => {
     d.exec(render("slice_bio", { src: "src", taxon: ANCHOVY }));
     expect(larva()).toEqual([{ root_id: 1, obs_id: 1, v: 10 }, { root_id: 2, obs_id: null, v: 0 }]);
+  });
+});
+
+// the counts beside a mean count the unit the mean divides by (confirmed by Ben 2026-11-16). With zeros per net, a visit's
+// mean ran over its nets while n_samples / n_found counted visits: sardine larvae per 10 m² read "found in 5,817 of 49,208
+// samples" (visits) under a mean over 52,780 nets. The slice now carries sample_id (the net; root_id on a release without
+// sample_key) and every template counts distinct sample_id
+describe("the counts count nets, the unit the mean runs over", () => {
+  let d: Duck;
+  const cols = `obs_id, dataset_key, root_id, sample_key, grid_key, site_key, cruise_key, latitude, longitude, datetime, year, quarter,
+    depth_min_m, depth_max_m, depth_bin, taxon_key, life_stage, measurement_type, units, value, measurement_qual, qual_ok, tow_type,
+    std_haul_factor, prop_sorted, volume_sampled_m3, density_per_10m2, density_per_1000m3, effort_class, hex7`;
+  const r = (id: number, root: number, net: string, taxon: string, v: number) =>
+    `(${id}::BIGINT, 'ichthyo', ${root}, '${net}', 'ln80st60', '080.0 060.0', '2010-04-RL', 34.0, -121.0, TIMESTAMP '2010-04-02', 2010::SMALLINT, 2::TINYINT,
+      0.0, 210.0, NULL::INTEGER, '${taxon}', 'larva', 'abundance', 'count', ${v}::DOUBLE, NULL::VARCHAR, TRUE, 'CB', 1.0::DOUBLE, 1.0::DOUBLE,
+      300.0::DOUBLE, ${v}::DOUBLE, ${v}::DOUBLE, 'count_with_effort', 617733122422996991::UBIGINT)`;
+  const sp = `(SELECT * FROM (VALUES ('wind', 'k1', 'OCS-P 0562', 1)) t(layer, spatial_key, spatial_name, root_id))`;
+  const Q = { ...P, hex: "printf('%x', hex7)" };
+  beforeAll(async () => {
+    d = await openDuck();
+    // ONE station visit (root 1) with two nets: net A caught the taxon (8 per 10 m²); net B caught only another taxon's
+    // larvae — it was sorted for larvae, so it is an empty-but-sorted net for this one (a 0)
+    d.exec(`CREATE TABLE src AS SELECT * FROM (VALUES ${[r(1, 1, "A", ANCHOVY, 8), r(2, 1, "B", SARDINE, 3)].join(", ")}) t(${cols})`);
+  });
+  afterAll(() => d.close());
+  describe("per net (sample_key)", () => {
+    beforeAll(() => d.exec(render("slice_bio", { src: "src", taxon: ANCHOVY, net_key: "sample_key" })));
+    it("the slice carries each row's net: the catch in A, the 0 in B", () => {
+      expect(d.exec("SELECT sample_id, obs_id, density_per_10m2 AS v FROM slice ORDER BY sample_id")).toEqual([{ sample_id: "A", obs_id: 1, v: 8 }, { sample_id: "B", obs_id: null, v: 0 }]);
+    });
+    it("count.sql: 2 samples, found in 1 — the mean over the same 2", () => {
+      expect(d.exec(render("count", P))[0]).toEqual({ n: 1, n_samples: 2, n_found: 1 });
+      expect(d.exec(`SELECT avg(density_per_10m2) AS m, count(density_per_10m2) AS k FROM slice`)[0]).toEqual({ m: 4, k: 2 });
+    });
+    it("station.sql, hex.sql, region.sql, contour_cast.sql, years.sql, cruise.sql: 2 samples (1 found), mean 4", () => {
+      for (const [t, extra] of [["station", {}], ["hex", {}], ["region", { layer: "wind", spatial_src: sp }]] as const) {
+        expect(d.exec(render(t, { ...Q, ...extra }))[0], t).toMatchObject({ n: 1, n_samples: 2, n_found: 1, mean: 4 });
+      }
+      expect(d.exec(render("contour_cast", Q))[0]).toMatchObject({ n: 1, n_samples: 2, mean: 4 });
+      expect(d.exec(render("years", { ...Q, bin: "year" }))[0]).toMatchObject({ year: 2010, n: 1, n_samples: 2, mean: 4 });
+      expect(d.exec(render("cruise", Q))[0]).toMatchObject({ n: 1, n_samples: 2, mean: 4 });
+    });
+  });
+  describe("per visit (the fallback: a release without sample_key)", () => {
+    beforeAll(() => {
+      d.exec(`CREATE OR REPLACE TABLE src_nokey AS SELECT * EXCLUDE (sample_key) FROM src`);
+      d.exec(render("slice_bio", { src: "src_nokey", taxon: ANCHOVY })); // net_key defaults to root_id
+    });
+    it("the visit is the sample: its catch and no 0 (the visit caught the taxon), sample_id = root_id", () => {
+      expect(d.exec("SELECT sample_id, obs_id, density_per_10m2 AS v FROM slice")).toEqual([{ sample_id: "1", obs_id: 1, v: 8 }]);
+    });
+    it("count.sql and station.sql: 1 sample, found in 1, mean 8", () => {
+      expect(d.exec(render("count", P))[0]).toEqual({ n: 1, n_samples: 1, n_found: 1 });
+      expect(d.exec(render("station", Q))[0]).toMatchObject({ n: 1, n_samples: 1, n_found: 1, mean: 8 });
+    });
   });
 });

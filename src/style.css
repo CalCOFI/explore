@@ -85,8 +85,6 @@ h4 { margin: 4px 0 0; font-size: 12px; color: var(--muted); text-transform: uppe
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 
-.station-card .cards { display: flex; flex-direction: column; gap: 4px; max-height: 40vh; overflow: auto; }
-.station-card .card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; }
 .cc-header .cc-versions { font: inherit; font-size: 0.76rem; color: var(--muted); background: var(--panel-2); border: 1px solid var(--border); border-radius: 999px; padding: 0.1rem 0.4rem; margin-left: 0.3rem; }
 .pill.sel { border-color: var(--accent); }
 .timing .row.head { flex-wrap: nowrap; }
@@ -222,6 +220,9 @@ button.chip { cursor: pointer; }
 /* floating cards over the map */
 .card { position: absolute; z-index: var(--z-cards); display: flex; flex-direction: column; background: color-mix(in srgb, var(--panel) 94%, transparent); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 20px color-mix(in srgb, var(--fg) 20%, transparent); min-width: 0; min-height: 0; overflow: hidden; }
 .card.raised { z-index: calc(var(--z-cards) + 1); }
+/* a card with an open picker list comes above the other cards: classic's species list hangs below the Controls panel, and the
+   Time panel along the bottom drew over its lower rows */
+.card:has(.picker.open) { z-index: calc(var(--z-cards) + 2); }
 .card-head { display: flex; align-items: center; gap: 5px; padding: 2px 4px 2px 8px; border-bottom: 1px solid var(--border); font-size: var(--fs-sm, 11px); color: var(--muted); cursor: grab; flex: none; user-select: none; touch-action: none; }
 .card-head:active { cursor: grabbing; }
 .card-head .card-title { color: var(--fg); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
@@ -231,8 +232,13 @@ button.chip { cursor: pointer; }
 /* the depth × time anomaly card (explore#28): the heatmap fills the card, the baseline note sits under it */
 .dt-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .dt-body .dt-note { padding: 2px 10px 6px; line-height: 1.35; }
-.card-station .cards { display: flex; flex-direction: column; gap: 4px; padding: 6px; }
-.card-station .cards .card { position: static; background: var(--panel-2); box-shadow: none; padding: 3px 6px; z-index: auto; }
+/* the Station card's per-dataset rows: their own classes, never .card — that one is the floating panel (absolute), and a
+   row wearing it stacked every dataset on one spot wherever no .card-station rule reset it (the phone's bottom sheet) */
+.stn-cards { display: flex; flex-direction: column; gap: 4px; padding: 6px; max-height: 40vh; overflow: auto; }
+.stn-ds { position: static; background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; min-width: 0; }
+.stn-ds-head { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; }
+.stn-ds-head .hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stn-others { font-size: 11px; padding: 0 6px 6px; }
 .timing-body { font-size: var(--fs-sm, 11px); }
 .timing-body table { border-collapse: collapse; margin: 0 6px 6px; font-variant-numeric: tabular-nums; }
 .timing-body td { padding: 1px 6px; border-top: 1px solid var(--border); white-space: nowrap; }
@@ -766,8 +772,6 @@ a.lic:hover { color: var(--accent); border-color: var(--accent); }
 .dl-split { display: flex; align-items: stretch; }
 .dl-main { all: unset; box-sizing: border-box; flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 9px 12px; background: var(--accent); color: #fff; font-size: 14px; font-weight: 600; border-radius: 6px 0 0 6px; cursor: pointer; }
 .dl-main:hover:not(:disabled) { filter: brightness(1.1); } .dl-main:disabled { opacity: .55; cursor: default; }
-.dl-more .menu-btn { height: 100%; border-radius: 0 6px 6px 0; border: 0; border-left: 1px solid color-mix(in srgb, #fff 35%, transparent); background: var(--accent); color: #fff; padding: 0 10px; }
-.dl-more { display: flex; }
 .dl-links { display: flex; gap: 8px; justify-content: center; font-size: 12px; color: var(--muted); }
 /* the view rail: the map's right edge, under the zoom · layers · export row */
 .view-rail { position: absolute; right: 10px; top: 48px; z-index: var(--z-pills); width: 88px; display: flex; flex-direction: column; gap: 4px; padding: 6px; max-height: calc(100% - 140px); overflow-y: auto; background: color-mix(in srgb, var(--panel) 94%, transparent); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 3px 12px color-mix(in srgb, var(--fg) 14%, transparent); }
@@ -824,7 +828,6 @@ a.lic:hover { color: var(--accent); border-color: var(--accent); }
 .lean-steps .dl-count { font-size: 13px; }
 .lean-steps .dl-count b { font-size: 15px; }
 .lean-steps .dl-main { padding: 13px 14px; font-size: 15px; border-radius: 9px 0 0 9px; }
-.lean-steps .dl-more .menu-btn { border-radius: 0 9px 9px 0; }
 .lean-steps .dl-links { gap: 18px; font-size: 13px; }
 .lean-steps .more-group { border-top: 0; padding-top: 0; }
 
@@ -1777,6 +1780,9 @@ body.driver-active .sum-row:has(.sp-list) { padding-bottom: 116px; }
 
 /* v196: the action row lines up with the button above — first icon on its left edge, last chevron on its right */
 .dl-tools { margin: 0 -6px; padding-bottom: 2px; }
+/* the Download area stays pinned to the bottom of the Find-data panel, reachable without scrolling (review 2026-11-16: it sat
+   below the fold under the steps); the steps scroll above it */
+.lean-steps > .dl-foot { position: sticky; bottom: -14px; z-index: 3; margin-top: auto; margin-bottom: -14px; padding-bottom: 14px; background: var(--panel); box-shadow: 0 -8px 10px -8px color-mix(in srgb, var(--fg) 22%, transparent); }
 
 /* v197: dark mode — near-white, not light blue, on the main actions and the selected states. The step numbers, links and icons stay blue. */
 :root[data-theme="dark"] { --wh: #f4f8fc; --wh-on: #0d2238; }
@@ -2087,6 +2093,20 @@ body .den.mo-sec .den-shf { margin: 6px 0 0 0; font-size: 12.5px; color: var(--m
 .wp-nds-btn { all: unset; box-sizing: border-box; position: absolute; right: 8px; top: 6px; display: inline-flex; align-items: center; gap: 2px; font-size: 11.5px; color: var(--accent); cursor: pointer; padding: 2px 4px; border-radius: 4px; white-space: nowrap; }
 .wp-nds-btn:hover { text-decoration: underline; }
 .wp-nds-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* the What picker's Sort by row and each row's observations (pickersort.ts): quiet — small, muted, one right-hand column */
+.wp-sortrow { display: flex; align-items: center; gap: 2px; font-size: 12px; color: var(--muted); padding: 0 2px; }
+.wp-sortrow .sp-btn, :root[data-theme="dark"] .wp-sortrow .sp-btn { background: none; color: var(--accent); font-size: 12.5px; gap: 3px; padding: 2px 5px; }
+.wp-sortrow .sp-btn:hover, .wp-sortrow .sp-btn[aria-expanded="true"],
+:root[data-theme="dark"] .wp-sortrow .sp-btn:hover, :root[data-theme="dark"] .wp-sortrow .sp-btn[aria-expanded="true"] { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.wp-sortrow .sp-list li { font-size: 13px; padding: 5px 12px 5px 8px; }
+.wp-ncap { margin-left: auto; font-size: 11.5px; padding-right: 8px; cursor: help; }
+.wp-item .wp-l2 { flex-basis: 100%; display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.wp-item .wp-l2 small { flex: 1 1 auto; min-width: 0; }
+.wp-l2-gap { flex: 1 1 auto; }
+.wp-n { flex: none; margin-left: auto; font-size: 11.5px; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wp-item.on .wp-n { color: color-mix(in srgb, var(--accent) 70%, var(--muted)); }
+/* a row with the "N datasets" button keeps that button on its first line; the second line runs under it to the common column */
+.wp-itemwrap > .wp-item.multi .wp-l2 { flex-basis: calc(100% + 86px); margin-right: -86px; } /* the basis makes up for the margin, so it still wraps */
 /* the panel's dataset line: closed = one line; opened = the radio list and why datasets are not combined */
 .ds-f .ds-from { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
 .ds-f .ds-from .k { font-size: 12px; color: color-mix(in srgb, var(--fg) 62%, var(--panel)); flex: none; }
@@ -2123,6 +2143,10 @@ body .den.mo-sec .den-shf { margin: 6px 0 0 0; font-size: 12.5px; color: var(--m
 .ds-c-opt .tx { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .ds-c-opt .tx small, .ds-c-opt .rt small { font-size: 12px; color: color-mix(in srgb, var(--fg) 62%, var(--panel)); }
 .ds-c-opt .tx small.how { margin-top: 1px; }
+/* combining the datasets: the menu's last row (an explicit opt-in), and the button while combined */
+.ds-c-sel .dots, .ds-c-pool .dots { display: inline-flex; gap: 2px; flex: none; }
+.ds-c-pool .dots { margin-top: 5px; }
+.ds-c-pool { border-top: 1px dashed var(--border); }
 .ds-c-opt .rt { flex: none; text-align: right; display: flex; flex-direction: column; }
 .ds-c-opt .rt .num { font-size: 13px; color: color-mix(in srgb, var(--fg) 75%, var(--panel)); font-variant-numeric: tabular-nums; }
 .ds-c-menu .ds-why { margin: 0; padding: 7px 10px; background: color-mix(in srgb, var(--fg) 3%, var(--panel)); }
@@ -2159,6 +2183,18 @@ body .den.mo-sec .den-shf { margin: 6px 0 0 0; font-size: 12.5px; color: var(--m
 .where-draw .wd-btn:hover { border-color: var(--accent); }
 .where-draw .wd-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .where-draw .wd-btn[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
+/* three ways to draw, one row: a free-hand area, a box, the map's own view (review 2026-11-16) */
+.where-draw { display: flex; flex-wrap: nowrap; gap: 6px; }
+.where-draw .wd-btn { flex: 1 1 0; min-width: 0; width: auto; padding: 7px 6px; gap: 5px; font-size: 13px; white-space: nowrap; }
+.where-one { margin-top: 4px; font-size: 12px; }
+/* the area in force, named, at the top of Where; and a step the view hides, held: what is in force and a Clear */
+.where-now { display: flex; align-items: baseline; gap: 8px; padding: 6px 9px; margin-bottom: 8px; border-radius: 6px; border: 1px solid var(--border); font-size: 13.5px; min-width: 0; }
+.where-now .k, .step-held .k { flex: none; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.where-now b, .step-held b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.where-now.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+.where-now .linkish, .step-held .linkish { flex: none; text-decoration: underline; }
+.step-held { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 8px 10px; border: 1px solid var(--accent); border-radius: 6px; background: color-mix(in srgb, var(--accent) 8%, var(--panel)); font-size: 13.5px; }
+.step-held .hint { flex-basis: 100%; font-size: 12px; }
 /* Survey area: "What are these?" at the right of the heading, like "Which view?" (Betty 2026-11-10) */
 .where-stn .ws-lab .ws-gd { font-size: 12.5px; }
 /* depth row under Line / Station */
@@ -2345,3 +2381,22 @@ body .den.mo-sec .den-shf { margin: 6px 0 0 0; font-size: 12.5px; color: var(--m
 .deck-tooltip .tt2 .tt2-bar { background: color-mix(in srgb, var(--fg) 12%, transparent); }
 .deck-tooltip .tt2 .tt2-bar i { background: var(--accent); }
 .deck-tooltip .tt2 .tt2-f { border-top-color: var(--border); }
+
+/* the views' glyphs: main's monochrome lens icons (LENS_ICON, filled in currentColor), not coloured pictures — a picture in
+   the data's own colours competed with the map. The glyph takes the tile's text colour, and the chosen view's accent. */
+.vr-th { display: inline-grid; place-items: center; background: transparent; color: inherit; font-size: 20px; }
+.va-tile .vr-th { width: 100%; height: 28px; font-size: 22px; }
+.vm-btn .vr-th, .vm-row .vr-th { width: 18px; height: 18px; font-size: 18px; background: transparent; }
+.vm-pic .vr-th { display: grid; width: 54px; height: 31px; font-size: 24px; background: var(--panel-2); color: var(--fg); }
+.va-tile.on .vr-th, .vm-row.on .vm-pic .vr-th { color: var(--accent); }
+:root[data-theme="dark"] .va-tile.on .vr-th, :root[data-theme="dark"] .vm-row.on .vm-pic .vr-th { color: var(--wh); }
+
+/* the Observations layer's click card (src/siteobs.ts): one block per sample at the dot, when, then what it recorded */
+.hex-card.obs-card { width: 316px; user-select: text; -webkit-user-select: text; }
+.obs-card .oc-list { max-height: 260px; overflow: auto; display: flex; flex-direction: column; gap: 6px; margin: 2px -4px 0 0; padding-right: 4px; }
+.obs-card .oc-when { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.obs-card .oc-when .hint { font-weight: 400; }
+.obs-card .oc-item { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; padding-left: 8px; color: color-mix(in srgb, var(--fg) 75%, var(--panel)); }
+.obs-card .oc-item span:last-child { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.obs-card .oc-item.oc-pick { color: var(--fg); font-weight: 600; }
+.obs-card .oc-foot { margin-top: 6px; font-size: 11px; }

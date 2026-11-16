@@ -40,8 +40,9 @@ export function quantileDomain(vals: number[], stat: Stat): [number, number] {
   return stat === "n" ? [0, q(0.95)] : [q(0.05), q(0.95)];
 }
 export const viridisCss = rampCss("viridis");
-// the Effort layer's colour (an amber that reads over the sea floor, a surface and either basemap)
-export const EFFORT_RGB: [number, number, number, number] = [255, 167, 38, 230];
+// the Effort layer's colour (an amber that reads over the sea floor, a surface and either basemap). Translucent and thin
+// (Ben, 2026-11-16): several cruises' segments overlap on the same transects, and at full strength they hid every dot
+export const EFFORT_RGB: [number, number, number, number] = [255, 167, 38, 120];
 
 // ── layer inputs ──────────────────────────────────────────────────────────────
 export interface GridCell { grid_key: string; line: number; station: number; home: [number, number]; pattern?: string } // pattern: standard | extended | historical (the Area filter, explore#20)
@@ -66,7 +67,7 @@ export interface LayerInputs {
   dataOpacity: number;        // the data layer's opacity 0–1 (`datao=`)
   lines?: LineThread[] | null; // the Lines layer (`lines=on`): each line threaded through its stations, named at both ends; drawn even with Data off
   obs?: { rows: { longitude: number; latitude: number; n: number }[]; color: string } | null; // the Observations layer (`obs=`): every site, drawn even with Data off
-  effort?: EffortPath[] | null; // the Effort layer (`effort=on`): sample_track paths, on-effort segments and sight lines; drawn even with Data off, under the Observations
+  effort?: EffortPath[] | null; // the Effort layer (`effort=on`): sample_track paths, on-effort segments and sight lines; drawn even with Data off, under every other data layer
   beforeId?: string;          // D36: the MapLibre layer the data layer draws UNDER (the boundary above it in the Layers card); undefined = on top
   selectedStation?: string | null;
   area?: any[] | null;
@@ -96,6 +97,8 @@ function shipAt(tr: { path: [number, number][]; ts: number[] }, now: number): [n
   return [tr.path[i - 1][0] + (tr.path[i][0] - tr.path[i - 1][0]) * f, tr.path[i - 1][1] + (tr.path[i][1] - tr.path[i - 1][1]) * f];
 }
 
+// the data layers that cover an area (the Effort layer draws over them, under everything else)
+const AREA_FILL_IDS = new Set(["area-pick", "regions", "regions-halo", "regions-edge", "hexes", "hexes-mark", "surface", "isolines", "isolabels"]);
 export function buildLayers(inp: LayerInputs): Layer[] {
   const { lens, stat, duration } = inp;
   const color = colorScale(inp.domain, 220, inp.ramp);
@@ -105,7 +108,10 @@ export function buildLayers(inp: LayerInputs): Layer[] {
   const obs: Layer[] = inp.obs && inp.obs.rows.length ? [new ScatterplotLayer({
     id: "obs", data: inp.obs.rows, radiusUnits: "pixels", getRadius: 2, getPosition: (d: any) => [d.longitude, d.latitude],
     getFillColor: [...hexRgb(inp.obs.color), 220] as [number, number, number, number], stroked: true, lineWidthUnits: "pixels", getLineWidth: 0.5,
-    getLineColor: luminance(inp.obs.color) < 0.5 ? [255, 255, 255, 140] : [0, 0, 0, 140], pickable: false,
+    getLineColor: luminance(inp.obs.color) < 0.5 ? [255, 255, 255, 140] : [0, 0, 0, 140],
+    // a click names what was recorded at the site, and when (sql/site_obs.sql, App.tsx obsCard); the dot is 2 px, so a
+    // hover ring shows which one the pointer is on
+    pickable: true, autoHighlight: true, highlightColor: [255, 214, 10, 255],
     updateTriggers: { getFillColor: [inp.obs.color], getLineColor: [inp.obs.color] },
   })] : [];
   // the Lines layer (Erin, 2026-10-02: "stations (and lines, if possible)"): a hairline through each line's stations and its
@@ -121,16 +127,17 @@ export function buildLayers(inp: LayerInputs): Layer[] {
       getTextAnchor: "middle", getAlignmentBaseline: "center", billboard: true, pickable: false,
     }),
   ] : [];
-  // the Effort layer: where the observers looked (sample_track, calcofi4db 4.35.0+), whatever the taxon. The on-effort segments
-  // in one solid colour on a dark halo, the sight lines from the ship to each sighted animal thinner and fainter (no dash: that
-  // needs @deck.gl/extensions); over the data and the Lines, under the Observations so a sighting's dot sits on its line
+  // the Effort layer: where the observers looked (sample_track, calcofi4db 4.35.0+), whatever the taxon. The on-effort
+  // segments a 1 px translucent amber with no halo, the sight lines from the ship to each sighted animal fainter still (no
+  // dash: that needs @deck.gl/extensions). It draws BEHIND the data (Ben, 2026-11-16): under the station dots, a cruise's
+  // samples, the Lines and the Observations (over the area fills only, see the return), so where several cruises ran the
+  // same transect the amber thickens into a band behind the dots instead of covering them; overlapping segments add up
   const segs = inp.effort?.filter((p) => p.track_type !== "sight_line") ?? [], sights = inp.effort?.filter((p) => p.track_type === "sight_line") ?? [];
   const effort: Layer[] = inp.effort?.length ? [
-    new PathLayer({ id: "effort-halo", data: segs, getPath: (d: any) => d.path, getColor: [20, 20, 30, 90], widthUnits: "pixels", getWidth: 4, pickable: false }),
-    new PathLayer({ id: "effort", data: segs, getPath: (d: any) => d.path, getColor: EFFORT_RGB, widthUnits: "pixels", getWidth: 2, pickable: true, autoHighlight: true, highlightColor: [255, 255, 255, 200] }),
-    new PathLayer({ id: "effort-sight", data: sights, getPath: (d: any) => d.path, getColor: [...EFFORT_RGB.slice(0, 3), 150] as [number, number, number, number], widthUnits: "pixels", getWidth: 1, pickable: true, autoHighlight: true, highlightColor: [255, 255, 255, 200] }),
+    new PathLayer({ id: "effort", data: segs, getPath: (d: any) => d.path, getColor: EFFORT_RGB, widthUnits: "pixels", getWidth: 1, widthMinPixels: 1, pickable: true, autoHighlight: true, highlightColor: [255, 255, 255, 220] }),
+    new PathLayer({ id: "effort-sight", data: sights, getPath: (d: any) => d.path, getColor: [...EFFORT_RGB.slice(0, 3), 70] as [number, number, number, number], widthUnits: "pixels", getWidth: 1, widthMinPixels: 1, pickable: true, autoHighlight: true, highlightColor: [255, 255, 255, 220] }),
   ] : [];
-  if (!inp.dataOn) return [...lines, ...effort, ...obs];
+  if (!inp.dataOn) return [...effort, ...lines, ...obs];
   // D37 (2026-09-07): the dots TRAVEL only between Stations and Hexagons — the one morph that explains something (pooling);
   // every other lens change is a short cross-fade in place, so nothing flies to a centroid or flickers through a 700 ms tween
   const travel = lens === "station" || lens === "hex";
@@ -350,7 +357,12 @@ export function buildLayers(inp: LayerInputs): Layer[] {
     stroked: true, filled: false, getLineColor: [255, 214, 10, 255], getLineWidth: 2.5, lineWidthUnits: "pixels", pickable: false,
   })] : [];
   // interleaved (D36): deck draws inside MapLibre's own layer stack; beforeId puts the whole data layer under one boundary
-  return [...(inp.beforeId ? layers.map((l) => l.clone({ beforeId: inp.beforeId } as any)) : layers), ...lines, ...effort, ...obs, ...hl];
+  // the Effort layer goes under every point and track of the data (the station dots, a cruise's samples and track, the
+  // fitted casts) and over the area fills (hexagons, regions, a surface), which would hide it entirely; and under the same
+  // boundary as the data when the data is placed below one
+  const fill = layers.filter((l) => AREA_FILL_IDS.has(l.id)), pts = layers.filter((l) => !AREA_FILL_IDS.has(l.id));
+  const under = [...fill, ...effort, ...pts];
+  return [...(inp.beforeId ? under.map((l) => l.clone({ beforeId: inp.beforeId } as any)) : under), ...lines, ...obs, ...hl];
 }
 
 // ── home sits in the middle of the free map ──────────────────────────────────
@@ -420,14 +432,24 @@ export function MapView(props: {
     // placed over the map canvas, never in the page flow under it (Betty 2026-11-11: the hover card never showed)
     Object.assign(tip.style, { position: "absolute", zIndex: "20", pointerEvents: "none", maxWidth: "340px" });
     el.current!.prepend(tip); // first in the container, so the app's tooltip is the one a querySelector(".deck-tooltip") finds
-    const pick = (x: number, y: number): PickingInfo => (o.pickObject({ x, y, radius: 4 }) ?? ({ x, y, object: null, layer: null, index: -1, picked: false } as unknown as PickingInfo));
+    // the object under the pointer — a station dot outranking an Observations dot drawn over it, for hover as for a click
+    // (one picking pass as before; the deeper one only when the top object is a site dot)
+    const pickTop = (x: number, y: number): PickingInfo | null => {
+      const top = o.pickObject({ x, y, radius: 4 });
+      if (top?.layer?.id !== "obs") return top;
+      return o.pickMultipleObjects({ x, y, radius: 4, depth: 4 }).find((h) => h.layer?.id === "stations") ?? top;
+    };
+    const pick = (x: number, y: number): PickingInfo => (pickTop(x, y) ?? ({ x, y, object: null, layer: null, index: -1, picked: false } as unknown as PickingInfo));
     m.on("mousemove", (e) => {
       const t = cb.current.getTooltip(pick(e.point.x, e.point.y));
       if (t && (t.text ?? t.html)) { if (t.html) tip.innerHTML = t.html; else tip.textContent = t.text; tip.style.display = "block"; tip.style.left = `${e.point.x + 12}px`; tip.style.top = `${e.point.y + 12}px`; }
       else tip.style.display = "none";
     });
     m.on("mouseout", () => { tip.style.display = "none"; cb.current.getTooltip({ object: null } as unknown as PickingInfo); });
-    m.on("click", (e) => { const i = o.pickObject({ x: e.point.x, y: e.point.y, radius: 4 }); if (i) cb.current.onClick?.(i); });
+    // a click: the top object, except that a station dot outranks an Observations dot drawn over it (the 2 px site dots
+    // sit on top of the data, and a bottle or CTD site is the station itself): a click on a station has always opened its
+    // card, and still does; a site off every station (a sighting between stations) opens the site's card
+    m.on("click", (e) => { const i = pickTop(e.point.x, e.point.y); if (i) cb.current.onClick?.(i); });
     map.current = m; overlay.current = o; props.onOverlay?.(o);
     (window as any).__map = m; (window as any).__overlay = o; // spike: reachable from the console
     // a registry archive that is unreachable (the gazetteer tiles before they are published: 403/404) is a warning, once

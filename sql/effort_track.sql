@@ -11,9 +11,12 @@
 -- {{key_year}}); a path with no cruise (a misdated segment given none, a sight line off effort) falls back to the calendar
 -- month of datetime_beg, and one with no time either is not drawn. quarter is the season 1 = DJF … 4 = SON.
 -- {{area_filter}} reads grid_key / root_id / latitude / longitude: the path's midpoint and its root row. {{cruise}} is
--- NULL outside the cruise lens.
+-- NULL outside the cruise lens. {{track_hex7}} is `r.hex7` when the release's sample_root carries the H3 cell (else NULL):
+-- a one-hexagon area (`area=hx:`, src/area.ts) filters on hex7, which sample_track has no column for — without it the
+-- query failed and the layer went empty. {{cruise_filter}} is the When step's cruise list (sqltpl.ts cruiseFilterSql: TRUE or
+-- cruise_key IN (...)), as in every slice template: a path with no cruise is outside any list.
 WITH seg AS (
-  SELECT t.sample_key, t.dataset_key, t.datetime_beg, t.datetime_end, r.root_id, r.grid_key, r.cruise_key
+  SELECT t.sample_key, t.dataset_key, t.datetime_beg, t.datetime_end, r.root_id, r.grid_key, r.cruise_key, {{track_hex7}} AS hex7
   FROM {{track_src}} t JOIN {{root_src}} r ON r.root_sample_key = t.sample_key
   WHERE t.track_type = 'effort_segment'
 ), within AS (  -- a path that is not a root sample: the segment it falls in (the first by key, if spans overlap)
@@ -26,7 +29,8 @@ WITH seg AS (
          t.longitude_beg, t.latitude_beg, t.longitude_mid, t.latitude_mid, t.longitude_end, t.latitude_end,
          t.longitude_mid AS longitude, t.latitude_mid AS latitude,
          coalesce(r.root_id, s.root_id) AS root_id, coalesce(r.grid_key, s.grid_key) AS grid_key,
-         coalesce(r.cruise_key, s.cruise_key) AS cruise_key
+         coalesce(r.cruise_key, s.cruise_key) AS cruise_key,
+         coalesce({{track_hex7}}, s.hex7) AS hex7
   FROM {{track_src}} t
   LEFT JOIN {{root_src}} r ON r.root_sample_key = t.sample_key
   LEFT JOIN within w ON w.sample_key = t.sample_key
@@ -47,4 +51,5 @@ WHERE c_year * 100 + c_month BETWEEN {{ym0}} AND {{ym1}}
   AND {{dataset_filter}}
   AND {{area_filter}}
   AND ({{cruise}} IS NULL OR cruise_key = {{cruise}})
+  AND {{cruise_filter}}
 ORDER BY track_type, sample_key

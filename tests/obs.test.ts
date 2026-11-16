@@ -14,7 +14,7 @@ describe("obs= round-trips through the URL", () => {
   let written = "";
   const at = (search: string) => {
     vi.stubGlobal("location", { pathname: "/explore/", search });
-    vi.stubGlobal("history", { replaceState: (_: unknown, __: string, url: string) => { written = url; } });
+    vi.stubGlobal("history", { replaceState: (_: unknown, __: string, url: string) => { written = url; }, pushState: (_: unknown, __: string, url: string) => { written = url; } });
   };
   afterEach(() => { vi.unstubAllGlobals(); written = ""; });
 
@@ -33,7 +33,7 @@ describe("lines= round-trips through the URL (the 2-D map's Lines layer)", () =>
   let written = "";
   const at = (search: string) => {
     vi.stubGlobal("location", { pathname: "/explore/", search });
-    vi.stubGlobal("history", { replaceState: (_: unknown, __: string, url: string) => { written = url; } });
+    vi.stubGlobal("history", { replaceState: (_: unknown, __: string, url: string) => { written = url; }, pushState: (_: unknown, __: string, url: string) => { written = url; } });
   };
   afterEach(() => { vi.unstubAllGlobals(); written = ""; });
   it("off by default, and the link carries no lines=", () => { at(""); expect(fromUrl().lines).toBe(false); toUrl({ ...DEFAULTS }); expect(written).not.toContain("lines="); });

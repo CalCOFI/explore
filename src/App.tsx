@@ -18,6 +18,7 @@ import { drawsAnomaly, lensRamp, rampCss, seriesRamp } from "./ramps";
 import { DepthStrip, YearStrip, SectionPlot, DepthTimePlot, CruiseSeries, StationCard, MONTH_LOD_YEARS, type DepthRow, type YearRow, type CruiseSeason, type SectionCell, type CruiseRow, type GanttRow, type StripMode } from "./charts";
 import { resolveVersion, fetchCatalog, fetchVersions, sources, sidecarUrl, earlySidecar, type Catalog } from "./release";
 import { buildBundle, buildObservationsCsv, countZeroRows, saveBlob, copyAs } from "./bundle";
+import { subsetName } from "./filename";
 import { StatPick, ViewAs, ViewMenu, WhereControl, LineStation, LayerSelect, DownloadBar, DepthPill, WhatPicker } from "./leanpanel";
 import { Icon } from "./icons";
 import { cellToLatLng } from "h3-js";
@@ -25,7 +26,7 @@ import { Picker, type PickerItem, type GroupOpt } from "./picker";
 import { Menu, Group, NumInput, YearRange, YearSlider } from "./ui";
 import { ordered, yearComplete } from "./ranges";
 import { parseGridKey } from "./gridkey";
-import { lineKeys, lineItemsOf, linesArea, polyFeature, simplifyPath, parseArea, areaSql, areaToUrl, areaWord, boxFeature, featuresBbox, pickedArea, regionOutline, regionsOfFeature, resolveArea, PATTERN_WORD, type Area } from "./area";
+import { areaLabel, lineKeys, lineItemsOf, linesArea, polyFeature, simplifyPath, parseArea, areaSql, areaToUrl, areaWord, boxFeature, featuresBbox, pickedArea, regionOutline, regionsOfFeature, resolveArea, PATTERN_WORD, type Area } from "./area";
 import { RegionPicker } from "./regionpicker";
 import { Panel, EdgePills, MaxPanel, Sheet, Sparkline, VSpark, SHEET_PEEK, type CardId, type CardBox, type Detent, type Dock, type EdgePill } from "./panels";
 import { Sentence, type DerivedNote } from "./sentence";
@@ -53,8 +54,11 @@ import { CLIM_MIN_CRUISES, SEASON_CODE, SEASON_NAME, SEASON_WORD, anomTokens, ba
 import { PREVIEW, PREVIEW_HOME } from "./preview";
 import { feedbackEndpoint } from "./feedback";
 import { cruiseStage, hasStageCols, stageIndex, stageProbeSql, viewStage, type StageIndex } from "./stage";
+import { shipAfter, shipName, shipOfCruise } from "./ship";
+import { dockBand, DOCK_EDGE, type Rect } from "./dock";
+import { groupSiteObs, pacificTime, taxonLabel, utcTime, type SiteObsRow, type SiteObsSample } from "./siteobs";
 import {
-  DEFAULTS, DEN_SHORT, fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LENS_DESC, LENS_ICON, RES_KM, INTERPS, INTERP_LABEL, INTERP_WORD, INTERP_HOW, SURFACES, SURFACE_LABEL, GRAIN_LABEL, GRAIN_HOW, type Surface, type Grain, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, DEN_HOW, SHF_NOTE, STAT_LABEL, YEAR_OPEN, MAP_HOME,
+  DEFAULTS, resetPatch, DEN_SHORT, fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LENS_DESC, LENS_ICON, RES_KM, INTERPS, INTERP_LABEL, INTERP_WORD, INTERP_HOW, SURFACES, SURFACE_LABEL, GRAIN_LABEL, GRAIN_HOW, type Surface, type Grain, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, DEN_HOW, SHF_NOTE, STAT_LABEL, YEAR_OPEN, MAP_HOME,
   type Sel, type Lens, type Den, type Stat, type PickerRow, type PanelId,
 } from "./state";
 type FigureId = PanelId | "map"; // what exports PNG · SVG · CSV from a header: every panel, and the map from its own ⬇
@@ -129,6 +133,7 @@ const hasClim = (cat: Catalog | null) => !!cat?.tables.some((t) => t.name === "c
 const hasTrack = (cat: Catalog | null) => !!cat?.tables.some((t) => t.name === "sample_track");
 const ZEROS_TIP = `Datasets such as ichthyo record a tow only when it caught the taxon, so a mean over their records alone is a mean over positive tows — biased high, and a surveyed year with no catch looks like a year with no survey.
 By default every tow such a dataset sampled counts as 0 for this taxon (a "zero-filled tow": obs_id NULL in the export; never counted as an observation).
+A sample is the dataset's own sample — one net for the net tows, so a station visit that towed three nets is three samples, each its own 0 and its own count ("found in 5 of 12 samples"): the same samples the mean divides by.
 positive-only turns that off: mean, median and se run over the tows with a catch, as the raw records do. Datasets that record their own zeros (CUFES, ZooScan, ZooDB, phyllosoma) read the same either way.`;
 // an env variable's source: the union of its member objects, each stamped with its measurement_type (the hive key)
 const envSrc = (key: string) => `(${members(key).map((m) => `SELECT *, '${m}' AS measurement_type FROM '${envReg(m)}'`).join(" UNION ALL ")})`;
@@ -474,6 +479,8 @@ export function App() {
   }, []);
 
   useEffect(() => { toUrl(sel); }, [sel]);
+  // Back / Forward: the link is the whole view, so the entry the browser returns to is read back in (state.ts historyMode)
+  useEffect(() => { const pop = () => setSelRaw(fromUrl()); window.addEventListener("popstate", pop); return () => window.removeEventListener("popstate", pop); }, []);
   // the header's height as --cc-header-h: a dialog's backdrop starts below the header, so a tall dialog never slides under it
   useEffect(() => {
     const h = document.querySelector(".cc-header"); if (!h) return;
@@ -560,7 +567,8 @@ export function App() {
         // the stage and denominator default from the datasets IN VIEW: a dataset link to CUFES (eggs, no effort) must not
         // inherit ichthyo's larva · per 10 m² and open on 0 observations (Ben, 2026-09-07)
         // no dataset chosen yet: open on the program's main dataset for this pick (defaultDataset), and its biggest stage
-        const ds0 = sel.datasets?.filter((d) => present.has(d)).length ? sel.datasets.filter((d) => present.has(d)) : [defaultDataset(rows)];
+        // … unless combining was asked for (`datasets=all`): then every dataset in the slice
+        const ds0 = sel.datasets?.filter((d) => present.has(d)).length ? sel.datasets.filter((d) => present.has(d)) : sel.pool ? [...present] : [defaultDataset(rows)];
         const inView = rows.filter((r) => ds0.includes(r.dataset_key));
         const base = inView.length ? inView : rows;
         const stages = new Set(base.map((r) => r.life_stage));
@@ -709,13 +717,19 @@ export function App() {
   useEffect(() => { setRegionCard(null); }, [sel.lens, sel.layer]);
   useEffect(() => { if (!hexCard) return; const k = (e: KeyboardEvent) => { if (e.key === "Escape") setHexCard(null); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [hexCard]);
   useEffect(() => { setHexCard(null); }, [sel.lens, sel.res, sel.var, sel.taxon]);
+  // the Observations layer's click card (`obs=`, Ben 2026-11-16): what was recorded at one site and when — the dot's samples
+  // read back with every taxon they hold (sql/site_obs.sql) or, for water, the slice's own rows (site_obs_env.sql); src/siteobs.ts
+  const [obsCard, setObsCard] = useState<{ lon: number; lat: number; x: number; y: number; ll?: [number, number]; rows: SiteObsSample[] | null; nRows: number; err?: string } | null>(null);
+  const obsGen = useRef(0);
+  useEffect(() => { if (!obsCard) return; const k = (e: KeyboardEvent) => { if (e.key === "Escape") setObsCard(null); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [!!obsCard]);
+  useEffect(() => { obsGen.current++; setObsCard(null); }, [sel.obs, sel.var, sel.taxon, sel.realm, sel.lens]);
   // the popups follow the map: while one is open, every map move re-renders it (one frame at a time)
   const [, setCamTick] = useState(0);
   useEffect(() => {
-    const m = (window as any).__map; if (!m?.on || !(hexCard || regionCard)) return;
+    const m = (window as any).__map; if (!m?.on || !(hexCard || regionCard || obsCard)) return;
     let raf = 0; const h = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; setCamTick((n) => n + 1); }); };
     m.on("move", h); return () => { m.off("move", h); if (raf) cancelAnimationFrame(raf); };
-  }, [!!hexCard, !!regionCard]);
+  }, [!!hexCard, !!regionCard, !!obsCard]);
   useEffect(() => {
     if (!drawing) return;
     const m = (window as any).__map; const host: HTMLElement | undefined = m?.getContainer?.(); if (!m || !host) { setDrawing(false); return; }
@@ -801,12 +815,22 @@ export function App() {
   }, [var2Ready, where2]);
   // option C (Betty 2026-11-11): one map, a switch on top colours the same hexagons by the first pick or the added variable.
   // Only the colours change: the hexagons, filters, counts, cards and downloads stay the first pick's (with the added columns)
-  const [colorBy2, setColorBy2] = useState(false);
-  useEffect(() => { if (!sel.var2 || sel.lens !== "hex") setColorBy2(false); }, [sel.var2, sel.lens]);
+  // it is in the link (`color=var2`, review 2026-11-16: a reload went back to the first pick's colours); it only applies in Hexagons
+  const colorBy2 = sel.color2 && !!sel.var2 && sel.lens === "hex";
+  const setColorBy2 = (b: boolean) => setSel({ color2: b });
   const dsOn = (dk: string) => !sel.datasets || sel.datasets.includes(dk);
-  // one dataset at a time, for species and measurements alike (Betty 2026-11-10): datasets are never pooled, so a click
-  // SWITCHES to that dataset rather than adding it to a mix
-  const toggleDataset = (dk: string) => setSel({ datasets: [dk] });
+  // one dataset at a time by default, for species and measurements alike (Betty 2026-11-10): a click SWITCHES to that
+  // dataset rather than adding it to a mix. Combining them is an explicit choice (`pool`, `datasets=all`): the lean
+  // dataset list's last row, or the classic Refine tab's pills, which add and remove (review 2026-11-16)
+  const toggleDataset = (dk: string) => setSel({ datasets: [dk], pool: false });
+  const poolAll = () => setSel({ datasets: null, pool: true });
+  const toggleDatasetClassic = (dk: string) => {
+    const all = [...new Set(picker.map((r) => r.dataset_key))];
+    const cur = sel.datasets ?? (sel.pool ? all : all.filter(dsOn));
+    const next = cur.includes(dk) ? cur.filter((d) => d !== dk) : [...cur, dk];
+    if (!next.length) return; // never none: the last one stays
+    setSel(next.length === 1 ? { datasets: next, pool: false } : { datasets: next.length === all.length ? null : next, pool: true });
+  };
 
   // the slice on hand is the one for the CURRENT pick. While a new measurement or species is still being fetched, sliceKey is the
   // old pick's: the lens must not run (it would filter the old data by the new pick's dataset and report "nothing in the selection").
@@ -951,22 +975,24 @@ export function App() {
     })().catch((e) => { console.error(e); setStatus(`error: ${e.message}`); });
   }, [sliceKey, sliceCurrent, sel.lens, sel.res, sel.layer, sel.line, sel.cruise, sel.grain, sel.interp === "tps", !!sel.obs, params, anomMap, climBase]);
 
-  // the Effort layer (`effort=on`): sample_track for the selected datasets in the time window, for the shown cruise in the cruise
-  // lens (sql/effort_track.sql). Its own effect on its own parameters, never the taxon, the variable or the depth band: effort
+  // the Effort layer (`effort=on`): sample_track for the selected datasets in the time window and the When step's cruises, for
+  // the shown cruise in the cruise lens (sql/effort_track.sql). Its own effect on its own parameters, never the taxon, the variable or the depth band: effort
   // is where the observers looked, whatever they saw. A release with no sample_track has no layer (the row is disabled)
   const effortAvail = hasTrack(catalog);
   const effortCruise = sel.lens === "cruise" ? sel.cruise : null;
   useEffect(() => {
     if (!sel.effort || !effortAvail || areaPending || (sel.lens === "cruise" && !effortCruise)) { setEffortPaths([]); return; }
     let live = true;
-    const ep = { track_src: q(REG.sample_track), root_src: q(REG.sample_root), ym0: params.ym0, ym1: params.ym1, quarter_filter: params.quarter_filter, dataset_filter: params.dataset_filter, area_filter: params.area_filter, cruise: effortCruise };
+    const ep = { track_src: q(REG.sample_track), root_src: q(REG.sample_root), ym0: params.ym0, ym1: params.ym1, quarter_filter: params.quarter_filter, dataset_filter: params.dataset_filter, area_filter: params.area_filter, cruise_filter: params.cruise_filter, cruise: effortCruise };
     // the path's month is the cruise's median cast month where the release's cruise table carries it, as the slice's
+    // a one-hexagon area filters on hex7: the path takes its sample_root row's cell, when the release carries one
     Promise.all([ensure(REG.sample_track), ensure(REG.sample_root), probeCruiseMedian()])
-      .then(([, , median]) => engine.query("effort_track", median ? { ...ep, cruise_src: cruiseSrcSql(q(REG.cruise)) } : ep))
+      .then(async ([, , median]) => ({ median, hex7: await (rootHex7Ref.current ??= engine.exec(`SELECT count(*) AS n FROM (DESCRIBE SELECT * FROM ${q(REG.sample_root)}) WHERE column_name = 'hex7'`, "probe:sample_root.hex7").then((r) => Number(r[0]?.n) > 0)) }))
+      .then(({ median, hex7 }) => engine.query("effort_track", { ...ep, ...(median ? { cruise_src: cruiseSrcSql(q(REG.cruise)) } : {}), track_hex7: hex7 ? "r.hex7" : "NULL::UBIGINT" }))
       .then((r) => { if (live) setEffortPaths(toEffortPaths(r as unknown as EffortRow[])); })
       .catch((e) => { console.warn("sample_track:", e.message); if (live) setEffortPaths([]); });
     return () => { live = false; };
-  }, [sel.effort, effortAvail, areaPending, sel.lens, effortCruise, params.ym0, params.ym1, params.quarter_filter, params.dataset_filter, params.area_filter]);
+  }, [sel.effort, effortAvail, areaPending, sel.lens, effortCruise, params.ym0, params.ym1, params.quarter_filter, params.dataset_filter, params.area_filter, params.cruise_filter]);
   const effortSum = useMemo(() => effortSummary(effortPaths), [effortPaths]);
 
   // cruise playback (D37): the clock lives in a ref and the loop hands deck new layers itself — no App render per frame
@@ -1126,6 +1152,10 @@ export function App() {
     const pad = (b: [number, number, number, number] | null, k: string) => b ? { key: k, bbox: b } : null;
     if (sel.lens === "region") {
       const withData = layerFeatures.filter((f) => regionStats.has(f.properties.spatial_key));
+      // a map already moved to some of these regions stays where it is (review 2026-11-16: "By region" zoomed a close look at
+      // the Channel Islands out to the whole coast); from the home view, or nowhere near them, it frames them as before
+      const vb = sel.map ? (window as any).__map?.getBounds?.() : null;
+      if (vb && (withData.length ? withData : layerFeatures).some((f) => { const fb = featuresBbox([f]); return !!fb && fb[0] < vb.getEast() && fb[2] > vb.getWest() && fb[1] < vb.getNorth() && fb[3] > vb.getSouth(); })) return null;
       const b = featuresBbox(withData.length ? withData : layerFeatures);
       return pad(b, `region|${sel.layer}|${withData.length ? "data" : "none"}`);
     }
@@ -1179,11 +1209,12 @@ export function App() {
   // with the most data. The others are listed under it to switch to.
   useEffect(() => {
     if (sliceKey !== (sel.realm === "bio" ? `bio:${sel.taxon}` : `env:${sel.var}`) || !dsChoices.length) return;
+    if (sel.pool) return; // combining was asked for: every dataset (datasets null) or the set chosen
     const keys = dsChoices.map(([dk]) => dk);
     if (keys.length === 1) { if (sel.datasets && !sel.datasets.includes(keys[0])) setSel({ datasets: null }); return; }
     if (sel.datasets?.length === 1 && keys.includes(sel.datasets[0])) return;
     setSel({ datasets: [sel.datasets?.find((d) => keys.includes(d)) ?? keys[0]] });
-  }, [sliceKey, dsChoices, sel.datasets, sel.realm, sel.taxon, sel.var]);
+  }, [sliceKey, dsChoices, sel.datasets, sel.pool, sel.realm, sel.taxon, sel.var]);
   const denInfo = (den: Den) => {
     const ok = new Set<string>(), all = new Set<string>();
     let excluded = 0, rows = 0;
@@ -1236,16 +1267,18 @@ export function App() {
   // the pooled datasets as their release rows; before `dataset.parquet` lands, a stand-in carrying the key, so the
   // Sources line names the datasets from the first paint rather than appearing late
   const viewDatasetRows = useMemo(() => viewDatasetKeys.map((dk) => dsRow(dk) ?? { dataset_key: dk, dataset_name_short: short(dk), provider: dk.split("_")[0], category: dsCategory(dk) }), [viewDatasetKeys, datasets]);
+  // a taxon's observations per dataset, from taxa.sql's / coverage.json's "key=n,…" (the What picker's By dataset counts)
+  const dsCounts = (x: string | null | undefined): Record<string, number> | undefined => { if (!x) return undefined; const m: Record<string, number> = {}; for (const s of x.split(",")) { const i = s.lastIndexOf("="); if (i > 0) m[s.slice(0, i)] = Number(s.slice(i + 1)); } return m; };
   const organismItems = useMemo<PickerItem[]>(() => (taxa.length ? taxa : (cov?.taxa ?? []).map((t) => ({
     taxon_key: t.taxon_key, scientific_name: t.scientific_name, common_name: t.common_name, class: t.class, n: t.n_obs, y0: t.year_min, y1: t.year_max,
-    datasets: t.datasets.slice().sort((a, b) => b.n_obs - a.n_obs).map((d) => d.dataset_key).join(","), rank: t.rank }))).map((t: Row) => {
+    datasets: t.datasets.slice().sort((a, b) => b.n_obs - a.n_obs).map((d) => d.dataset_key).join(","), ds_n: t.datasets.map((d) => `${d.dataset_key}=${d.n_obs}`).join(","), rank: t.rank }))).map((t: Row) => {
     const ds: string[] = (t.datasets ?? "").split(",").filter(Boolean);
     const local = !/^(worms|itis):/.test(t.taxon_key); // a dataset-local class (zooscan eggs, phyto "other"): the code, and the dataset as its subtitle
     // a dataset-local class with no name in the source (a bare code such as "218"): "Class 218", listed after the named ones
     const code = local ? t.taxon_key.replace(/^[^:]+:/, "") : "";
     const unnamed = !t.common_name && !t.scientific_name && /^[\d.\-]+$/.test(code);
     return { unnamed, key: t.taxon_key, label: unnamed ? `Class ${code}` : titleCaseCommonName(t.common_name) ?? t.scientific_name ?? (local ? humanizeCode(code) : t.taxon_key), sub: t.common_name ? t.scientific_name : unnamed ? "no name in the source" : undefined, subItalic: !!t.common_name, n: t.n, year: t.y1, year0: t.y0,
-      datasets: ds, groups: { category: dsCategory(ds[0]), dataset: ds[0] ?? "—", class: t.class ?? "—" }, search: t.taxon_key };
+      datasets: ds, dsN: dsCounts(t.ds_n), groups: { category: dsCategory(ds[0]), dataset: ds[0] ?? "—", class: t.class ?? "—" }, search: t.taxon_key };
   }), [taxa, cov, datasets]);
   const organismGroups = useMemo<GroupOpt[]>(() => [
     { key: "category", label: "category", icon: (c) => categoryIcon(c), rank: categoryRank },
@@ -1326,7 +1359,8 @@ export function App() {
   const dayRange = (t0: number, t1: number) => { const a = dayOf(t0), b = dayOf(t1); if (a === b) return a; const [ma] = a.split(" "), [mb, db] = b.split(" "); return ma === mb ? `${a}–${db}` : `${a} – ${b}`; };
   const cruiseItemOf = (key: string, o: { t0?: number | null; t1?: number | null; n_sta?: number | null; n?: number | null; extra?: string }): PickerItem => {
     const y = key.slice(0, 4), mm = key.slice(5, 7), mon = MONTHS3[Number(mm) - 1];
-    const shipRaw = cruiseRef?.get(key)?.ship, ship = shipRaw ? shipRaw.replace(/\b\w+/g, (w) => w[0] + w.slice(1).toLowerCase()) : null;
+    // the ship worded by ship.ts (main #54: Bell M. Shimada, McArthur II), nothing where the reference has no name
+    const ship = shipName(cruiseRef, key) || null;
     const sta = o.n_sta != null ? `${o.n_sta} station${Number(o.n_sta) === 1 ? "" : "s"}` : null;
     // the cruise ID leads (Betty 2026-11-10); its month, ship, days and stations sit under it
     return { key, label: key, right: ship ?? undefined, sub: [o.t0 && o.t1 ? dayRange(o.t0, o.t1) : (mon ? `${mon} ${y}` : null), sta, o.extra].filter(Boolean).join(" · "),
@@ -1400,6 +1434,8 @@ export function App() {
   const [depthPulse, setDepthPulse] = useState(false);
   const [depthDs, setDepthDs] = useState<DepthRow[]>([]);
   const mapBox = useRef<HTMLDivElement>(null);
+  // the Find data panel as drawn, in px of the map's box (panels.tsx reports it as it moves, resizes or reflows): the bottom docks run right of it
+  const [selectRect, setSelectRect] = useState<(Rect & { bw: number; bh: number }) | null>(null);
   const folded = (id: PanelId) => sel.hide.includes(id);
   const toggleFold = (id: PanelId) => { if (id === "select" && folded("select")) setSentenceOpen(false); setSelRaw((s) => ({ ...s, hide: s.hide.includes(id) ? s.hide.filter((h) => h !== id) : [...s.hide, id] })); };
   const toggleSentence = () => { if (!sentenceOpen) setSelRaw((s) => (s.hide.includes("select") ? s : { ...s, hide: [...s.hide, "select"] })); setSentenceOpen((v) => !v); };
@@ -1540,9 +1576,10 @@ export function App() {
     const root = loads.current.get(REG.sample_root);
     if (root) (stageRef.current = loadStages(root)).then(setStageIdx);
   }, [lensReady, sel.lens, displayLens, status, stageIdx]);
-  // the Sections lens names the cruise's month in its caption: load the cruise reference for it too
+  // the Sections lens names the cruise's month in its caption, and it and the Cruises lens name the cruise's ship: load
+  // the cruise reference for both
   useEffect(() => {
-    if (sel.lens !== "section" || cruiseRef || !catalog) return;
+    if ((sel.lens !== "section" && sel.lens !== "cruise") || cruiseRef || !catalog) return;
     let live = true;
     probeCruiseMedian().then((m) => engine.query("cruise_ref", { src: q(REG.cruise), ...cruiseTokens(m) })).then((r) => { if (live) setCruiseRef(new Map(r.map((c) => [c.cruise_key, { ship: c.ship_name ?? c.ship_nodc ?? "", nodc: c.ship_nodc ?? "", month: c.month == null ? null : Number(c.month) }]))); }).catch(console.error);
     return () => { live = false; };
@@ -1551,8 +1588,7 @@ export function App() {
     if (seriesMode !== "cruises") return null;
     const rows = (sel.lens === "cruise" && cruiseRows.length ? cruiseRows : ganttRows).filter((c) => c.t0 && c.t1);
     // the ship from the cruise reference (title case), for the hover; a key with no reference row shows its NODC code
-    const shipOf = (k: string) => { const ref = cruiseRef?.get(k); const nodc = k.split("-")[2] ?? k; return ref?.ship ? ref.ship.replace(/\b\w+/g, (w) => w[0] + w.slice(1).toLowerCase()) : nodc; };
-    const gr: GanttRow[] = rows.map((c) => ({ ...c, ship: shipOf(c.cruise_key) }));
+    const gr: GanttRow[] = rows.map((c) => ({ ...c, ship: shipOfCruise(cruiseRef, c.cruise_key) || c.cruise_key }));
     return { rows: gr, selected: sel.cruise, onPick: (k: string) => setSel({ cruise: k }) };
   }, [seriesMode, cruiseRows, ganttRows, cruiseRef, sel.lens, sel.cruise]);
   // with no year filter the boxes read the span the picked data actually covers, not the whole 1949+ record
@@ -1580,6 +1616,15 @@ export function App() {
     const cell = grid.find((c) => c.grid_key === sel.station);
     return { grid_key: sel.station, cell, summary, detail };
   }, [sel.station, cov, covStations, grid]);
+  // the datasets the Station card shows: the ones picked, else the ones holding the pick (the picker once the slice is in,
+  // the release's coverage.json before), so a sightings view never lists the ichthyo tows of the same cell
+  const stationInView = useMemo((): string[] | null => {
+    if (sel.datasets?.length) return sel.datasets;
+    if (dsChoices.length) return dsChoices.map(([dk]) => dk);
+    const fromCov = sel.realm === "bio" ? cov?.taxa?.find((t) => t.taxon_key === sel.taxon)?.datasets.map((d) => d.dataset_key)
+      : cov?.variables.filter((v) => v.measurement_type === sel.var).map((v) => v.dataset_key);
+    return fromCov?.length ? [...new Set(fromCov)] : null;
+  }, [sel.datasets, dsChoices, sel.realm, sel.taxon, sel.var, cov]);
 
   const onLens = (l: Lens) => { lensClickAt.current = performance.now(); setSel({ lens: l }); };
   // Share › Copy code and the bundle hand over the depth × time card's statements while it is open (src/reproduce.ts)
@@ -1588,6 +1633,14 @@ export function App() {
   const var2Cols = var2Ready && sel.lens === "hex" ? { key: sel.var2!, hex: hexExpr(sel.res), km: RES_KM[sel.res].replace(/[~ km]/g, ""), where: where2 } : null;
   const regionCols = area?.kind === "region" ? { layer: area.layer, names: area.names, src: q(REG.sample_spatial) }
     : sel.lens === "region" && sel.layer ? { layer: sel.layer, names: null, src: q(REG.sample_spatial) } : null;
+  // the downloads' file names say which subset they hold (src/filename.ts): the pick, its stage and units, every filter in force, the view
+  const fileName = (ext: string, zerosOff = false) => subsetName({
+    what: whatSel?.label ?? (sel.realm === "bio" ? sel.taxon : sel.var), realm: sel.realm, stage: sel.stage, den: sel.den, zeros: sel.zeros && !zerosOff,
+    years: sel.years, months: sel.months, yearOpen: YEAR_OPEN, q: sel.q, depth: depthAvail ? sel.depth : null, depthDefault: DEFAULTS.depth,
+    area: sel.area, cruises: sel.cruises, datasets: sel.datasets, nDatasets: dsChoices.length, dsShort: (dk) => DS_PLAIN[dk]?.[0] ?? short(dk),
+    lens: sel.lens, res: sel.res, layer: sel.layer, cruise: sel.cruise, line: sel.line, var2: var2Cols ? sel.var2 : null,
+    release: version ?? "release", date: new Date().toISOString().slice(0, 10).replace(/-/g, ""),
+  }, ext);
   const download = async () => {
     if (!catalog || !version || bundling) return;
     try {
@@ -1596,7 +1649,7 @@ export function App() {
       const summary = sel.lens === "hex" ? hexRows : sel.lens === "region" ? regionRows : sel.lens === "cruise" ? cruiseRows : sel.lens === "section" ? sectionCells : stationRows;
       const { blob, name } = await buildBundle({
         sel, version, catalog, params, lensParams, lensTemplate, grain: varGrain, rootHex7: !!castHex, cruiseMedian: !!cruiseMedian, bioNet, depthTime: dtRepro, summary: summary as Row[], summaryKey: sel.lens, grid, regionFeatures: layerFeatures,
-        datasets, regionCols, var2Cols, unit: unitLabel, envFile: sel.realm === "env" ? envReg(sel.var) : null, bioSrcName: REG.obs_bio, hexRes: sel.res, onStatus: setBundling,
+        datasets, regionCols, var2Cols, unit: unitLabel, envFile: sel.realm === "env" ? envReg(sel.var) : null, bioSrcName: REG.obs_bio, hexRes: sel.res, onStatus: setBundling, fileName: fileName("zip"),
       });
       (window as any).__lastBundle = { name, bytes: blob.size };
       saveBlob(blob, name);
@@ -1606,6 +1659,8 @@ export function App() {
   };
   (window as any).__download = download; // spike/verify hook
   (window as any).__picker = picker; (window as any).__sliceKey = sliceKey;
+  // scripts/lean_check.mjs compares the downloads with what the view draws: the lens rows and the panel's counts
+  (window as any).__view = { lens: displayLens, stationRows, hexRows, regionRows, cruiseRows, sectionCells, cruiseSamples, yearRows, depthRows, inView, viewCount, areaPending, sliceKey, sel };
   const lensTpl = () => sel.lens === "hex" ? "hex" : sel.lens === "region" ? "region" : sel.lens === "cruise" ? "cruise" : sel.lens === "section" ? (sel.realm === "env" ? "section" : "section_bio") : "station";
   const lensPar = (): Record<string, any> => sel.lens === "hex" ? { hex: hexExpr(sel.res) } : sel.lens === "region" ? { layer: sel.layer } : sel.lens === "section" ? { line: sel.line, cruise: sel.cruise } : {};
   const copy = async (kind: "sql" | "r" | "py") => {
@@ -1621,7 +1676,7 @@ export function App() {
     if (!catalog || !version || bundling) return;
     setBundling("preparing CSV…");
     try {
-      const { blob, name, n } = await buildObservationsCsv({ sel, version, catalog, params, lensParams: lensPar(), lensTemplate: lensTpl(), grain: varGrain, rootHex7: !!castHex, cruiseMedian: !!cruiseMedian, bioNet, depthTime: dtRepro }, { zeros: csvZeros, regionCols, var2Cols });
+      const { blob, name, n } = await buildObservationsCsv({ sel, version, catalog, params, lensParams: lensPar(), lensTemplate: lensTpl(), grain: varGrain, rootHex7: !!castHex, cruiseMedian: !!cruiseMedian, bioNet, depthTime: dtRepro }, { zeros: csvZeros, regionCols, var2Cols, fileName: fileName("csv", sel.realm === "bio" && !csvZeros) });
       saveBlob(blob, name); setStatus(`saved ${name} · ${fmtN(n)} rows`); trackEvent("export", { panel: "select", kind: "observations-csv" });
     } catch (e: any) { console.error(e); setStatus(`CSV error: ${e.message}`); }
     setBundling(null);
@@ -1710,11 +1765,30 @@ export function App() {
     }
     if (id === "regions") { const s = regionStats.get(o.properties.spatial_key); return { text: `${o.properties.name}\n${s ? `${STAT_LABEL[stat]} ${fmt(statOf(s))} · ${countText(s)} · ${s.y0}–${s.y1}` : "no data"}` }; }
     if (id === "cruise-samples" || id === "cruise-samples-next") return { text: `${o.grid_key ?? "—"} · ${new Date(o.t * 1000).toISOString().slice(0, 10)}\n${STAT_LABEL[stat]} ${fmt(statOf(o))} · ${fmtN(o.n)} observations` };
+    if (id === "obs") {
+      const when = o.y0 == null ? "" : o.y0 === o.y1 ? ` · ${o.y0}` : ` · ${o.y0}–${o.y1}`;
+      return { text: `${countText(o)}${when}\nclick for what was recorded here, and when` };
+    }
     if (id === "effort" || id === "effort-sight") return { text: `${o.track_type === "sight_line" ? "line of sight to a sighting" : "on-effort segment"} · ${short(o.dataset_key)}\n${o.t != null ? new Date(o.t * 1000).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "no time"}${o.length_km != null ? ` · ${fmt(o.length_km, 2)} km` : ""}` };
     return null;
   };
   // a popup stays on the spot it was opened from: its place is kept as a longitude / latitude and re-projected as the map moves
   const clickLL = (info: PickingInfo): [number, number] | undefined => { const ll = (window as any).__map?.unproject?.([info.x ?? 0, info.y ?? 0]); return ll ? [ll.lng, ll.lat] : undefined; };
+  // a dataset as the cards name it: the plain name the title card uses ("Cetacean sightings"), never the bare key
+  const dsLabel = (dk: string) => DS_PLAIN[dk]?.[0] ?? (dsRow(dk) ? dsName(dsRow(dk) as any) : short(dk));
+  // a dot of the Observations layer: its card opens at once ("reading…") and fills when the site's rows are back
+  const taxonOf = useMemo(() => new Map(taxa.map((t) => [String(t.taxon_key), t])), [taxa]);
+  const openObsCard = (o: any, info: PickingInfo) => {
+    const r = (window as any).__map?.getContainer?.()?.getBoundingClientRect?.();
+    const lon = Number(o.longitude), lat = Number(o.latitude), g = ++obsGen.current, limit = 200;
+    setHexCard(null); setRegionCard(null);
+    setObsCard({ lon, lat, x: (r?.left ?? 0) + (info.x ?? 0), y: (r?.top ?? 0) + (info.y ?? 0), ll: [lon, lat], rows: null, nRows: 0 });
+    (sel.realm === "bio"
+      ? engine.query("site_obs", { ...params, lon, lat, limit, src: q(REG.obs_bio), taxon: sel.taxon, net_key: bioNet ? "sample_key" : "root_id" })
+      : engine.query("site_obs_env", { ...params, lon, lat, limit }))
+      .then((rows) => { if (g === obsGen.current) setObsCard((c) => c && { ...c, nRows: rows.length, rows: groupSiteObs(rows as SiteObsRow[], (k) => taxonLabel(taxonOf.get(k) as any, k)) }); })
+      .catch((e) => { console.error("site_obs:", e); if (g === obsGen.current) setObsCard((c) => c && { ...c, rows: [], err: String(e?.message ?? e) }); });
+  };
   const cardXY = (c: { x: number; y: number; ll?: [number, number] }): { x: number; y: number } => {
     const m = (window as any).__map; if (!c.ll || !m?.project) return c;
     const p = m.project(c.ll), r = m.getContainer().getBoundingClientRect();
@@ -1722,6 +1796,8 @@ export function App() {
   };
   const onClick = (info: PickingInfo) => {
     const o: any = info.object; if (!o) return;
+    if (info.layer?.id === "obs") { openObsCard(o, info); return; }
+    if (obsCard) setObsCard(null);
     // Stations / Hexagon with Regions from: a region's data shows on hover, so a click opens nothing (Betty 2026-11-11)
     if (info.layer?.id === "area-pick") { if (regionCard) setRegionCard(null); return; }
     // a hexagon has no click card any more (Betty 2026-11-11: "just hover") — hover shows its values; a click on a
@@ -1777,7 +1853,7 @@ export function App() {
     if (!noneLeft || !sliceKey || areaPending) { setEmptyWhy(null); return; }
     let live = true;
     const n = (over: Record<string, any>) => engine.exec(render("count", { ...params, ...over }), "empty_why").then((r) => Number(r[0]?.n ?? 0));
-    const tows = sel.realm === "bio" ? engine.exec(`SELECT count(DISTINCT root_id) AS t FROM slice WHERE ${render("count", { ...params, zeros: true }).split("WHERE").slice(1).join("WHERE")}`, "empty_tows").then((r) => Number(r[0]?.t ?? 0)) : Promise.resolve(0);
+    const tows = sel.realm === "bio" ? engine.exec(`SELECT count(DISTINCT sample_id) AS t FROM slice WHERE ${render("count", { ...params, zeros: true }).split("WHERE").slice(1).join("WHERE")}`, "empty_tows").then((r) => Number(r[0]?.t ?? 0)) : Promise.resolve(0);
     const tries: { what: string; over: Record<string, any>; clear: () => void; on: boolean }[] = [
       { what: sel.cruises?.length === 1 ? `cruise ${sel.cruises[0]}` : "the cruises", over: { cruise_filter: "TRUE" }, clear: () => setSel({ cruises: null }), on: !!sel.cruises?.length },
       { what: "the area", over: { area_filter: "TRUE" }, clear: () => { setAreaRegionMode(false); setSel({ area: null }); }, on: !!area },
@@ -1995,22 +2071,35 @@ export function App() {
           const { rows, raw, flagged } = dsList, cur = rows[0], n = rows.length - 1;
           if (!n && desk) return null;   // one dataset: the Source line in the title already names it
           const stLine = (r: typeof cur) => (r.st && !r.st.includes(",") && r.st !== "unknown" && rows.some((o) => o.st.includes(",")) ? `${r.st} only` : r.st);
+          // combining: an explicit last row, only among the datasets that hold this pick in the slice (dsChoices); while combined,
+          // every dataset row is a way back to one (review 2026-11-16: the PR had made combining impossible)
+          const canPool = dsChoices.length > 1, pooled = canPool && sel.pool;
+          const inSlice = new Set(dsChoices.map(([dk]) => dk));
+          const pooledN = pooled ? (sel.datasets?.length ?? dsChoices.length) : 0;
+          const goOf = (r: typeof cur) => (pooled && inSlice.has(r.dk) ? () => toggleDataset(r.dk) : r.go);
           return <div className="ds-f ds-c mo-sec" onKeyDown={(e) => { if (e.key === "Escape") setDsOpen(false); }}>
-            <div className="ds-c-h"><span className="k">Choose dataset</span></div>
-            <button type="button" className={`ds-c-sel${dsOpen ? " open" : ""}`} aria-haspopup="listbox" aria-expanded={dsOpen} disabled={!n}
-              onClick={() => setDsOpen(!dsOpen)} title={`${cur.long}${cur.how ? ` — ${cur.how}` : ""}`}>
-              <i className="dot" style={{ background: dsColor(cur.dk) }} /><b className="nm">{cur.nm}{raw ? " ⚠" : ""}</b>
-              {n > 0 && <span className="cnt">{n} other{n > 1 ? "s" : ""}</span>}{n > 0 && <Icon name={dsOpen ? "ui-up" : "ui-down"} size="0.85rem" />}
+            <div className="ds-c-h"><span className="k">{pooled ? "Datasets combined" : "Choose dataset"}</span></div>
+            <button type="button" className={`ds-c-sel${dsOpen ? " open" : ""}${pooled ? " pooled" : ""}`} aria-haspopup="listbox" aria-expanded={dsOpen} disabled={!n}
+              onClick={() => setDsOpen(!dsOpen)} title={pooled ? "every dataset that holds this pick, combined — open to show one at a time" : `${cur.long}${cur.how ? ` — ${cur.how}` : ""}`}>
+              {pooled ? <><span className="dots">{dsChoices.filter(([dk]) => dsOn(dk)).map(([dk]) => <i key={dk} className="dot" style={{ background: dsColor(dk) }} />)}</span><b className="nm">{pooledN === dsChoices.length ? `All ${pooledN} datasets` : `${pooledN} datasets`}, combined</b></>
+                : <><i className="dot" style={{ background: dsColor(cur.dk) }} /><b className="nm">{cur.nm}{raw ? " ⚠" : ""}</b>
+                {n > 0 && <span className="cnt">{n} other{n > 1 ? "s" : ""}</span>}</>}{n > 0 && <Icon name={dsOpen ? "ui-up" : "ui-down"} size="0.85rem" />}
             </button>
             {dsOpen && n > 0 && <div className="ds-c-menu" role="listbox" aria-label="dataset">
-              {rows.map((r) => <button type="button" role="option" aria-selected={!r.go} key={r.dk} className={`ds-c-opt${r.go ? "" : " cur"}`}
-                onClick={() => { r.go?.(); setDsOpen(false); }} title={r.long}>
+              {rows.map((r) => { const go = goOf(r); return <button type="button" role="option" aria-selected={!go} key={r.dk} className={`ds-c-opt${go ? "" : " cur"}`}
+                onClick={() => { go?.(); setDsOpen(false); }} title={r.long}>
                 <i className="dot" style={{ background: dsColor(r.dk) }} />
                 <span className="tx"><b className="nm">{r.nm}</b>{r.st && <small>{stLine(r)}</small>}{r.how && <small className="how">{r.how}</small>}</span>
-                <span className="rt">{r.tot != null && <span className="num">{!r.go && "✓ "}{fmtN(r.tot)}</span>}{r.tot != null && <small>records</small>}
-                  {!r.go && flagged ? <small>{fmtN(flagged)} flagged</small> : null}</span>
-              </button>)}
-              <div className="ds-why">Different gear and units, so shown one at a time.</div>
+                <span className="rt">{r.tot != null && <span className="num">{!go && "✓ "}{fmtN(r.tot)}</span>}{r.tot != null && <small>records</small>}
+                  {!go && flagged ? <small>{fmtN(flagged)} flagged</small> : null}</span>
+              </button>; })}
+              {canPool && <button type="button" role="option" aria-selected={pooled} className={`ds-c-opt ds-c-pool${pooled ? " cur" : ""}`} onClick={() => { if (!pooled) poolAll(); setDsOpen(false); }}
+                title="average every dataset that holds this pick together — their gear and methods differ, so read the result with care">
+                <span className="dots">{dsChoices.map(([dk]) => <i key={dk} className="dot" style={{ background: dsColor(dk) }} />)}</span>
+                <span className="tx"><b className="nm">Combine all {dsChoices.length}</b><small className="how">one map from every dataset — gear and methods differ</small></span>
+                <span className="rt">{pooled && <span className="num">✓</span>}</span>
+              </button>}
+              <div className="ds-why">Different gear and units, so shown one at a time unless you combine them.</div>
             </div>}
           </div>;
         })();
@@ -2132,8 +2221,10 @@ export function App() {
     </Group>
     {depthGroup}
     <Group title="Datasets" icon="ui-data">
-      <div className="pills">{datasetsInSlice.map((dk) => <button key={dk} type="button" className={`pill act${dsOn(dk) ? "" : " off"}`} onClick={() => toggleDataset(dk)} title="show this dataset"><i className="dot" style={{ background: dsColor(dk) }} />{short(dk)}</button>)}{!datasetsInSlice.length && <span className="pill off">{status}</span>}</div>
-      <div className="hint">{datasetsInSlice.length > 1 ? "one dataset at a time — click another to switch" : "the only dataset with this pick"}</div>
+      <div className="pills">{datasetsInSlice.map((dk) => <button key={dk} type="button" className={`pill act${dsOn(dk) ? "" : " off"}`} onClick={() => toggleDatasetClassic(dk)} title="click to add this dataset to the view, or to leave it out"><i className="dot" style={{ background: dsColor(dk) }} />{short(dk)}</button>)}{!datasetsInSlice.length && <span className="pill off">{status}</span>}</div>
+      <div className="hint">{datasetsInSlice.length <= 1 ? "the only dataset with this pick"
+        : sel.pool ? <>{sel.datasets?.length ?? datasetsInSlice.length} of {datasetsInSlice.length} combined · <button type="button" className="linkish" onClick={() => toggleDataset(datasetsInSlice.find(dsOn) ?? datasetsInSlice[0])}>one dataset</button></>
+        : <>one dataset — click another to add it · <button type="button" className="linkish" onClick={poolAll}>all datasets</button></>}</div>
     </Group>
   </>;
   // Share: the data, the code, the citations, the link or the image, a product, feedback, the SQL
@@ -2202,7 +2293,9 @@ export function App() {
         const word = abbr ?? (all.length === 1 ? "region" : "regions");
         const setNames = (nx: Set<string>) => {
           const allData = withData.length > 0 && withData.every((r) => nx.has(r.name)) && [...nx].every((n) => withData.some((r) => r.name === n));
-          setSel({ area: areaToUrl({ kind: "region", layer, names: allData ? null : nx.size ? [...nx] : null }) });
+          // the last one unticked: no region, so the full survey — never silently "all regions" (review 2026-11-16); the layer stays picked
+          if (!nx.size) { setAreaLayerPick(layer); setSel({ area: null }); return; }
+          setSel({ area: areaToUrl({ kind: "region", layer, names: allData ? null : [...nx] }) });
         };
         const toggle = (nm: string) => { const nx = new Set(all.map((r) => r.name).filter(isOn)); if (nx.has(nm)) nx.delete(nm); else nx.add(nm); setNames(nx); };
         // the long official names, short: "Channel Islands National Marine Sanctuary - Northern Section" → "Channel Islands - Northern Section"
@@ -2238,16 +2331,16 @@ export function App() {
     const W = 44, H = Math.round(W * (y1 - y0) / ((x1 - x0) * Math.cos(((y0 + y1) / 2) * Math.PI / 180)));
     return { pts, W, H, X: (lon: number) => ((lon - x0) / (x1 - x0)) * W, Y: (lat: number) => ((y1 - lat) / (y1 - y0)) * H };
   }, [grid]);
-  const drawnWord = area?.kind === "poly" ? "Area drawn on the map" : area?.kind === "box" ? "Box drawn on the map"
-    : area?.kind === "pattern" ? (area.patterns.includes("extended") ? "113-station grid" : "75-station grid") : null;
-  // "Reset all": every filter and view setting back to its default — Stations, all years, seasons and depths, everywhere, every dataset — keeping only what you chose to look at (the variable) and the map's position
-  const resetAll = () => { const d = DEFAULTS; setAreaRegionMode(false); setSel({ cruises: null, lens: d.lens, res: d.res, interp: d.interp, surface: d.surface, grain: d.grain, inputs: d.inputs, labels: d.labels, stage: null, den: null, zeros: d.zeros, years: d.years, months: d.months, q: d.q, yview: d.yview, depth: d.depth, layer: d.layer, region: d.region, line: d.line, cruise: d.cruise, stat: d.stat, anom: d.anom, base: d.base, datasets: d.datasets, area: d.area, station: d.station, view3d: d.view3d, obs: d.obs, strip: d.strip, tbin: d.tbin, effort: d.effort, data: d.data }); };
+  // "Reset all": state.ts resetPatch() — every filter and view setting back to its default, keeping the pick (with its stage and units)
+  const resetAll = () => { setAreaRegionMode(false); setAreaLayerPick(null); setSel(resetPatch()); };
   const whatSel = whatItems.find((i) => i.key === (sel.realm === "bio" ? sel.taxon : sel.var) || (sel.realm === "env" && i.alt?.includes(sel.var)));
-  const pickWhat = (k: string, ds?: string) => { if (whatIsOrganism.has(k)) setSel({ realm: "bio", taxon: k, stage: null, den: null, cruise: null, datasets: ds ? [ds] : null }); else {
+  const pickWhat = (k: string, ds?: string) => { if (whatIsOrganism.has(k)) setSel({ realm: "bio", taxon: k, stage: null, den: null, cruise: null, datasets: ds ? [ds] : null, pool: false }); else {
     // a measurement made several ways (bottle samples, CTD sensor, underway …) is plotted from ONE dataset at a time, never silently pooled:
     // the dataset button that was clicked, else the dataset with the most data. "All datasets" is a choice (the dataset chips in the title).
     const it = whatItems.find((i) => i.key === k || i.alt?.includes(k)), vr = it?.variants?.find((v) => v.key === k);
-    setSel({ realm: "env", var: k, cruise: null, datasets: ds ? [ds] : vr ? vr.datasets : it?.datasets && it.datasets.length > 1 ? [it.datasets[0]] : null });
+    // the added variable cannot be the pick itself: picking it as the main measurement drops it as the second
+    const same = !!sel.var2 && (sel.var2 === k || it?.key === sel.var2 || !!it?.alt?.includes(sel.var2));
+    setSel({ realm: "env", var: k, ...(same ? { var2: null, color2: false } : {}), cruise: null, datasets: ds ? [ds] : vr ? vr.datasets : it?.datasets && it.datasets.length > 1 ? [it.datasets[0]] : null, pool: false });
   }
   setWhatOpen(false); };
   // "Unknown" is not offered beside real stages (Betty 2026-11-10): it shows only when it is what is in view — a dataset
@@ -2288,7 +2381,7 @@ export function App() {
     : (() => {
       return <div className="v2">
         <div className="v2-card"><div className="v2-t"><b>{var2Label}</b>{var2Unit && var2Unit !== var2Label && <small>{var2Unit}</small>}</div>
-          <span className="v2-acts"><button type="button" className="linkish" onClick={() => setVar2Open(true)}>Change</button><button type="button" className="linkish" onClick={() => setSel({ var2: null })}>Remove</button></span></div>
+          <span className="v2-acts"><button type="button" className="linkish" onClick={() => setVar2Open(true)}>Change</button><button type="button" className="linkish" onClick={() => setSel({ var2: null, color2: false })}>Remove</button></span></div>
         <div className="v2-how">Matched by hexagon ({RES_KM[sel.res]}), same years, seasons, area and depth ({sel.depth[0]}–{sel.depth[1]} m).</div>
         {var2Err ? <div className="v2-err">{var2Err}</div>
           : !var2Ready ? <div className="v2-how">loading {var2Label}…</div>
@@ -2321,12 +2414,32 @@ export function App() {
     {desk && dsBlock}
     {var2Block}
   </Group>;
-  const leanBody = var2Open ? <div className="lean-steps"><WhatPicker items={whatItems.filter((i) => !whatIsOrganism.has(i.key) && i.key !== sel.var)} isOrganism={() => false} value={sel.var2 ?? ""} onPick={(k) => { setSel({ var2: k }); setVar2Open(false); }} onClose={() => setVar2Open(false)} iconOf={(c) => (c === DERIVED_FAMILY ? "ui-line" : categoryIcon(c))} rank={categoryRank} dsShort={(dk) => (short(dk) !== dk ? short(dk) : dsCategory(dk))} dsName={(dk) => { const d = dsRow(dk); return d ? dsLongName(d) : short(dk); }} loading={whatItems.length ? null : plainStatus(status)} /></div> : whatOpen ? <div className="lean-steps"><WhatPicker items={whatItems} isOrganism={(k) => whatIsOrganism.has(k)} value={sel.realm === "bio" ? sel.taxon : sel.var} onPick={pickWhat} onClose={() => setWhatOpen(false)} iconOf={(c) => (c === DERIVED_FAMILY ? "ui-line" : categoryIcon(c))} rank={categoryRank} dsShort={(dk) => (short(dk) !== dk ? short(dk) : dsCategory(dk))} dsName={(dk) => { const d = dsRow(dk); return d ? dsLongName(d) : short(dk); }} loading={whatItems.length ? null : plainStatus(status)} /></div> : <div className="lean-steps">
+  // the area in force, named (area.ts areaLabel): the Where step's first line, so "Full survey" never looks chosen while a
+  // region, a line, a drawing or a hexagon is the area — and each way below replaces it (review 2026-11-16)
+  const areaNow = areaLabel(area, RES_KM[sel.res]);
+  const whereNow = <div className={`where-now${areaNow ? " on" : ""}`} role="status">
+    {areaNow ? <><span className="k">Area</span><b title={areaNow}>{areaNow}</b><button type="button" className="linkish" onClick={() => { clearArea(); setAreaLayerPick(null); }} title="back to the full survey">Clear</button></>
+      : <><span className="k">Area</span><b>Full survey</b><span className="hint">every sample</span></>}
+  </div>;
+  // a step the view hides keeps its filters in force (review 2026-11-16): the Cruise and Section views hide When and Where, the
+  // Region view hides Where — so they show here, collapsed, with what is in force and a Clear
+  const whenNow = [yearsSet && (sel.months ? `${years[0]}-${String(sel.months[0]).padStart(2, "0")} to ${years[1]}-${String(sel.months[1]).padStart(2, "0")}` : `${years[0]}–${years[1]}`),
+    sel.q && sel.q.length < 4 && sel.q.map((x) => ["Winter", "Spring", "Summer", "Fall"][x - 1]).join(", "),
+    sel.cruises?.length && (sel.cruises.length === 1 ? cruiseItemOf(sel.cruises[0], {}).label : `${sel.cruises.length} cruises`)].filter(Boolean).join(" · ");
+  const held = (step: "When" | "Where", what: string, why: string, clear: () => void) => <div className="step-held" data-held={step.toLowerCase()} title={why}>
+    <span className="k">{step}</span><b>{what}</b><button type="button" className="linkish" onClick={clear}>Clear</button>
+    <div className="hint">{why}</div></div>;
+  const heldSteps = <>
+    {lensOwns && whenNow && held("When", whenNow, sel.lens === "cruise" ? "Still in force: only cruises in it are listed, and the track shows what they sampled." : "Still in force: it narrows the cruises along the line and the samples drawn.", () => setSel({ years: [1949, YEAR_OPEN], months: null, q: null, cruises: null }))}
+    {(lensOwns || sel.lens === "region") && areaNow && held("Where", areaNow, sel.lens === "region" ? "Still in force: each region counts only the samples inside this area." : "Still in force: only samples inside this area are drawn.", () => { clearArea(); setAreaLayerPick(null); })}
+  </>;
+  const leanBody = var2Open ? <div className="lean-steps"><WhatPicker items={whatItems.filter((i) => !whatIsOrganism.has(i.key) && !(sel.realm === "env" && (i.key === sel.var || !!i.alt?.includes(sel.var))))} isOrganism={() => false} value={sel.var2 ?? ""} onPick={(k) => { setSel({ var2: k, color2: false }); setVar2Open(false); }} onClose={() => setVar2Open(false)} iconOf={(c) => (c === DERIVED_FAMILY ? "ui-line" : categoryIcon(c))} rank={categoryRank} dsShort={(dk) => (short(dk) !== dk ? short(dk) : dsCategory(dk))} dsName={(dk) => { const d = dsRow(dk); return d ? dsLongName(d) : short(dk); }} loading={whatItems.length ? null : plainStatus(status)} /></div> : whatOpen ? <div className="lean-steps"><WhatPicker items={whatItems} isOrganism={(k) => whatIsOrganism.has(k)} value={sel.realm === "bio" ? sel.taxon : sel.var} onPick={pickWhat} onClose={() => setWhatOpen(false)} iconOf={(c) => (c === DERIVED_FAMILY ? "ui-line" : categoryIcon(c))} rank={categoryRank} dsShort={(dk) => (short(dk) !== dk ? short(dk) : dsCategory(dk))} dsName={(dk) => { const d = dsRow(dk); return d ? dsLongName(d) : short(dk); }} loading={whatItems.length ? null : plainStatus(status)} /></div> : <div className="lean-steps">
     <div className="lean-what">
       {whatGroup}
       {lensAfter && viewBlock}
     </div>
     {lensOwns && viewBlock}
+    {heldSteps}
     {!lensOwns && <Group title="When" icon="ui-years" className="step opt when-group">
       {yearsSet && <button type="button" className="linkish ys-reset" onClick={() => setSel({ years: [1949, YEAR_OPEN], months: null })}>Show all years</button>}
       <YearSlider min={dataYears ? dataYears[0] : 1949} max={dataYears ? dataYears[1] : yearMax} value={yearsShown}
@@ -2346,6 +2459,7 @@ export function App() {
     </Group>}
     {lensInline && sel.lens === "region" && viewBlock}
     {!lensOwns && sel.lens !== "region" && <Group title="Where" icon="ui-filter" data-tour="area" className="step opt">
+      {whereNow}
       {leanRegion}
       <LineStation lines={lineList} stationsOf={(ln) => { const set = new Set<number>(); for (const k of allKeys ?? []) { const g = parseGridKey(k); if (g && g.line === ln && g.station != null) set.add(g.station); } return [...set].sort((a, b) => a - b); }} items={lineItemsOf(area)} unmatched={lineItemsOf(area).filter((i) => allKeys && lineKeys(i, allKeys).length === 0)}
         onSet={(items) => { setAreaRegionMode(false); setSel({ area: areaToUrl(linesArea(items)) }); }} onClear={clearArea} />
@@ -2355,17 +2469,20 @@ export function App() {
         {([["all", "Full survey", "Historical and current stations: today's grids plus stations no longer sampled, and samples taken off the grid (underway and other programs)."],
            ["std", "CalCOFI 75-station grid", "San Diego to Point Conception, lines 76.7–93.3. CalCOFI's core grid since 1984, the same stations every cruise."],
            ["ext", "CalCOFI 113-station grid", "The 75 plus lines 60–73.3 north to Monterey and San Francisco, added on winter and spring cruises."]] as const).map(([k, name, about]) => {
-          const checked = k === "all" ? area?.kind !== "pattern" : area?.kind === "pattern" && (k === "ext") === area.patterns.includes("extended");
+          // "Full survey" is ticked only when there is no area at all; choosing it clears whatever area is in force
+          const checked = k === "all" ? !area : area?.kind === "pattern" && (k === "ext") === area.patterns.includes("extended");
           return <label key={k} className="ws-opt" onMouseEnter={(e) => setStnPeek({ k, el: e.currentTarget })} onMouseLeave={() => setStnPeek(null)}>
-            <input type="radio" name="stn-pattern" checked={checked} onChange={() => { setAreaRegionMode(false); if (k === "all") { if (area?.kind === "pattern") setSel({ area: null }); } else setSel({ area: k === "std" ? "std" : "std,ext" }); }} />
+            <input type="radio" name="stn-pattern" checked={checked} onChange={() => { setAreaRegionMode(false); setAreaLayerPick(null); setSel({ area: k === "all" ? null : k === "std" ? "std" : "std,ext" }); }} />
             <span className="ws-name">{name} <span className="ws-lines">{k === "all" ? "historical and current stations" : k === "std" ? "lines 76.7–93.3" : "lines 60–93.3"}</span>{stnAbout && <span className="ws-about">{about}</span>}</span>
           </label>; })}
         {/* like "How these are calculated": what each pattern covers opens under its name, with CalCOFI's station maps at the end */}
       </div>
       <div className="where-draw">
-        <button type="button" className="wd-btn" aria-pressed={drawing === "poly"} onClick={() => { setAreaRegionMode(false); setDrawing(drawing === "poly" ? false : "poly"); }} title="draw any shape on the map, like a lasso: only samples inside it count (Esc cancels)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 7 11 3l9 5-2 9-9 3-5-6Z" strokeDasharray="3 2" /><circle cx="4" cy="7" r="1.6" fill="currentColor" /><circle cx="20" cy="8" r="1.6" fill="currentColor" /><circle cx="9" cy="20" r="1.6" fill="currentColor" /></svg>{drawing === "poly" ? "Drawing… (Esc to cancel)" : "Draw an area on the map"}</button>
+        <button type="button" className="wd-btn" aria-pressed={drawing === "poly"} onClick={() => { setAreaRegionMode(false); setDrawing(drawing === "poly" ? false : "poly"); }} title="draw any shape on the map, like a lasso: only samples inside it count (Esc cancels)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 7 11 3l9 5-2 9-9 3-5-6Z" strokeDasharray="3 2" /><circle cx="4" cy="7" r="1.6" fill="currentColor" /><circle cx="20" cy="8" r="1.6" fill="currentColor" /><circle cx="9" cy="20" r="1.6" fill="currentColor" /></svg>{drawing === "poly" ? "Drawing…" : "Draw an area"}</button>
+        <button type="button" className="wd-btn wd-box" aria-pressed={drawing === "box"} onClick={() => { setAreaRegionMode(false); setDrawing(drawing === "box" ? false : "box"); }} title="press at one corner on the map and drag to the other: only samples inside the box count (Esc cancels)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="4" y="6" width="16" height="12" strokeDasharray="3 2" /></svg>{drawing === "box" ? "Drag a box…" : "Draw a box"}</button>
+        <button type="button" className="wd-btn wd-view" onClick={() => { setDrawing(false); freezeView(); }} title="only what the map shows now: its lon / lat box, kept until you change it"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" /></svg>Map view</button>
       </div>
-      {(area?.kind === "poly" || area?.kind === "box") && <div className="wr-chosen">{drawnWord} <button type="button" className="linkish" onClick={clearArea}>clear</button></div>}
+      <div className="hint where-one">One area at a time: each choice here replaces the one in force.</div>
       {stnPeek && (() => {
         // a small map of the pattern: its stations in yellow, the rest of the grid in grey (the grid's own lon / lat)
         const r = stnPeek.el.getBoundingClientRect(), par = stnPeek.el.closest(".lean-steps")?.getBoundingClientRect();
@@ -2384,7 +2501,6 @@ export function App() {
           </svg>
           <div className="sp-n">{stnPeek.k === "all" ? `${fmtN(pts.length)} stations, current and historical` : stnPeek.k === "std" ? "San Diego to Point Conception" : "San Diego to Monterey and San Francisco"}</div>
         </div>; })()}
-      {area?.kind === "hex" && <div className="hex-row"><span><span className="hint">Area</span> <b>One {RES_KM[sel.res]} hexagon</b></span><button type="button" className="linkish" onClick={clearArea} title="show every hexagon again">Clear</button></div>}
     </Group>}
     <ViewAs bio={sel.realm === "bio"} lens={sel.lens} onLens={onLens} nudge={offGridOnly ? "hex" : null} />
     <div className="depth-in-view">{depthStep}</div>
@@ -2394,7 +2510,8 @@ export function App() {
     {desk && denBlock}
     {/* the download's count (Betty 2026-11-11): every sample monitored leads, since a sample with no catch is data too, then
         how it splits ("40 samples" / "17 with a catch · 23 without"); with the no-catch tows left out of the file, the samples
-        in it and "positive catches only". No row count: a sample can hold several nets, so rows outnumber samples and read as a mismatch */}
+        in it and "positive catches only". A sample is one net (sql/slice_bio.sql sample_id), the unit the mean divides by. No row
+        count: a net can hold two records of one taxon and stage, so rows can outnumber samples and read as a mismatch */}
     <DownloadBar count={sliceKey ? (sel.realm === "bio" && countLabel && viewCount
         ? (() => { const all = sel.zeros && csvZeros, k = all ? viewCount.n_samples : viewCount.n_found, w = `${fmtN(k)} ${k === 1 ? "sample" : "samples"}`;
             // one line (Betty 2026-11-11): "40 samples · 17 with a catch · 23 without", or "17 samples · positive catches only"
@@ -2403,7 +2520,10 @@ export function App() {
             return <>{w}<span style={{ fontWeight: 400 }}>{rest}</span></>; })()
         : countLabel ?? `${fmtN(inView)} ${countWord}`) : isErrStatus(status) ? plainStatus(status) : ""}
       zerosOpt={sel.realm === "bio" && sel.zeros && nFilled > 0 ? { checked: csvZeros, onChange: setCsvZeros } : null} busy={bundling} disabled={!sliceKey || areaPending} onCsv={downloadCsv} onCite={openSources} onLink={() => { copyLink(); trackEvent("share", { kind: "link" }); }}
-      onZip={download} onCopy={(k) => copy(k)} />
+      onZip={download} onCopy={(k) => copy(k)}
+      more={{ picture: (how) => shareImage(how), numbers: () => saveFigure("map", "csv")(), numbersLabel: `CSV, one row per ${sel.lens === "hex" ? "hexagon" : sel.lens === "region" ? "region" : sel.lens === "cruise" ? "sample on the track" : sel.lens === "section" ? "section cell" : "station"} as the map draws it`,
+        cite: (k) => { copyCite(k); trackEvent("share", { kind: k === "bibtex" ? "bibtex" : "cite" }); }, timingOn: advanced && !minCards.timing,
+        timing: () => { if (advanced && !minCards.timing) setAdvanced(false); else { setAdvanced(true); openCard("timing"); } } }} />
     {!desk && <section className="group more-group" data-group="more">
       <button type="button" className="more-toggle" aria-expanded={more} onClick={() => setMore(!more)} title={`${more ? "fold" : "open"} the extra controls — they stay as you leave them`} data-tour="denominator"><Icon name={more ? "ui-down" : "ui-right"} size="0.95rem" /><b>More options</b><span>· {STAT_LABEL[stat]}{sel.realm === "bio" && sel.den ? ` · ${({ per_10m2: "per 10 m²", per_1000m3: "per 1000 m³", raw: "raw count" } as Record<string, string>)[sel.den]}` : ""}</span></button>
       {more && <div className="more-body">{!lensInline && lensOptions}{phone && depthGroup}{moreInner}</div>}
@@ -2416,7 +2536,7 @@ export function App() {
   const depthBody = (wide: boolean) => <DepthStrip rows={depthRows} band={sel.depth} theme={theme} unit={unitLabel} empty={depthEmpty} onBand={(b) => setSel({ depth: b ?? [0, 500] })} byDataset={wide && depthDs.length ? { rows: depthDs, color: dsColor, short } : null} />;
   const yearsBody = <YearStrip rows={yearRows} monthRows={monthRows} seasonRows={seasonRows} cruiseSeasons={cruiseSeasons} quarters={sel.q} onNeedMonths={setNeedMonths} years={years} months={sel.months} yearMax={yearMax} theme={theme} mode={seriesMode} unit={unitLabel} stat={stat} log={ylog} ramp={seriesRampId} countWord={countWord}
     view={sel.yview} onView={(v) => setSel({ yview: v })} onYears={(y, m) => setSel({ years: y ?? [1949, YEAR_OPEN], months: y ? m ?? null : null })} gantt={gantt} />;
-  const sectionNote = `line ${sel.line} · ${sel.realm === "env" ? `depth section · cruise ${sel.cruise ?? "—"}${sel.anom && climCells ? ` · the difference from the ${climWord} ${baselineWord(climBase, cruiseMonthOf(sel.cruise))} normal` : ""}` : "station by year · all cruises · the tows are depth-integrated, so the axis is year"}`; // shown as the dock tab's tooltip, not as a line of its own over the plot
+  const sectionNote = `line ${sel.line} · ${sel.realm === "env" ? `depth section · cruise ${sel.cruise ?? "—"}${shipAfter(cruiseRef, sel.cruise)}${sel.anom && climCells ? ` · the difference from the ${climWord} ${baselineWord(climBase, cruiseMonthOf(sel.cruise))} normal` : ""}` : "station by year · all cruises · the tows are depth-integrated, so the axis is year"}`; // shown as the dock tab's tooltip, not as a line of its own over the plot
   const sectionBody = <SectionPlot cells={sectionCells} clim={climCells} anom={sectionAnom} base={climBase} yLabel={sel.realm === "env" ? "depth (m)" : "year"} theme={theme} unit={unitLabel} ramp={rampId}
     empty={isCast ? "a section cuts the water column —<br>a per-cast variable is one value for the whole cast"
       : sectionNoBase ? noBaselineWhy(climBase, cruiseMonthOf(sel.cruise), climWord, climSeason === true).replace(" — ", " —<br>") : null}
@@ -2438,7 +2558,7 @@ export function App() {
   const stationBody = <>
     {stationNote && stationNote.key === sel.station && <div className={`hint${stationNote.warn ? " warn" : ""}`} data-station-note>{stationNote.note}</div>}
     {stationCard && !stationCard.cell && grid.length > 0 && !(stationNote && stationNote.key === sel.station) && <div className="hint warn" data-station-note>{stationCard.grid_key} is not a cell of {version}'s grid</div>}
-    <StationCard summary={stationCard?.summary} detail={stationCard?.detail} theme={theme} short={short} yearMax={yearMax} />
+    <StationCard summary={stationCard?.summary} detail={stationCard?.detail} theme={theme} short={dsLabel} yearMax={yearMax} inView={stationInView} />
   </>;
   // D28 reshaped: the Sections lens (env) as a deck-only curtain scene — desktop only, the phone keeps 2-D
   const view3dOn = sel.view3d && displayLens === "section" && sel.realm === "env" && !phone;
@@ -2506,8 +2626,9 @@ export function App() {
     const el = panelElOf(id); if (!el) throw new Error(`${id}: nothing to export`);
     return { blob: await canvasBlob(await captureView({ root: el, stamp: st })), name }; // the station card: several mini plots -> the DOM capture
   };
+  const saveFigure = (id: FigureId, kind: "png" | "svg" | "csv") => async () => { try { const f = await figure(id, kind); saveBlob(f.blob, f.name); setStatus(`saved ${f.name}`); trackEvent("export", { panel: id, kind }); } catch (e: any) { setStatus(`export failed: ${e.message}`); } };
   const exportItems = (id: FigureId): MenuItem[] => {
-    const go = (kind: "png" | "svg" | "csv") => async () => { try { const f = await figure(id, kind); saveBlob(f.blob, f.name); setStatus(`saved ${f.name}`); trackEvent("export", { panel: id, kind }); } catch (e: any) { setStatus(`export failed: ${e.message}`); } };
+    const go = (kind: "png" | "svg" | "csv") => saveFigure(id, kind);
     const items: MenuItem[] = [{ label: "PNG", icon: "ui-image", hint: id === "map" ? "the map and its title, 2×, with the selection and release stamped" : "2×, with the selection and release stamped", onSelect: go("png") }];
     if (id !== "station" && id !== "timing" && id !== "map") items.push({ label: "SVG", icon: "ui-code", hint: "vector, for papers", onSelect: go("svg") });
     items.push({ label: "CSV", icon: "ui-data", hint: id === "timing" ? "the timing marks" : id === "map" ? `the ${sel.lens === "cruise" ? "samples on the track" : `${LENS_SHORT[sel.lens].toLowerCase()} summary`} the map draws (the bundle's, too)` : "this panel's table (the bundle's, too)", onSelect: go("csv") });
@@ -2554,22 +2675,30 @@ export function App() {
     const ro = new ResizeObserver(read); ro.observe(el); return () => ro.disconnect();
   }, [yearsOpen, dockActive, selectOpen]);
   const yearsClear = dock && yearsPx ? yearsPx : yearsH;   // for what sits above the panel
+  // the bottom docks never sit over the open Find data panel (dock.ts): they start just right of it as it stands — moved,
+  // resized or as it opens — and take the full width when it is folded or maximized. Until the panel has reported its
+  // rectangle, its home place stands in (full height in the lean layout, above the Time panel in classic).
+  const boxWH = { width: selectRect?.bw ?? mapBox.current?.clientWidth ?? innerWidth, height: selectRect?.bh ?? mapBox.current?.clientHeight ?? innerHeight };
+  const selectBox: Rect | null = !selectOpen || phone || maxId === "select" ? null : selectRect ?? { left: 10, top: 10, right: 330, bottom: boxWH.height - (lean ? 10 : 170) };
+  const band = dockBand(selectBox, boxWH, (dock ? Math.max(yearsH, dockTall) : yearsH) + 10);  // the Time panel and the lean dock
+  const bandTall = dockBand(selectBox, boxWH, boxWH.height);                                   // classic's cards above the Time panel
+  const freeLeft = band.left > DOCK_EDGE ? band.left : 0;                                       // the map's free area starts here (for centring)
   const tallCap = `calc(100% - 62px - ${yearsOpen ? yearsH + 10 : 0}px)`; // under the map's top-right row, above the Time panel
   // the bottom edge above whatever is docked there: the Time panel, and the section or cruise card over it. The depth × time
   // card opens there, and the bottom pills (its own among them) sit there, so an open Time panel no longer hides them
   const aboveBottom: number | string = resultUp ? `calc(${yearsOpen ? yearsClear + 30 : 20}px + ${cardOpen.section && !minCards.section ? 42 : 34}%)` : yearsOpen ? yearsClear + 20 : 10;
   // lean: the minimised panels park in the bottom-right corner (they sat under the Find-data panel, out of sight), clear of the info button
   const bottomPillsAt: React.CSSProperties | undefined = lean && !phone
-    ? { left: "auto", right: 60, bottom: yearsOpen || resultUp ? aboveBottom : 10, justifyContent: "flex-end", maxWidth: "calc(100% - 440px)" }
-    : yearsOpen || resultUp ? { bottom: aboveBottom, left: selectOpen ? 340 : 10 } : undefined;
+    ? { left: "auto", right: 60, bottom: yearsOpen || resultUp ? aboveBottom : 10, justifyContent: "flex-end", maxWidth: `calc(100% - ${band.left + 100}px)` }
+    : yearsOpen || resultUp ? { bottom: aboveBottom, left: bandTall.left } : undefined;
   const panelBox: Record<PanelId, CardBox> = {
     select: lean && !phone && selectOpen ? { left: 10, top: 10, width: 320, height: "calc(100% - 20px)" } : { left: 10, top: 10, width: 320, maxHeight: `calc(100% - 20px - ${yearsOpen && !(lean && !phone) ? 150 : 0}px)` },   // never under the Time panel: the body scrolls instead
-    years: { left: lean && !phone && selectOpen ? 340 : 10, right: 60, bottom: 10, height: yearsH },
+    years: { left: band.left, right: band.right, bottom: 10, height: yearsH },
     depth: { right: 10 + railW, top: 52, width: 210, height: `calc(100% - ${yearsOpen || resultUp ? yearsH + 72 : 62}px)` },
-    section: dock ? { left: selectOpen ? 340 : 10, right: 60, bottom: 10, height: dockTall } : { left: selectOpen ? 340 : 10, right: 60, bottom: yearsOpen ? yearsH + 20 : 10, height: "42%" },
-    cruise: dock ? { left: selectOpen ? 340 : 10, right: 60, bottom: 10, height: dockTall } : { left: selectOpen ? 340 : 10, right: 60, bottom: yearsOpen ? yearsH + 20 : 10, height: "34%" },
+    section: dock ? { ...band, bottom: 10, height: dockTall } : { ...bandTall, bottom: yearsOpen ? yearsH + 20 : 10, height: "42%" },
+    cruise: dock ? { ...band, bottom: 10, height: dockTall } : { ...bandTall, bottom: yearsOpen ? yearsH + 20 : 10, height: "34%" },
     // the depth × time card sits above the Time panel, clear of the Depth panel; above the section or cruise card when one is up
-    depthtime: dock ? { left: selectOpen ? 340 : 10, right: 60, bottom: 10, height: dockTall } : { left: selectOpen ? 340 : 10, right: depthOpen ? 230 : 60, height: resultUp ? "28%" : "38%", bottom: aboveBottom },
+    depthtime: dock ? { ...band, bottom: 10, height: dockTall } : { left: bandTall.left, right: Math.max(bandTall.right, depthOpen ? 230 : 60), height: resultUp ? "28%" : "38%", bottom: aboveBottom },
     station: { top: 52, right: rightBand, width: 340, maxHeight: tallCap },
     timing: { top: 52, right: rightBand + (stationUp ? 350 : 0), width: 420, maxHeight: tallCap },
     layers: { top: 52, right: rightBand + (stationUp ? 350 : 0) + (view3dOn ? 40 : 0), width: 270, maxHeight: tallCap }, // 3-D: clear of the camera column under the row
@@ -2591,7 +2720,7 @@ export function App() {
     const tourId = id === "select" ? "rail" : id === "years" ? "years" : id === "depth" ? "depth" : id === "station" ? "station" : id === "layers" ? "layers-card" : undefined;
     return <Panel key={id} id={id} title={inDock ? dockTitle : titles[id]} icon={icons[id]} boxRef={mapBox} defaults={panelBox[id]} dock={docks[id]} collapsed={false} onCollapse={() => (isRail(id) ? toggleFold(id) : minCard(id as CardId))}
       maximized={maxId === id} onMax={() => toggleMax(id)} onClose={isRail(id) ? undefined : closeCard[id as CardId]} actions={actions(id)} exportable={id === "select" || id === "layers" ? undefined : exportItems(id)}
-      raised={topCard === id} onTouch={() => setTopCard(id)} autoHeight={id === "select" || id === "station" || id === "timing" || id === "layers"} minWidth={id === "select" ? 260 : 180} minHeight={id === "select" ? 200 : 100} data-tour={tourId}>{body(id)}</Panel>;
+      raised={topCard === id} onTouch={() => setTopCard(id)} onRect={id === "select" ? setSelectRect : undefined} avoid={docks[id] === "bottom" ? selectBox : undefined} autoHeight={id === "select" || id === "station" || id === "timing" || id === "layers"} minWidth={id === "select" ? 260 : 180} minHeight={id === "select" ? 200 : 100} data-tour={tourId}>{body(id)}</Panel>;
   };
   // a collapsed panel is a pill on the edge nearest its dock, labelled with its state
   const cardPill = (c: CardId): EdgePill => ({ id: c, icon: icons[c], label: c === "station" ? stationCard!.grid_key : c === "timing" ? "SQL & timing" : titleText[c], onRestore: () => openCard(c), onClose: closeCard[c] });
@@ -2639,7 +2768,7 @@ export function App() {
     const t = setTimeout(() => setStatus("ready"), 5000); return () => clearTimeout(t);
   }, [status, busy]);
   const switching = !!sliceKey && !sliceCurrent;
-  const statusToast = (status !== "ready" && status !== "grid (static)") || switching ? <div className={`status-toast${busy || switching ? " busy" : ""}${isErrStatus(status) ? " err" : ""}`} title={isErrStatus(status) ? status : undefined} role="status" aria-live="polite" style={lean && !phone ? { left: `calc(${selectOpen ? 340 : 0}px + (100% - ${selectOpen ? 340 : 0}px) / 2)`, bottom: yearsOpen ? yearsH + 34 : 24 } : undefined}>{(busy || switching) && <span className="spin" />}{switching && status === "ready" ? "Loading data…" : plainStatus(status)}</div> : null;
+  const statusToast = (status !== "ready" && status !== "grid (static)") || switching ? <div className={`status-toast${busy || switching ? " busy" : ""}${isErrStatus(status) ? " err" : ""}`} title={isErrStatus(status) ? status : undefined} role="status" aria-live="polite" style={lean && !phone ? { left: `calc(${freeLeft}px + (100% - ${freeLeft}px) / 2)`, bottom: yearsOpen ? yearsH + 34 : 24 } : undefined}>{(busy || switching) && <span className="spin" />}{switching && status === "ready" ? "Loading data…" : plainStatus(status)}</div> : null;
   const sentence = !phone && <Sentence lean={lean} sel={sel} setSel={setSel} onLens={onLens} cruiseMonthOf={cruiseMonthOf} organismItems={organismItems} organismGroups={organismGroups} variableItems={variableItems} variableGroups={variableGroups}
     sectionCruiseItems={sectionCruiseItems} cruiseItems={cruiseItems} cruiseStage={viewStg ? { label: viewStg.label, title: `the release's data_stage for ${short(viewStg.dataset_key)} on this cruise: ${viewStg.stage}` } : null} lines={lines} layerNames={layerNames} regionName={regionName} areaText={area ? areaWord(area) : null} stages={stages} denRows={(d) => denInfo(d).rows} defaultDen={(s) => defaultDen(picker, s)}
     years={years} yearMax={yearMax} hasDepthAxis={depthAvail || noneLeft} hasClim={hasClim(catalog)} anomAvail={anomAvail} climBase={climBase} seasonOk={climSeason} climWindow={climWindow} datasetsInSlice={datasetsInSlice} onSources={openSources} sources={(showV2 && var2Ds.length ? var2Ds : viewDatasetKeys).map((dk) => { const d = dsRow(dk) as any, raw = (d?.link_data_source as string) || (d ? doiUrl(d) : ""); return { key: dk, name: d ? dsName(d) : short(dk), long: d ? dsLongName(d) : short(dk), url: raw || datasetPageUrl(dk), raw: !!raw }; })} dsOn={dsOn} toggleDataset={toggleDataset} dsColor={dsColor} short={short}
@@ -2671,7 +2800,7 @@ export function App() {
           </>}
         </a>
         <a className="cc-title" href="./">{BRAND === "v1" && <span className="cc-title-org">CalCOFI </span>}Explorer{!(lean && !phone) && <small><Icon name={LENS_ICON[sel.lens]} /> {LENS_SHORT[sel.lens]}</small>}</a>
-        {lean && !phone && <ViewMenu bio={sel.realm === "bio"} leftAt={selectOpen ? 340 : 10} lens={sel.lens} onLens={onLens} nudge={offGridOnly ? "hex" : null} />}
+        {lean && !phone && <ViewMenu bio={sel.realm === "bio"} leftAt={band.left} lens={sel.lens} onLens={onLens} nudge={offGridOnly ? "hex" : null} />}
         <span className="cc-spacer" />
         {/* the release chip sits at the right with the tools; Help gathers the tour, the welcome, About, the sources and the keyboard */}
         {/* one release picker: the word links to the schema and release notes, the bold value is a select of the releases (reloads) */}
@@ -2727,7 +2856,7 @@ export function App() {
           </div>
           {sentence}
           {!phone && statusToast}
-          {!phone && noneLeft && emptyWhy?.key === emptyKey && !status.endsWith("…") && <div className="map-empty" role="status" style={lean ? { left: `calc(${selectOpen ? 340 : 0}px + (100% - ${selectOpen ? 340 : 0}px) / 2)` } : undefined}>
+          {!phone && noneLeft && emptyWhy?.key === emptyKey && !status.endsWith("…") && <div className="map-empty" role="status" style={lean ? { left: `calc(${freeLeft}px + (100% - ${freeLeft}px) / 2)` } : undefined}>
             <b>No {sel.realm === "bio" ? `${subject}${sel.stage ? ` ${sel.stage}` : ""}` : subject} {sel.realm === "bio" ? "caught" : "measured"} under these choices</b>
             {emptyWhy.zeroTows > 0 && <span>{sel.cruises?.length === 1 ? `Cruise ${sel.cruises[0]}` : "The selection"} sampled {fmtN(emptyWhy.zeroTows)} {emptyWhy.zeroTows === 1 ? "tow" : "tows"}, and every one came up empty for it.</span>}
             {emptyWhy.back.length > 0 ? <span>It shows up without {emptyWhy.back.map((b, i) => <span key={b.what}>{i ? (i === emptyWhy.back.length - 1 ? " or " : ", ") : ""}{b.what} (<button type="button" className="linkish" onClick={b.clear}>clear</button>, {fmtN(b.n)} {countWord})</span>)}.</span>
@@ -2764,6 +2893,33 @@ export function App() {
         </div>
         {maxId && <MaxPanel id={maxId} title={titles[maxId]} icon={icons[maxId]} onRestore={() => setSel({ max: null })} actions={actions(maxId)} exportable={maxId === "select" ? undefined : exportItems(maxId)}>{body(maxId, true)}</MaxPanel>}
       </div>
+      {obsCard && sel.obs && (() => {
+        // the Observations layer's click card: every sample at the dot (a sighting, a net, a cast), when it was taken (the
+        // Pacific clock; the title gives UTC) and what it recorded — the pick's own rows in bold, the rest beside them
+        const at = cardXY(obsCard), left = Math.max(8, Math.min(at.x + 14, innerWidth - 330)), top = Math.max(8, Math.min(at.y + 14, innerHeight - 340));
+        const ss = obsCard.rows ?? [], MAX_S = 25, MAX_I = 8;
+        // the numbers are each record's value, named once in the footer by its measurement type's key in words (sightings:
+        // "group size"); the registry's description is a sentence, too long for a popup
+        const mtWord = (k: string | null) => (k ? k.replace(/_/g, " ") : "value");
+        const valueWord = [...new Set(ss.flatMap((x) => x.items.map((it) => it.mtype)).filter((k): k is string => !!k))].map(mtWord).join(", ") || "value";
+        const anyPick = ss.some((x) => x.items.some((it) => it.in_slice));
+        const ll = `${Math.abs(obsCard.lat).toFixed(2)}° ${obsCard.lat >= 0 ? "N" : "S"}, ${Math.abs(obsCard.lon).toFixed(2)}° ${obsCard.lon >= 0 ? "E" : "W"}`;
+        return <div className="hex-card obs-card" style={{ left, top }} role="dialog" aria-label="what was recorded here">
+          <div className="hc-head"><b>{obsCard.rows == null ? "Reading…" : obsCard.err ? "Could not read this site" : `${fmtN(ss.length)} ${ss.length === 1 ? "sample" : "samples"} here`}</b><span className="hint">{ll}</span><button type="button" className="hc-x" aria-label="close" onClick={() => setObsCard(null)}>×</button></div>
+          {obsCard.err && <div className="hint warn">{obsCard.err}</div>}
+          <div className="oc-list">
+            {ss.slice(0, MAX_S).map((x) => <div key={`${x.dataset_key}:${x.sample_id}`} className="oc-s">
+              <div className="oc-when" title={`${utcTime(x.t)} · ${x.sample_id}`}>{pacificTime(x.t)}<span className="hint"> · {dsLabel(x.dataset_key)}{x.cruise_key ? ` · cruise ${x.cruise_key}` : ""}</span></div>
+              {x.items.slice(0, MAX_I).map((it, i) => <div key={i} className={`oc-item${it.in_slice ? " oc-pick" : ""}`}><span>{it.label}</span><span>{fmt(it.value)}{it.units && it.units !== "count" ? ` ${it.units}` : ""}</span></div>)}
+              {x.items.length > MAX_I && <div className="hint">and {x.items.length - MAX_I} more</div>}
+            </div>)}
+          </div>
+          {ss.length > MAX_S && <div className="hint">and {fmtN(ss.length - MAX_S)} more samples — zoom in or narrow When</div>}
+          {obsCard.rows != null && !obsCard.err && ss.length > 0 && <div className="hint oc-foot">
+            {sel.realm === "bio" ? `number: ${valueWord}${anyPick ? ` · bold: ${subject}` : ""}` : `${envVar?.label ?? mtWord(sel.var)} by depth bin`}{obsCard.nRows >= 200 ? " · the first 200 records" : ""} · Pacific time</div>}
+          {obsCard.rows != null && !obsCard.err && !ss.length && <div className="hint">nothing under this selection's filters here</div>}
+        </div>;
+      })()}
       {hexCard && (() => {
         // the click card, option 2 (Betty 2026-11-11): dark like the hover card; no "hexagon" or its size — the name, the
         // value on its own colour scale, how much data and when, then what you can do with this spot
