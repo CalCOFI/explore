@@ -18,6 +18,7 @@ import { drawsAnomaly, lensRamp, rampCss, seriesRamp } from "./ramps";
 import { DepthStrip, YearStrip, SectionPlot, DepthTimePlot, CruiseSeries, StationCard, MONTH_LOD_YEARS, type DepthRow, type YearRow, type CruiseSeason, type SectionCell, type CruiseRow, type GanttRow, type StripMode } from "./charts";
 import { resolveVersion, fetchCatalog, fetchVersions, sources, sidecarUrl, earlySidecar, type Catalog } from "./release";
 import { buildBundle, buildObservationsCsv, countZeroRows, saveBlob, copyAs } from "./bundle";
+import { subsetName } from "./filename";
 import { StatPick, ViewAs, ViewMenu, WhereControl, LineStation, LayerSelect, DownloadBar, DepthPill, WhatPicker } from "./leanpanel";
 import { Icon } from "./icons";
 import { cellToLatLng } from "h3-js";
@@ -1590,6 +1591,14 @@ export function App() {
   const var2Cols = var2Ready && sel.lens === "hex" ? { key: sel.var2!, hex: hexExpr(sel.res), km: RES_KM[sel.res].replace(/[~ km]/g, ""), where: where2 } : null;
   const regionCols = area?.kind === "region" ? { layer: area.layer, names: area.names, src: q(REG.sample_spatial) }
     : sel.lens === "region" && sel.layer ? { layer: sel.layer, names: null, src: q(REG.sample_spatial) } : null;
+  // the downloads' file names say which subset they hold (src/filename.ts): the pick, its stage and units, every filter in force, the view
+  const fileName = (ext: string, zerosOff = false) => subsetName({
+    what: whatSel?.label ?? (sel.realm === "bio" ? sel.taxon : sel.var), realm: sel.realm, stage: sel.stage, den: sel.den, zeros: sel.zeros && !zerosOff,
+    years: sel.years, months: sel.months, yearOpen: YEAR_OPEN, q: sel.q, depth: depthAvail ? sel.depth : null, depthDefault: DEFAULTS.depth,
+    area: sel.area, cruises: sel.cruises, datasets: sel.datasets, nDatasets: dsChoices.length, dsShort: (dk) => DS_PLAIN[dk]?.[0] ?? short(dk),
+    lens: sel.lens, res: sel.res, layer: sel.layer, cruise: sel.cruise, line: sel.line, var2: var2Cols ? sel.var2 : null,
+    release: version ?? "release", date: new Date().toISOString().slice(0, 10).replace(/-/g, ""),
+  }, ext);
   const download = async () => {
     if (!catalog || !version || bundling) return;
     try {
@@ -1598,7 +1607,7 @@ export function App() {
       const summary = sel.lens === "hex" ? hexRows : sel.lens === "region" ? regionRows : sel.lens === "cruise" ? cruiseRows : sel.lens === "section" ? sectionCells : stationRows;
       const { blob, name } = await buildBundle({
         sel, version, catalog, params, lensParams, lensTemplate, grain: varGrain, rootHex7: !!castHex, cruiseMedian: !!cruiseMedian, bioNet, depthTime: dtRepro, summary: summary as Row[], summaryKey: sel.lens, grid, regionFeatures: layerFeatures,
-        datasets, regionCols, var2Cols, unit: unitLabel, envFile: sel.realm === "env" ? envReg(sel.var) : null, bioSrcName: REG.obs_bio, hexRes: sel.res, onStatus: setBundling,
+        datasets, regionCols, var2Cols, unit: unitLabel, envFile: sel.realm === "env" ? envReg(sel.var) : null, bioSrcName: REG.obs_bio, hexRes: sel.res, onStatus: setBundling, fileName: fileName("zip"),
       });
       (window as any).__lastBundle = { name, bytes: blob.size };
       saveBlob(blob, name);
@@ -1625,7 +1634,7 @@ export function App() {
     if (!catalog || !version || bundling) return;
     setBundling("preparing CSV…");
     try {
-      const { blob, name, n } = await buildObservationsCsv({ sel, version, catalog, params, lensParams: lensPar(), lensTemplate: lensTpl(), grain: varGrain, rootHex7: !!castHex, cruiseMedian: !!cruiseMedian, bioNet, depthTime: dtRepro }, { zeros: csvZeros, regionCols, var2Cols });
+      const { blob, name, n } = await buildObservationsCsv({ sel, version, catalog, params, lensParams: lensPar(), lensTemplate: lensTpl(), grain: varGrain, rootHex7: !!castHex, cruiseMedian: !!cruiseMedian, bioNet, depthTime: dtRepro }, { zeros: csvZeros, regionCols, var2Cols, fileName: fileName("csv", sel.realm === "bio" && !csvZeros) });
       saveBlob(blob, name); setStatus(`saved ${name} · ${fmtN(n)} rows`); trackEvent("export", { panel: "select", kind: "observations-csv" });
     } catch (e: any) { console.error(e); setStatus(`CSV error: ${e.message}`); }
     setBundling(null);

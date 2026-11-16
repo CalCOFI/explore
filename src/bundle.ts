@@ -17,6 +17,7 @@ export interface BundleCtx extends ReproCtx {
   regionCols?: RegionCols | null;
   var2Cols?: Var2Cols | null;
   onStatus?: (s: string) => void;
+  fileName?: string;   // the subset's own name (src/filename.ts); absent = the generic one
 }
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -178,7 +179,7 @@ export async function buildBundle(ctx: BundleCtx): Promise<{ blob: Blob; name: s
   ], metadata: { kernelspec: { name: "python3", display_name: "Python 3", language: "python" } }, nbformat: 4, nbformat_minor: 5 }, null, 1));
   say("zipping…");
   const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
-  return { blob, name: `calcofi_explore_${sel.lens}_${version}_${today().replace(/-/g, "")}.zip` };
+  return { blob, name: ctx.fileName ?? `calcofi_explore_${sel.lens}_${version}_${today().replace(/-/g, "")}.zip` };
 }
 
 
@@ -206,7 +207,7 @@ export async function countZeroRows(ctx: ReproCtx): Promise<{ rows: number; zero
   return { rows: Number(r.n), zeros: Number(r.z) };
 }
 
-export async function buildObservationsCsv(ctx: ReproCtx, opts: { zeros?: boolean; regionCols?: RegionCols | null; var2Cols?: Var2Cols | null } = {}): Promise<{ blob: Blob; name: string; n: number }> {
+export async function buildObservationsCsv(ctx: ReproCtx, opts: { zeros?: boolean; regionCols?: RegionCols | null; var2Cols?: Var2Cols | null; fileName?: string } = {}): Promise<{ blob: Blob; name: string; n: number }> {
   const fn = `obs_only_${Date.now()}`;
   // the file is what the screen shows: the lens's own line / cruise on top of the filters, and — when the person unticks it —
   // without the zero-filled tows (obs_id NULL), which are most of the rows of a common taxon
@@ -225,5 +226,5 @@ export async function buildObservationsCsv(ctx: ReproCtx, opts: { zeros?: boolea
   await engine.exec(`COPY (${viewRows(where, ctx, opts.regionCols, statsWhere, opts.var2Cols)}) TO '${fn}.csv' (FORMAT csv, HEADER)`, "obs_csv");
   const buf = await takeFile(`${fn}.csv`);
   const what = String(ctx.sel.realm === "bio" ? ctx.sel.taxon : ctx.sel.var).replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 60);
-  return { blob: new Blob([buf as BlobPart], { type: "text/csv" }), name: `calcofi_${what}_${ctx.version}_${today().replace(/-/g, "")}.csv`, n };
+  return { blob: new Blob([buf as BlobPart], { type: "text/csv" }), name: opts.fileName ?? `calcofi_${what}_${ctx.version}_${today().replace(/-/g, "")}.csv`, n };
 }
