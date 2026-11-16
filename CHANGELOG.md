@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+- **the lean "Find data" panel is the default (PR #53); `?ui=classic` brings back Select / Refine / Share.** One
+  top-down panel: What (one search over species and measurements, by category or by dataset, with the life stage, the
+  units, Count zeros and the dataset under it) → When (years, seasons, cruises) → Where (regions, line / station, the
+  CalCOFI grids, a drawn area, a box or the map view) → View as (the six views as main's monochrome lens icons, the same
+  choice as the header's view menu) → the depth profile and the summary statistic, with the downloads pinned at the
+  panel's bottom. `scripts/lean_check.mjs` drives it in Chrome — every What category × view × When × Where, the layers,
+  Reset, the link, Back / Forward, classic, light / dark and a 375 px window — and opens every CSV and zip it downloads,
+  checking each row against the filters in force and the per-station / hexagon / region numbers against the map.
+- **the download area is pinned and complete.** It stays at the bottom of the panel, reachable without scrolling.
+  Download CSV is the data behind the view; Zip the package; How to cite and Copy link beside them; More ▾ holds a picture
+  of the view (PNG or the clipboard), the numbers the map shows (its table as CSV), the citation as text or BibTeX, the
+  SQL / R / Python, and the SQL & timing card — all of which the lean panel had lost.
+- **fix: download file names say which subset they hold** (`src/filename.ts`): `calcofi_pacific-sardine_larva_per10m2_
+  1990-2005_spring-summer_75-station-grid_hex4_v2026.11.14_20261116.csv`, each part only when in force. Every CSV of a
+  species was `calcofi_<taxon>_<release>.csv`, so two subsets overwrote each other. `tests/filename.test.ts`.
+- **combining datasets is an explicit choice again, in both layouts.** One dataset (the one with the most data) stays
+  the default; the lean dataset list ends with *Combine all N*, classic's Refine pills add and remove again with *all
+  datasets* / *one dataset*. The link says `datasets=all` (or the list); the PR had forced one dataset everywhere, so
+  classic's *all datasets* could not stick. `tests/pool.url.test.ts`.
+- **fix: Where tells the truth.** It opens with the area in force, named (*Area: CalCOFI 75-station grid · Clear*;
+  `area.ts areaLabel()`), *Full survey* is ticked only when no area is set (it looked chosen under a region, a line or a
+  drawing) and choosing it clears any area, and a line says each choice replaces the one before. Unticking the last region
+  drops the area instead of silently meaning every region. The Cruise and Section views (which hide When and Where) and
+  the Region view (which hides Where) show the filters still in force, collapsed, with why they apply and a Clear.
+- **fix: Draw an area dropped a loop closed exactly on its start point** (`simplifyPath` measured every point as 0 from
+  a chord of no length, so the shape fell to two points and read as a click).
+- **fix: Reset all kept the filters' leftovers and dropped the pick's.** It keeps the species with its life stage, units
+  and zeros (they were reset, so the panel fell back to no stage), and turns the Lines layer and the added variable off
+  (they were left on). `state.ts resetPatch()`, `tests/reset.test.ts`.
+- **fix: the added variable.** *Color by* it is in the link (`color=var2`; a reload went back to the first pick's
+  colours); beside a species the list offers every measurement (it left out the last one viewed); picking it as the main
+  measurement drops it as the second. `tests/var2.url.test.ts`.
+- **fix: the Effort layer with a one-hexagon area** (`area=hx:`): the effort query filtered on `hex7`, which it had no
+  column for, and failed. Each path now takes its `sample_root` row's cell when the release carries one.
+  `tests/effort.sql.test.ts`.
+- **Back and Forward step through the view** (`state.ts historyMode()`): a change of what is shown — the pick, the view,
+  years, seasons, area, cruises, depth band, added variable, hexagon size, line, layer, datasets — is a history entry; the
+  map's pan and zoom, folds and the defaults the app fills in replace it. Before, Back left the app. `tests/history.test.ts`.
+- **fix: By region kept zooming a close look out to the whole coast**; a map already showing some of the layer's regions
+  now stays where it is.
+- **fix: the tour in classic** pointed two steps (*Six ways to view it*, *Download and share*) at lean-only anchors.
+- **fix: a Section or Cruise view's zip held every line.** Its CSV took the view's own line / cruise on top of the
+  filters and the zip's observations did not; both read `reproduce.ts lensOwnSql()` now, and the README says so.
+  `tests/lensown.test.ts`.
 - **fix: an anomaly section with no baseline drew empty axes under a legend left over from the map.**
   `?lens=section&var=temperature&line=93.3&anom=1&cruise=2025-04-3322`: the cruise's median cast month is March, and no
   March reached 5 cruises in 1993–2013 on line 93.3 (release v2026.11.09 holds no monthly temperature mean there for March,

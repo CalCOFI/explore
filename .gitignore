@@ -4,3 +4,5 @@ public/data
 shots/
 .DS_Store
 public/data2
+Claude outputs/
+*.zip

@@ -81,10 +81,27 @@ export const statusWord = (value: string | null | undefined, date?: string | nul
 
 /** the layer as every list names it: "BOEM Wind Planning Areas (rescinded 2025-07-30)" — the sidecar's
  *  `status_label`, else one worded from `status`, else the plain name */
+/** a layer's name as people read it; the registry's own name stays the key (links, the release's data) */
+// with the abbreviation people use, where there is a common one (Betty 2026-11-10)
+const SHOWN_NAME: Record<string, string> = {
+  "BOEM Wind Leases": "Wind Energy Areas (WEAs, BOEM leases)",
+  "Marine Protected Areas": "Marine Protected Areas (MPAs)",
+  "National Marine Sanctuaries": "National Marine Sanctuaries (NMS)",
+  "Cowcod Conservation Areas": "Cowcod Conservation Areas (CCAs)",
+  "200NM EEZ": "Exclusive Economic Zone (EEZ, 200 NM)",
+  "12NM Territorial Sea": "Territorial Sea (12 NM)",
+  "24NM Contiguous Zone": "Contiguous Zone (24 NM)",
+  "CA State Waters (3NM)": "CA State Waters (3 NM)",
+  "Marine Ecoregions (MEOW)": "Marine Ecoregions of the World (MEOW)",
+  "IEA Large Marine Ecosystems": "Large Marine Ecosystems (LMEs)",
+  "CDFW Regions": "CDFW Regions (CA Dept. of Fish and Wildlife)",
+};
+export const shownName = (name: string): string => SHOWN_NAME[name] ?? name;
+
 export function layerLabel(d: Pick<SpatialLayerDef, "name" | "status" | "status_label"> | undefined | null): string {
   if (!d) return "";
   const s = d.status_label || statusWord(d.status?.value, d.status?.date);
-  return s ? `${d.name} (${s})` : d.name;
+  return s ? `${shownName(d.name)} (${s})` : shownName(d.name);
 }
 
 /** the region option: "OCS-P 0561 (relinquished 2026-09-03) (12 samples)"; without a status "Monterey Bay (812 samples)" */

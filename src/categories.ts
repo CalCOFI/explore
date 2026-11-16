@@ -9,7 +9,7 @@ import type { IconName } from "./icons";
 
 export const CATEGORY_ORDER = [
   "Physical Oceanography", "Nutrients & Chemistry", "Carbonate System", "Productivity & Pigments", "Meteorology & Sea State",
-  "Phytoplankton", "Picoplankton & Bacteria", "Zooplankton", "Euphausiids (Krill)", "Fish Eggs & Larvae", "Mesopelagic Fish", "Seabirds & Marine Mammals",
+  "Fish Eggs & Larvae", "Zooplankton", "Seabirds & Marine Mammals", "Euphausiids (Krill)", "Mesopelagic Fish", "Phytoplankton", "Picoplankton & Bacteria",
 ] as const;
 export type Category = (typeof CATEGORY_ORDER)[number] | "Other";
 export const CATEGORY_ICON: Record<string, IconName> = {

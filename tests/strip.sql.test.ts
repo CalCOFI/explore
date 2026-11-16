@@ -45,9 +45,9 @@ describe("cruise_seasons.sql — every cruise season, from the cruise_key", () =
 // the map summarizes — every filter in force
 describe("count.sql — the observations in view, under every filter", () => {
   const count = (over: Record<string, any> = {}) => db.exec(render("count", { ...P, ...over }))[0];
-  it("the whole slice with no filter", () => expect(count()).toEqual({ n: 6, n_samples: 4 }));
+  it("the whole slice with no filter", () => expect(count()).toEqual({ n: 6, n_samples: 4, n_found: 4 }));
   it("a year range", () => expect(count({ ym0: 199801, ym1: 199806 }).n).toBe(4));
   it("a season", () => expect(count({ quarter_filter: "quarter IN (3)" }).n).toBe(2));
   it("a depth band that excludes every bin", () => expect(count({ d0: 100, d1: 500 }).n).toBe(0));
-  it("an Area", () => expect(count({ area_filter: "grid_key IN ('b')" })).toEqual({ n: 1, n_samples: 1 }));
+  it("an Area", () => expect(count({ area_filter: "grid_key IN ('b')" })).toEqual({ n: 1, n_samples: 1, n_found: 1 }));
 });

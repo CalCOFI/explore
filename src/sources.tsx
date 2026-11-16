@@ -83,6 +83,44 @@ export function SourcesModal(p: {
   const ds = p.datasets.slice().sort((a, b) =>
     (inView.has(b.dataset_key) ? 1 : 0) - (inView.has(a.dataset_key) ? 1 : 0) ||
     categoryRank(a.category) - categoryRank(b.category) || String(dsName(a)).localeCompare(String(dsName(b))));
+  const mine = ds.filter((d) => inView.has(d.dataset_key)), other = ds.filter((d) => !inView.has(d.dataset_key));
+  // the small links, each URL once: a dataset whose calcofi.org page IS its original source shows one link, not two
+  const minorLinks = (d: Row) => {
+    const seen = new Set<string>(), out: { label: string; href: string; tip: string }[] = [];
+    const add = (label: string, href: string | null | undefined, tip: string) => { if (href && !seen.has(href)) { seen.add(href); out.push({ label, href, tip }); } };
+    add("CalCOFI.io dataset page ↗", datasetPageUrl(d.dataset_key), "CalCOFI's own page for this dataset (calcofi.io): what it holds, its variables, how it was processed");
+    add("Original data source ↗", d.link_data_source, "the data provider's own copy of the original, unprocessed files");
+    add("calcofi.org page ↗", d.link_calcofi_org, "this dataset's page on the CalCOFI program website, calcofi.org");
+    add("DOI", doiUrl(d), "the dataset's DOI");
+    add("Contact", contactHref(d), "write to the people who curate this dataset");
+    return out;
+  };
+  const rows = (list: Row[]) => (
+    <>
+        {list.map((d) => (
+          <tr key={d.dataset_key} className={inView.has(d.dataset_key) ? "in-view" : ""}>
+            <td>
+              <div className="nm"><span className="cat"><Icon name={categoryIcon(d.category)} title={d.category} /></span><i className="dot" style={{ background: d.color ?? "var(--muted)" }} />
+                <b>{dsLongName(d)}</b> <code className="hint">{d.dataset_key}</code>
+                {inView.has(d.dataset_key) && <span className="inview-badge" title="this dataset is in the current view"><Icon name="ui-check" size="0.85rem" /> In view</span>}</div>
+              <div className="hint meta">{providerShort(d.provider, p.providerTable)}{span(d.dataset_key) ? ` · ${span(d.dataset_key)}` : ""}{nobs(d.dataset_key) ? ` · ${nobs(d.dataset_key)!.toLocaleString()} observations` : ""}</div>
+              <div className={`cite${citationOf(d) ? "" : " none"}`}>{citationOf(d) || NO_CITATION}</div>
+              {d.acknowledgement && <div className="hint ack">{d.acknowledgement}</div>}
+              {d.pi_names && <div className="hint"><Icon name="ui-people" size="0.9rem" /> {d.pi_names}</div>}
+            </td>
+            <td className="links">
+              <div className="src-act">
+                {citationOf(d) && <button type="button" className="src-b1" onClick={() => { copy(citationText(d)); say(d.dataset_key); }}><Icon name="ui-copy" size="0.95rem" /> {copied === d.dataset_key ? "Copied" : "Copy citation"}</button>}
+              </div>
+              <div className="src-minor">
+                <LicenseChip d={d} />
+                {minorLinks(d).map((l) => <a key={l.label} href={l.href} target="_blank" rel="noopener" title={l.tip}>{l.label}</a>)}
+              </div>
+            </td>
+          </tr>
+        ))}
+    </>
+  );
   const rel = releaseCitation(p.catalog, p.release);
   return (
     <Modal id="sources" title="Data Sources & Attribution" icon="ui-cite" onClose={p.onClose} wide
@@ -91,45 +129,24 @@ export function SourcesModal(p: {
         <button type="button" className="btn" onClick={p.onCite}><Icon name="ui-cite" /> Cite this data</button>
         <button type="button" className="btn primary" onClick={p.onClose}>Close</button>
       </>}>
-      <p>Every value in the explorer comes from one of these datasets, collected and curated by the people named below and
-        integrated into one frozen release. <b>Cite the dataset (or datasets) you used <i>and</i> the integrated database</b> —
-        a view pools the datasets that share its life stage and denominator, so a single number can rest on several of them.
-        The rows in view right now are listed first.</p>
-      <table className="src-table"><tbody>
-        {ds.map((d) => (
-          <tr key={d.dataset_key} className={inView.has(d.dataset_key) ? "in-view" : ""}>
-            <td className="ico"><Icon name={categoryIcon(d.category)} title={d.category} /></td>
-            <td>
-              <div className="nm"><i className="dot" style={{ background: d.color ?? "var(--muted)" }} />
-                <b>{dsLongName(d)}</b> <code className="hint">{d.dataset_key}</code>
-                {inView.has(d.dataset_key) && <span className="chip on tiny" title="this dataset is in the current view">in view</span>}</div>
-              <div className="hint meta">{providerShort(d.provider, p.providerTable)}{span(d.dataset_key) ? ` · ${span(d.dataset_key)}` : ""}{nobs(d.dataset_key) ? ` · ${nobs(d.dataset_key)!.toLocaleString()} observations` : ""}</div>
-              <div className={`cite${citationOf(d) ? "" : " none"}`}>{citationOf(d) || NO_CITATION}</div>
-              {d.acknowledgement && <div className="hint ack">{d.acknowledgement}</div>}
-              {d.pi_names && <div className="hint"><Icon name="ui-people" size="0.9rem" /> {d.pi_names}</div>}
-            </td>
-            <td className="links">
-              {citationOf(d) && <button type="button" className="linkish" onClick={() => { copy(citationText(d)); say(d.dataset_key); }}>{copied === d.dataset_key ? "copied" : "copy citation"}</button>}
-              <LicenseChip d={d} />
-              {doiUrl(d) && <a href={doiUrl(d)} target="_blank" rel="noopener">DOI</a>}
-              {contactHref(d) && <a href={contactHref(d)} target="_blank" rel="noopener">contact</a>}
-              {d.link_calcofi_org && <a href={d.link_calcofi_org} target="_blank" rel="noopener">calcofi.org</a>}
-              {d.link_data_source && <a href={d.link_data_source} target="_blank" rel="noopener">source</a>}
-              <a href={datasetPageUrl(d.dataset_key)} target="_blank" rel="noopener">dataset page ↗</a>
-            </td>
-          </tr>
-        ))}
+      <p className="src-intro">Every value comes from the datasets below. <b>Cite each dataset you used, plus the CalCOFI database.</b> One number can rest on several datasets.</p>
+      {mine.length > 0 && <>
+        <h5 className="src-h in"><Icon name="ui-check" size="0.95rem" /> Used in this view <span className="n">{mine.length}</span></h5>
+        <table className="src-table in"><tbody>{rows(mine)}</tbody></table>
+      </>}
+      <details className="src-more" open={!mine.length || undefined}>
+        <summary>{mine.length ? "Other CalCOFI datasets" : "All CalCOFI datasets"} <span className="n">{other.length}</span></summary>
+        <table className="src-table"><tbody>{rows(other)}
         {!ds.length && <tr><td colSpan={3} className="hint">the dataset table loads with the engine…</td></tr>}
-      </tbody></table>
-      <h5><Icon name="ui-data" /> The integrated database</h5>
+        </tbody></table>
+      </details>
+      <h5><Icon name="ui-data" /> CalCOFI database</h5>
+      <p className="hint">Cite this too — it holds all the datasets together.</p>
       <p className="cite">{rel}</p>
-      <p><button type="button" className="pill act" onClick={() => { copy(rel); say("release"); }}><Icon name="ui-copy" /> {copied === "release" ? "copied" : "copy the release citation"}</button></p>
-      <h5><Icon name="ui-people" /> Reaching the program, and telling us what you made</h5>
-      <p>One front door for anything these pages do not answer — a question for a PI, a collaboration, a use of the data
-        you would like reviewed: <a href={CC_FRONT_DOOR} target="_blank" rel="noopener">calcofi.io</a>. Where a dataset names
-        its own <i>contact</i> above, that reaches its curators directly.</p>
-      <p>Published something built on these data? <button type="button" className="linkish" onClick={p.onRegister}>Register a product</button> —
-        it becomes a public issue the team reads, and helps the program show what the time series is for.</p>
+      <p><button type="button" className="pill act" onClick={() => { copy(rel); say("release"); }}><Icon name="ui-copy" /> {copied === "release" ? "copied" : "Copy citation"}</button></p>
+      <h5><Icon name="ui-people" /> Questions, or built something with this data?</h5>
+      <p>For a question, a collaboration, or a use of the data you'd like reviewed, get in touch at <a href={CC_FRONT_DOOR} target="_blank" rel="noopener">calcofi.io</a>. A dataset's own <i>Contact</i> link reaches its curators directly.</p>
+      <p>Published something built on these data? <button type="button" className="linkish" onClick={p.onRegister}>Register a product</button> — it becomes a public issue the team reads.</p>
     </Modal>
   );
 }

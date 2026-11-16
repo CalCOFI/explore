@@ -21,6 +21,8 @@ export interface Sel {
   realm: Realm;
   taxon: string;               // bio: worms:217452
   var: string;                 // env: temperature | oxygen_ml_l
+  var2: string | null;         // "Add a variable" (Ben's #3, Betty 2026-11-11): a second env variable, averaged into the same hexagons (`var2=`)
+  color2: boolean;             // the hexagons coloured by the added variable, not the first pick (`color=var2`; only with var2, in Hexagons)
   stage: string | null;        // bio life stage; null = "let the picker default it" (D8 rule 4)
   den: Den | null;             // bio denominator; null = default per rule 4
   zeros: boolean;              // bio: a tow a positive-only dataset sampled with no catch counts as 0 (default); zeros=0 = positive tows only
@@ -33,6 +35,7 @@ export interface Sel {
   region: string | null;       // selected polygon
   line: number;                // section lens: CalCOFI line
   cruise: string | null;       // cruise + section lens
+  cruises: string[] | null;    // the When step's cruise filter (`cr=2025-04-33RL,2019-01-33RL`, cruise keys); null = every cruise
   stat: Stat;
   anom: boolean;               // env, on ANOM_LENSES (section · hex · contour): the difference from the climatology (`anom=1`)
   base: ClimBase;              // the normal it subtracts: the cruise's month (default) or its quarter (`base=season`; anomaly.ts)
@@ -44,6 +47,7 @@ export interface Sel {
   release: string | null;      // ?release=vYYYY.MM.DD; null = latest.txt
   station: string | null;      // a selected grid cell (its coverage card)
   datasets: string[] | null;   // dataset filter (pills); null = every dataset in the slice
+  pool: boolean;               // combine datasets (`datasets=all`, or a list of two or more): an explicit opt-in — by default the app shows ONE dataset, the one with the most data (review 2026-11-16)
   theme: "dark" | "light" | null;
   hide: PanelId[];             // folded rails (D11 rule 4: `hide=depth,years`, absent when it is the viewport default)
   max: PanelId | null;         // the maximized panel (`max=section`)
@@ -147,7 +151,7 @@ export function hideFromUrl(p: URLSearchParams): PanelId[] {
   return [...new Set([...DEFAULT_HIDE.filter((x) => !show.has(x)), ...hide])];
 }
 
-export const LENSES: Lens[] = ["station", "hex", "contour", "cruise", "region", "section"];
+export const LENSES: Lens[] = ["station", "hex", "region", "contour", "cruise", "section"];
 /** the lenses that can draw an env variable as the difference from its climatology (`anom=1`): the depth section, and
  *  the two map lenses that pool departures per cell (sql/anom_slice.sql) */
 export const ANOM_LENSES: Lens[] = ["section", "hex", "contour"];
@@ -189,6 +193,12 @@ export const DEN_HOW: Record<Den, string> = {
   per_1000m3: "count ÷ proportion sorted ÷ volume strained × 1000 — volumetric: manta tows and any tow with a flowmeter",
   raw: "as counted — not standardized, so not comparable across gear or datasets",
 };
+// the one-line plain-words version the panel shows beside each choice (DEN_HOW, with its formula, is folded under "How these are calculated")
+export const DEN_SHORT: Record<Den, string> = {
+  per_10m2: "area: oblique and vertical tows",
+  per_1000m3: "volumetric: manta tows and any tow with a flowmeter",
+  raw: "as counted — not standardized, so not comparable across gear or datasets",
+};
 export const SHF_NOTE = "standard haul factor = 10 × tow depth (m) ÷ volume strained (m³): SWFSC's per-tow multiplier, carried per tow in the release (obs_bio.std_haul_factor) and kept in the download bundle's observations";
 export const STAT_LABEL: Record<Stat, string> = { mean: "mean", med: "median", n: "observations" }; // "rows" is database-speak (D12)
 // H3 mean edge length per resolution (km) — what "hexagon size" shows; `res` stays in the URL (D12)
@@ -222,11 +232,23 @@ export const DEFAULT_TAXON = "worms:217452"; // Pacific sardine
 export const YEAR_OPEN = 9999; // "through the latest year in the release" until coverage.json says which
 
 export const DEFAULTS: Sel = {
-  lens: "station", res: 5, interp: "tps", surface: "value", grain: "site", inputs: null, labels: true, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature",
+  lens: "station", res: 5, interp: "tps", surface: "value", grain: "site", inputs: null, labels: true, realm: "bio", taxon: DEFAULT_TAXON, var: "temperature", var2: null, color2: false,
   stage: null, den: null, zeros: true, years: [1949, YEAR_OPEN], months: null, q: null, yview: null, depth: [0, 500], layer: LAYERS[1], region: null, // sanctuaries read at the grid's zoom; MPAs are slivers
-  line: 90, cruise: null, stat: "mean", anom: false, base: "month", tour: true, tourOn: false, modal: null, theme: null, release: null, station: null, datasets: null,
+  line: 90, cruise: null, cruises: null, stat: "mean", anom: false, base: "month", tour: true, tourOn: false, modal: null, theme: null, release: null, station: null, datasets: null, pool: false,
   hide: DEFAULT_HIDE, max: null, map: null, bathy: null, bathyo: null, land: true, baseLabels: true, basemapo: null, layers: null, view3d: false, exag: null, cam: null, strip: null, tbin: "season", area: null, ramp: null, data: true, datao: null, lines: false, obs: null, effort: false,
 };
+
+/** "Reset all" (the lean panel's header): every filter and view setting back to its default — Stations, all years, seasons
+ *  and depths, everywhere, every cruise, the default layers — keeping only what you chose to look at: the species or
+ *  measurement with its life stage, units and zeros (they are part of What, review 2026-11-16: Reset dropped them), and the
+ *  map's position. The added variable and the Lines layer go too (they were left behind). */
+export function resetPatch(): Partial<Sel> {
+  const d = DEFAULTS;
+  return { cruises: null, lens: d.lens, res: d.res, interp: d.interp, surface: d.surface, grain: d.grain, inputs: d.inputs, labels: d.labels,
+    years: d.years, months: d.months, q: d.q, yview: d.yview, depth: d.depth, layer: d.layer, region: d.region, line: d.line, cruise: d.cruise,
+    stat: d.stat, anom: d.anom, base: d.base, datasets: d.datasets, area: d.area, station: d.station, view3d: d.view3d, obs: d.obs, strip: d.strip,
+    tbin: d.tbin, effort: d.effort, data: d.data, lines: d.lines, var2: null, color2: false, pool: d.pool };
+}
 
 const num = (v: string | null, d: number) => (v != null && v !== "" && !isNaN(+v) ? +v : d);
 const pair = (v: string | null, d: [number, number]): [number, number] => {
@@ -259,6 +281,15 @@ function parseMap(v: string | null): [number, number, number] | null {
 }
 const fmtYears = (y: [number, number], m: [number, number] | null) => m ? `${y[0]}-${String(m[0]).padStart(2, "0")}:${y[1]}-${String(m[1]).padStart(2, "0")}` : `${y[0]}-${y[1]}`;
 
+/** `datasets=`: absent = one dataset, the app's pick; `datasets=a` = that one; `datasets=all` = every dataset combined;
+ *  `datasets=a,b` = those combined (a list of two or more is pooling, whichever layout wrote it) */
+export function parseDatasets(v: string | null): { datasets: string[] | null; pool: boolean } {
+  if (v === "all") return { datasets: null, pool: true };
+  const ds = (v ?? "").split(",").filter(Boolean);
+  return { datasets: ds.length ? ds : null, pool: ds.length > 1 };
+}
+export const datasetsParam = (s: Pick<Sel, "datasets" | "pool">): string | null => s.datasets?.length ? s.datasets.join(",") : s.pool ? "all" : null;
+
 export function fromUrl(): Sel {
   const p = new URLSearchParams(location.search);
   const lens = (LENSES as string[]).includes(p.get("lens") ?? "") ? (p.get("lens") as Lens) : DEFAULTS.lens;
@@ -277,6 +308,8 @@ export function fromUrl(): Sel {
     realm: v ? "env" : "bio",
     taxon: p.get("taxon") ?? DEFAULTS.taxon,
     var: v ?? DEFAULTS.var,
+    var2: p.get("var2") || null,
+    color2: !!p.get("var2") && p.get("color") === "var2",
     stage: p.get("stage"),
     den: den && (den in VAL_COL) ? (den as Den) : null,
     zeros: p.get("zeros") !== "0",
@@ -296,7 +329,7 @@ export function fromUrl(): Sel {
     modal: p.get("modal") === "sources" ? "sources" : null,
     release: p.get("release"),
     station: p.get("station"),
-    datasets: p.get("datasets") ? p.get("datasets")!.split(",").filter(Boolean) : null,
+    ...parseDatasets(p.get("datasets")),
     theme: (p.get("theme") as Sel["theme"]) ?? null,
     hide: hideFromUrl(p),
     max: (PANEL_IDS as string[]).includes(p.get("max") ?? "") ? (p.get("max") as PanelId) : null,
@@ -313,6 +346,7 @@ export function fromUrl(): Sel {
     strip: p.get("strip") === "mean" || p.get("strip") === "cruises" ? (p.get("strip") as StripMode) : null,
     tbin: p.get("tbin") === "year" ? "year" : "season",
     area: p.get("area") || null,
+    cruises: (() => { const v = (p.get("cr") ?? "").split(",").filter((c) => /^\d{4}-\d{2}-[A-Za-z0-9]+$/.test(c)); return v.length ? v : null; })(),
     ramp: p.get("ramp") || null,
     data: p.get("data") !== "off",
     lines: p.get("lines") === "on",
@@ -334,6 +368,10 @@ export function toUrl(s: Sel) {
     if (s.den) p.set("den", s.den);
     if (!s.zeros) p.set("zeros", "0");
   }
+  // the added variable is its own parameter, beside either realm's pick (it sat between the realm's if and its else, so a
+  // species with an added variable lost its taxon, stage, units and zeros from the link, and a variable gained a taxon)
+  if (s.var2) p.set("var2", s.var2);
+  if (s.var2 && s.color2 && s.lens === "hex") p.set("color", "var2");
   if (s.years[0] !== 1949 || s.years[1] !== YEAR_OPEN || s.months) p.set("years", fmtYears(s.years, s.months));
   if (s.q?.length && s.q.length < 4) p.set("q", s.q.join(","));
   if (s.yview && s.yview[1] > s.yview[0]) p.set("yview", `${+s.yview[0].toFixed(2)}-${+s.yview[1].toFixed(2)}`);
@@ -351,7 +389,7 @@ export function toUrl(s: Sel) {
   if (s.modal) p.set("modal", s.modal);
   if (s.release) p.set("release", s.release);
   if (s.station) p.set("station", s.station);
-  if (s.datasets?.length) p.set("datasets", s.datasets.join(","));
+  const ds = datasetsParam(s); if (ds) p.set("datasets", ds);
   if (s.theme) p.set("theme", s.theme);
   const shown = DEFAULT_HIDE.filter((x) => !s.hide.includes(x)), hidden = s.hide.filter((x) => !DEFAULT_HIDE.includes(x));
   if (hidden.length) p.set("hide", hidden.join(","));
@@ -371,6 +409,7 @@ export function toUrl(s: Sel) {
   if (s.strip) p.set("strip", s.strip);
   if (s.tbin !== "season") p.set("tbin", s.tbin);
   if (s.area) p.set("area", s.area);
+  if (s.cruises?.length) p.set("cr", s.cruises.join(","));
   if (s.ramp) p.set("ramp", s.ramp);
   if (!s.data) p.set("data", "off");
   if (s.datao != null) p.set("datao", s.datao.toFixed(2));
@@ -380,7 +419,29 @@ export function toUrl(s: Sel) {
   // URLSearchParams escapes , and : (%2C %3A) though both are legal in a query string; a link people read and paste
   // keeps them raw — `cam=-121.2,32.6,7.2,40,-60`, `taxon=worms:217452` (Ben, 2026-09-10: "doesn't get so ugly")
   const url = `${location.pathname}?${p.toString().replace(/%2C/g, ",").replace(/%3A/g, ":")}`;
-  if (url !== location.pathname + location.search) history.replaceState(null, "", url);
+  if (url === location.pathname + location.search) return;
+  if (historyMode(location.search, url.slice(url.indexOf("?"))) === "push") history.pushState(null, "", url); else history.replaceState(null, "", url);
+}
+
+// browser Back / Forward (review 2026-11-16): a change of WHAT is shown — the pick, the view, the years, seasons, area, cruises,
+// depth band, the added variable, the hexagon size, the line, the layer — is a history entry, so Back undoes it; everything
+// else (the map's pan and zoom, folds, the strip's zoom, the app's own defaults filled in after a load: stage, units, dataset,
+// the cruise a view opens on) replaces the entry, so Back never lands on a half-loaded state that re-fills itself.
+const NAV: [string, string][] = [["lens", "station"], ["taxon", DEFAULT_TAXON], ["var", ""], ["years", ""], ["q", ""], ["area", ""], ["cr", ""], ["depth", ""], ["var2", ""], ["res", ""], ["line", ""], ["layer", ""], ["datasets", ""]];
+// filled in by the app itself when absent (the dataset the pick opens on): only a change from one value to another is a step
+const AUTO = new Set(["datasets"]);
+export function historyMode(prev: string, next: string): "push" | "replace" {
+  const a = new URLSearchParams(prev), b = new URLSearchParams(next);
+  const val = (q: URLSearchParams, k: string, d: string) => (k === "taxon" && q.has("var") ? "" : q.get(k) ?? d);
+  for (const [k, d] of NAV) {
+    const x = val(a, k, d), y = val(b, k, d);
+    if (x === y) continue;
+    if (AUTO.has(k) && (!x || !y)) continue;
+    return "push";
+  }
+  // the cruise a Cruise or Section view shows: picking another is a step, the app's first pick is not
+  const ca = a.get("cruise"), cb = b.get("cruise");
+  return ca && cb && ca !== cb ? "push" : "replace";
 }
 
 // the picker's rule-4 defaults, from picker.sql rows

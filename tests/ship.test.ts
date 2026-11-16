@@ -2,7 +2,7 @@
 // `2026-11-33P4`, so nothing on the page said it was the Sally Ride. The name is the release's `ship_name`, which the
 // cruise reference writes in capitals; src/ship.ts is how it is worded and where it falls back to the NODC code.
 import { describe, expect, it } from "vitest";
-import { shipAfter, shipLead, shipOfCruise, shipTitle, type CruiseShip } from "../src/ship";
+import { shipAfter, shipLead, shipName, shipOfCruise, shipTitle, type CruiseShip } from "../src/ship";
 
 const REF = new Map<string, CruiseShip>([
   ["2026-11-33P4", { ship: "SALLY RIDE", nodc: "33P4" }],
@@ -73,5 +73,20 @@ describe("shipAfter", () => {
     expect(shipAfter(null, "2026-11-33P4")).toBe("");
     expect(shipAfter(REF, "2000-01-31JD")).toBe("");
     expect(shipAfter(REF, null)).toBe("");
+  });
+});
+
+// the lean panel (PR #53) sets the ship at the right of each cruise row: the name alone, never the code the key ends in
+describe("shipName", () => {
+  it("is the worded name where the reference names the ship", () => {
+    expect(shipName(REF, "2026-11-33P4")).toBe("Sally Ride");
+    expect(shipName(REF, "2006-04-33MH")).toBe("McArthur II");
+  });
+  it("is empty where the reference holds only the code, has no row, or is not read yet", () => {
+    expect(shipName(REF, "2000-01-31JD")).toBe("");
+    expect(shipName(REF, "1999-01-XXXX")).toBe("");
+    expect(shipName(REF, "2026-07-33RL")).toBe("");
+    expect(shipName(null, "2026-11-33P4")).toBe("");
+    expect(shipName(REF, null)).toBe("");
   });
 });

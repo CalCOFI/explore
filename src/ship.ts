@@ -26,6 +26,12 @@ const nameOf = (ref: Map<string, CruiseShip> | null | undefined, cruiseKey: stri
   const r = cruiseKey ? ref?.get(cruiseKey) : undefined;
   return r?.ship && r.ship !== r.nodc ? shipTitle(r.ship) : "";
 };
+
+/** the ship's name alone, or "" where the reference does not name it (never the NODC code): the lean panel's cruise
+ * rows set it at the right of the row, beside a key that already ends in the code */
+export function shipName(ref: Map<string, CruiseShip> | null | undefined, cruiseKey: string | null | undefined): string {
+  return nameOf(ref, cruiseKey);
+}
 const codeOf = (cruiseKey: string | null | undefined): string => cruiseKey?.split("-")[2] ?? "";
 
 /** the ship of a cruise key: its name where the reference names it, else the NODC code the key ends in (a key the
