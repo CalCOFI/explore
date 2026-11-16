@@ -272,9 +272,12 @@ export const polyFeature = (pts: [number, number][]) => ({ type: "Feature", prop
 /** Douglas–Peucker on a drawn path (pixels): thins a freehand stroke to a few dozen corners, so the link and the SQL stay short */
 export function simplifyPath(pts: [number, number][], eps: number): [number, number][] {
   if (pts.length < 3) return pts;
-  const [ax, ay] = pts[0], [bx, by] = pts[pts.length - 1], dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy) || 1;
+  const [ax, ay] = pts[0], [bx, by] = pts[pts.length - 1], dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy);
+  // a loop closed back on its start has no chord to measure from: the distance is then to the start point itself (it measured
+  // 0 for every point, so a carefully closed loop simplified to two points and was dropped as "a click" — review 2026-11-16)
+  const dist = (q: [number, number]) => (L < 1e-9 ? Math.hypot(q[0] - ax, q[1] - ay) : Math.abs(dy * (q[0] - ax) - dx * (q[1] - ay)) / L);
   let k = -1, md = 0;
-  for (let i = 1; i < pts.length - 1; i++) { const d = Math.abs(dy * (pts[i][0] - ax) - dx * (pts[i][1] - ay)) / L; if (d > md) { md = d; k = i; } }
+  for (let i = 1; i < pts.length - 1; i++) { const d = dist(pts[i]); if (d > md) { md = d; k = i; } }
   if (md <= eps) return [pts[0], pts[pts.length - 1]];
   return [...simplifyPath(pts.slice(0, k + 1), eps).slice(0, -1), ...simplifyPath(pts.slice(k), eps)];
 }

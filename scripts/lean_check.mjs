@@ -391,24 +391,26 @@ C("where_line_station", async () => {
 });
 
 C("where_poly_draw", async () => {
-  await ready(`var=temperature`); await closeWhat();
+  await ready(`var=temperature&years=2010-2019`); await closeWhat();
   await click(".wd-btn"); await sleep(300);
   const box = await page.evaluate(() => { const r = document.querySelector(".draw-overlay").getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
   const cx = box.x + box.w * 0.6, cy = box.y + box.h * 0.5, R = 90;
   await page.mouse.move(cx + R, cy); await page.mouse.down();
   for (let i = 1; i <= 24; i++) await page.mouse.move(cx + R * Math.cos((i / 24) * 2 * Math.PI), cy + R * Math.sin((i / 24) * 2 * Math.PI), { steps: 2 });
+  await shot("lean_where_poly_drawing");
   await page.mouse.up(); await sleep(400); await idle();
   const a = (await qp()).area;
   check(/^poly:/.test(a ?? ""), `a drawn loop is the area (${a?.slice(0, 40)})`);
   const full = await page.evaluate(() => [...document.querySelectorAll(".ws-opt input")][0]?.checked);
   check(!full, "Full survey does not look selected while a drawn area is in force");
   await shot("lean_where_poly");
-  await checkCsv("drawn area");
+  const pts = (a ?? "").slice(5).split("~").map((q) => q.split(",").map(Number));
+  if (pts.length > 2) await checkCsv("drawn area", { box: [Math.min(...pts.map((p) => p[0])), Math.min(...pts.map((p) => p[1])), Math.max(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[1]))] });
   noErrors("where_poly_draw");
 });
 
 C("where_box_and_view", async () => {
-  await ready(`var=temperature`); await closeWhat();
+  await ready(`var=temperature&years=2010-2019`); await closeWhat();
   check(await exists(".wd-box"), "Where offers Draw a box");
   check(await exists(".wd-view"), "Where offers Use the map view");
   if (await exists(".wd-box")) {
@@ -476,11 +478,11 @@ C("var2", async () => {
 });
 
 C("depth_band", async () => {
-  await ready(`var=temperature`); await closeWhat();
+  await ready(`var=temperature&years=2010-2019`); await closeWhat();
   await click(".depth-row"); await sleep(400);
   const inp = await page.$$(".depth-edit input");
   if (inp.length >= 2) {
-    await inp[1].click({ clickCount: 3 }); await inp[1].type("100"); await page.keyboard.press("Enter"); await sleep(400); await idle();
+    await inp[1].focus(); await page.evaluate((e) => e.select(), inp[1]); await page.keyboard.type("100"); await page.keyboard.press("Enter"); await sleep(400); await idle();
   }
   const v = await view();
   check(v.sel.depth[1] === 100, `the depth band is 0–${v.sel.depth[1]} m`);

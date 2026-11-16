@@ -229,3 +229,16 @@ describe("areaLabel", () => {
     expect(areaLabel(parseArea("hx:842a107ffffffff"), "23 km")).toBe("One 23 km hexagon");
   });
 });
+
+// Draw an area: a loop that ends exactly where it began (review 2026-11-16: it simplified to two points and was dropped)
+import { simplifyPath } from "../src/area";
+describe("simplifyPath", () => {
+  it("keeps the shape of a loop closed on its start point", () => {
+    const loop: [number, number][] = Array.from({ length: 25 }, (_, i) => [100 + 90 * Math.cos((i / 24) * 2 * Math.PI), 100 + 90 * Math.sin((i / 24) * 2 * Math.PI)]);
+    loop[24] = [...loop[0]];
+    expect(simplifyPath(loop, 2.5).length).toBeGreaterThanOrEqual(8);
+  });
+  it("an open stroke still simplifies to its chord when it is straight", () => {
+    expect(simplifyPath([[0, 0], [5, 0.1], [10, 0]], 2.5)).toEqual([[0, 0], [10, 0]]);
+  });
+});
