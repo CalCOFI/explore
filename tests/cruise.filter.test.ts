@@ -13,6 +13,7 @@ beforeAll(async () => {
     (4, 4, '2024-07-33RL', 2024::SMALLINT, 7::TINYINT, 3::TINYINT, 10, 4.0::DOUBLE, TRUE)
   ) t(obs_id, root_id, cruise_key, year, cruise_month, quarter, depth_bin, value, qual_ok)`);
   db.exec("ALTER TABLE slice ADD COLUMN datetime TIMESTAMP; ALTER TABLE slice ADD COLUMN life_stage VARCHAR; ALTER TABLE slice ADD COLUMN dataset_key VARCHAR");
+  db.exec("ALTER TABLE slice ADD COLUMN sample_id VARCHAR; UPDATE slice SET sample_id = root_id::VARCHAR"); // what the templates count as a sample (slice_env.sql: the cast)
 });
 afterAll(() => db.close());
 

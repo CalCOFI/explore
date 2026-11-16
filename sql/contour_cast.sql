@@ -4,7 +4,7 @@
 -- occupations of a site pool into one point (their spread is the kriging nugget), which also keeps the local
 -- systems non-singular — 52,376 sardine tows at ~2,000 positions made every 24-nearest system singular
 SELECT round(any_value(longitude), 2) AS longitude, round(any_value(latitude), 2) AS latitude,
-       count(DISTINCT root_id) AS n_samples, count(obs_id) AS n, avg({{val}}) AS mean, median({{val}}) AS med,
+       count(DISTINCT sample_id) AS n_samples, count(obs_id) AS n, avg({{val}}) AS mean, median({{val}}) AS med,
        min(year) AS y0, max(year) AS y1, quantile_cont({{val}}, 0.05) AS p05, quantile_cont({{val}}, 0.95) AS p95
 FROM {{tbl}}
 WHERE latitude IS NOT NULL AND longitude IS NOT NULL AND NOT isnan(latitude) AND NOT isnan(longitude) AND {{where}}

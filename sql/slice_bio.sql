@@ -5,14 +5,18 @@
 -- dataset sampled (a root sample with >= 1 row of any taxon; the effort it can standardize by is what its
 -- rows carry) gets a zero row per life stage the dataset records this taxon at, unless it has a row already.
 -- a dataset that ships its own zeros (cufes, zooscan, zoodb, phyllosoma) is left as it is. zero rows have
--- obs_id NULL and qual_ok TRUE; every template counts n = count(obs_id) (records) and n_samples = tows, so the
+-- obs_id NULL and qual_ok TRUE; every template counts n = count(obs_id) (records) and n_samples = nets (sample_id), so the
 -- counts shown stay the records and only the statistics (mean, se, median) see the zeros.
--- THE ZERO IS PER NET (Betty 2026-11-11, to confirm with Ben): {{net_key}} is the dataset's own sample (sample_key — one
+-- THE ZERO IS PER NET (Betty 2026-11-11; confirmed by Ben 2026-11-16): {{net_key}} is the dataset's own sample (sample_key — one
 -- net of a station visit; root_id on a release without it). A station visit (root_id) often holds 2–3 ichthyo nets, and
 -- the zero used to be one per visit: a visit's empty second net was never a 0 (means too high), and a visit whose nets
 -- were sorted for eggs only still got a larva 0 (too low). Now each net gets a 0 for a life stage only when that net
 -- recorded that stage for some taxon — proof it was sorted for it. A net with no record at all is not in the data, so
 -- it is never zero-filled. Catches were always per net, so zeros and catches are now the same unit.
+-- sample_id is that unit on every row (catches and zeros alike, as VARCHAR): what the templates count as a SAMPLE
+-- (n_samples, n_found = count(DISTINCT sample_id)), so the counts beside a mean count the nets the mean divides by,
+-- never the visits (2026-11-16: "found in 5,817 of 49,208 samples" counted visits under a mean over 52,780 nets).
+-- slice_env.sql / slice_cast.sql set it to the cast (root_id), so water counts are what they were.
 -- site_key rides along (same column set as slice_env.sql) so a template shared by both realms can name it; it is
 -- NULL for datasets with no station (cufes, bird-mammal, phytoplankton). line / station stay the grid cell's here.
 -- year / quarter / cruise_month / season_year are the CRUISE's, as in slice_env.sql: the median cast month from the
@@ -25,7 +29,8 @@ WITH pos AS (
          depth_min_m, depth_max_m, depth_bin,
          taxon_key, life_stage, measurement_type, units, value, measurement_qual, qual_ok,
          tow_type, std_haul_factor, prop_sorted, volume_sampled_m3, density_per_10m2, density_per_1000m3, effort_class, hex7,
-         COALESCE(cz.month_median, {{key_month}})::TINYINT AS cruise_month, (CASE WHEN COALESCE(cz.month_median, {{key_month}}) = 12 THEN COALESCE(year(cz.date_median), {{key_year}}) + 1 ELSE COALESCE(year(cz.date_median), {{key_year}}) END)::SMALLINT AS season_year
+         COALESCE(cz.month_median, {{key_month}})::TINYINT AS cruise_month, (CASE WHEN COALESCE(cz.month_median, {{key_month}}) = 12 THEN COALESCE(year(cz.date_median), {{key_year}}) + 1 ELSE COALESCE(year(cz.date_median), {{key_year}}) END)::SMALLINT AS season_year,
+         o.{{net_key}}::VARCHAR AS sample_id
   FROM {{src}} o LEFT JOIN {{cruise_src}} cz USING (cruise_key)
   WHERE taxon_key = {{taxon}}),
 positive_only AS (
@@ -33,7 +38,7 @@ positive_only AS (
   WHERE dataset_key IN (SELECT DISTINCT dataset_key FROM pos)
   GROUP BY dataset_key HAVING count(*) FILTER (WHERE value = 0) = 0),
 tow AS (
-  SELECT dataset_key, {{net_key}} AS net, any_value(root_id) AS root_id, any_value(grid_key) AS grid_key, any_value(site_key) AS site_key, any_value(cruise_key) AS cruise_key,
+  SELECT dataset_key, o.{{net_key}} AS net, any_value(root_id) AS root_id, any_value(grid_key) AS grid_key, any_value(site_key) AS site_key, any_value(cruise_key) AS cruise_key,
          any_value(latitude) AS latitude, any_value(longitude) AS longitude, any_value(datetime) AS datetime,
          any_value(COALESCE(COALESCE(year(cz.date_median), {{key_year}}), year))::SMALLINT AS year, any_value(COALESCE((CASE WHEN COALESCE(cz.month_median, {{key_month}}) IN (12, 1, 2) THEN 1 WHEN COALESCE(cz.month_median, {{key_month}}) IN (3, 4, 5) THEN 2 WHEN COALESCE(cz.month_median, {{key_month}}) IN (6, 7, 8) THEN 3 WHEN COALESCE(cz.month_median, {{key_month}}) IN (9, 10, 11) THEN 4 END), quarter))::TINYINT AS quarter, any_value(depth_min_m) AS depth_min_m,
          any_value(depth_max_m) AS depth_max_m, any_value(depth_bin) AS depth_bin, any_value(tow_type) AS tow_type,
@@ -43,7 +48,7 @@ tow AS (
          list(DISTINCT life_stage) AS stages
   FROM {{src}} o LEFT JOIN {{cruise_src}} cz USING (cruise_key)
   WHERE dataset_key IN (SELECT dataset_key FROM positive_only)
-  GROUP BY dataset_key, {{net_key}}),
+  GROUP BY dataset_key, o.{{net_key}}),
 stage AS (
   SELECT dataset_key, life_stage, any_value(measurement_type) AS measurement_type, any_value(units) AS units
   FROM pos GROUP BY dataset_key, life_stage)
@@ -56,7 +61,7 @@ SELECT NULL AS obs_id, t.dataset_key, t.root_id, t.grid_key, t.site_key,
        t.tow_type, NULL AS std_haul_factor, NULL AS prop_sorted, NULL AS volume_sampled_m3,
        CASE WHEN t.has_10m2 THEN 0.0 END AS density_per_10m2, CASE WHEN t.has_1000m3 THEN 0.0 END AS density_per_1000m3,
        t.effort_class, t.hex7,
-       t.cruise_month, t.season_year
+       t.cruise_month, t.season_year, t.net::VARCHAR AS sample_id
 FROM tow t JOIN stage s USING (dataset_key)
 WHERE (s.life_stage IS NULL OR list_contains(t.stages, s.life_stage))
   AND NOT EXISTS (SELECT 1 FROM {{src}} p WHERE p.taxon_key = {{taxon}} AND p.dataset_key = t.dataset_key AND p.{{net_key}} = t.net

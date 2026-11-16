@@ -1,5 +1,5 @@
--- the year strip / time series (all years, so the brush has context): n records, n_samples tows (zero-filled ones
--- included), n_cruises, and the mean ± se per bin. {{bin}} is `year` (one bar per year), a season
+-- the year strip / time series (all years, so the brush has context): n records, n_samples samples (sample_id: a
+-- species' nets, zero-filled ones included; a variable's casts), n_cruises, and the mean ± se per bin. {{bin}} is `year` (one bar per year), a season
 -- (`year + (quarter - 0.5) / 4.0`, the cruise's quarter, four points a year — the default of mean ± se, explore#21) or a month
 -- (`year + (the cruise's month - 0.5) / 12.0`, drawn when the strip is zoomed to <= 15 years — D20 level of detail).
 -- the mean and its se are taken over STATION means (explore#21): each station's mean in the bin, then the mean and
@@ -12,7 +12,7 @@ WITH s AS (
   WHERE {{where_noyear}} AND {{bin}} IS NOT NULL
   GROUP BY 1, 2
 ), b AS (
-  SELECT {{bin}} AS year, count(DISTINCT root_id) AS n_samples, count(DISTINCT cruise_key) AS n_cruises
+  SELECT {{bin}} AS year, count(DISTINCT sample_id) AS n_samples, count(DISTINCT cruise_key) AS n_cruises
   FROM slice
   WHERE {{where_noyear}} AND {{bin}} IS NOT NULL
   GROUP BY 1

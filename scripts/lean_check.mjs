@@ -78,9 +78,10 @@ async function clickText(sel, txt, exact = false) {
 }
 async function click(sel) { await page.waitForSelector(sel, { timeout: 15000 }); await page.evaluate((s) => { const e = document.querySelector(s); e.scrollIntoView({ block: "center" }); e.click(); }, sel); await sleep(250); }
 const closeWhat = async () => { if (await exists(".wp .wp-cancel")) { await click(".wp .wp-cancel"); await sleep(300); } };
-const view = () => page.evaluate(() => { const v = window.__view; return { lens: v.lens, sel: v.sel, st: v.stationRows.map((r) => ({ k: r.grid_key, mean: r.mean, n: r.n })), hex: v.hexRows.map((r) => ({ k: String(r.hex), mean: r.mean, n: r.n })), reg: v.regionRows.map((r) => ({ k: r.spatial_name, key: r.spatial_key, mean: r.mean, n: r.n })), cruise: v.cruiseRows.length, sec: v.sectionCells.length, inView: v.inView, vc: v.viewCount,
+const view = () => page.evaluate(() => { const v = window.__view; return { lens: v.lens, sel: v.sel, st: v.stationRows.map((r) => ({ k: r.grid_key, mean: r.mean, n: r.n, ns: r.n_samples, nf: r.n_found })), hex: v.hexRows.map((r) => ({ k: String(r.hex), mean: r.mean, n: r.n, ns: r.n_samples, nf: r.n_found })), reg: v.regionRows.map((r) => ({ k: r.spatial_name, key: r.spatial_key, mean: r.mean, n: r.n, ns: r.n_samples, nf: r.n_found })), cruise: v.cruiseRows.length, sec: v.sectionCells.length, inView: v.inView, vc: v.viewCount,
   secN: v.sectionCells.reduce((a, r) => a + Number(r.n ?? 0), 0), cruiseN: v.cruiseSamples.reduce((a, r) => a + Number(r.n ?? 0), 0),
   yearN: v.yearRows.filter((r) => Math.floor(Number(r.year)) >= v.sel.years[0] && Math.floor(Number(r.year)) <= v.sel.years[1]).reduce((a, r) => a + Number(r.n ?? 0), 0), yearBins: v.yearRows.length,
+  yearS: v.yearRows.filter((r) => Math.floor(Number(r.year)) >= v.sel.years[0] && Math.floor(Number(r.year)) <= v.sel.years[1]).reduce((a, r) => a + Number(r.n_samples ?? 0), 0),
   depthN: v.depthRows.filter((r) => r.depth_bin == null || (Number(r.depth_bin) >= v.sel.depth[0] && Number(r.depth_bin) <= v.sel.depth[1])).reduce((a, r) => a + Number(r.n ?? 0), 0), depthBins: v.depthRows.length }; });
 const lens = async (name) => { await click(`.va-tile[aria-label="${name}"]`); await sleep(400); await idle(); };
 
@@ -142,18 +143,29 @@ function filterViolations(rows, sel, extra = {}) {
   }
   return bad;
 }
-/** the CSV's per-group numbers equal the ones the view draws (station / hexagon / region) */
+/** the CSV's per-group numbers equal the ones the view draws (station / hexagon / region): the mean, the records and — for a
+ *  species whose file carries its zero-filled tows — the samples (distinct sample_id, one net each) and those with a catch,
+ *  which the hover says as "found in K of N samples" */
 function numberMismatches(rows, v) {
   const bad = [];
+  const withZeros = v.sel.realm === "bio" && v.sel.zeros && rows.some((r) => r.obs_id === "") && rows[0] && "sample_id" in rows[0];
   const cmp = (col, rowsOf, list) => {
     const m = new Map(list.map((x) => [String(x.k), x]));
     const seen = new Set();
+    const nets = new Map(), found = new Map();
+    if (withZeros) for (const r of rows) {
+      const k = r[col]; if (!k) continue;
+      (nets.get(k) ?? nets.set(k, new Set()).get(k)).add(r.sample_id);
+      if (r.obs_id !== "") (found.get(k) ?? found.set(k, new Set()).get(k)).add(r.sample_id);
+    }
     for (const r of rows) {
       const k = r[col]; if (!k || seen.has(k)) continue; seen.add(k);
       const g = m.get(k), mean = num(r[`${rowsOf}_mean`]), n = num(r[`${rowsOf}_n`]);
       if (!g) { if (mean != null) bad.push(`${rowsOf} ${k}: in the CSV (mean ${mean}) but not on the map`); continue; }
       if (!near(mean, g.mean)) bad.push(`${rowsOf} ${k}: CSV mean ${mean} vs map ${g.mean}`);
       if (n != null && n !== Number(g.n)) bad.push(`${rowsOf} ${k}: CSV n ${n} vs map ${g.n}`);
+      if (nets.has(k) && g.ns != null && nets.get(k).size !== Number(g.ns)) bad.push(`${rowsOf} ${k}: CSV ${nets.get(k).size} samples vs map ${g.ns}`);
+      if (nets.has(k) && g.nf != null && (found.get(k)?.size ?? 0) !== Number(g.nf)) bad.push(`${rowsOf} ${k}: CSV ${found.get(k)?.size ?? 0} samples with a catch vs map ${g.nf}`);
       if (bad.length > 4) return;
     }
     return seen.size;
@@ -180,13 +192,17 @@ async function checkCsv(label, extra = {}) {
   // the CSV holds one row per region a sample falls in: count the records once
   const uniq = extra.region ? new Set(rows.filter((r) => r.obs_id !== "").map((r) => r.obs_id)).size : recs;
   if (v.lens !== "cruise" && v.lens !== "section" && v.vc && !v.sel.var2) check(uniq === v.vc.n, `${label}: ${uniq} records in the CSV = ${v.vc.n} in the panel's count`);
-  // a species: the panel's "N samples · K with a catch" against the CSV's samples (root_id), zero-filled tows included
-  if (v.sel.realm === "bio" && v.vc && v.lens !== "cruise" && v.lens !== "section" && !v.sel.var2 && rows[0] && "root_id" in rows[0]) {
-    const all = new Set(rows.map((r) => r.root_id)).size, found = new Set(rows.filter((r) => r.obs_id !== "").map((r) => r.root_id)).size;
+  // a species: the panel's "N samples · K with a catch" against the CSV's samples, zero-filled tows included. A sample is
+  // one net (sample_id, 2026-11-16: the unit the mean divides by), never the station visit (root_id, which holds 2–3 nets)
+  if (v.sel.realm === "bio" && rows[0]) check("sample_id" in rows[0], `${label}: the CSV carries sample_id (the net a row belongs to)`);
+  if (v.sel.realm === "bio" && v.vc && v.lens !== "cruise" && v.lens !== "section" && !v.sel.var2 && rows[0] && "sample_id" in rows[0]) {
+    const all = new Set(rows.map((r) => r.sample_id)).size, found = new Set(rows.filter((r) => r.obs_id !== "").map((r) => r.sample_id)).size;
     check(found === v.vc.n_found && (!v.sel.zeros || all === v.vc.n_samples), `${label}: samples in the CSV ${all} (${found} with a catch) = the panel's ${v.vc.n_samples} (${v.vc.n_found})`);
   }
   // the charts: the Time strip's bars in the window, the Depth profile's bins in the band, the section's cells, the cruise's samples
   if (v.lens !== "cruise" && v.lens !== "section" && v.vc && v.yearBins && !v.sel.months) check(v.yearN === v.vc.n, `${label}: the Time strip's bars in ${v.sel.years.join("–")} add up to the panel's count (${v.yearN} vs ${v.vc.n})`);
+  // …and its samples (a species: the nets, the zero-filled ones included) add up to the panel's "N samples"
+  if (v.sel.realm === "bio" && v.lens !== "cruise" && v.lens !== "section" && v.vc && v.yearBins && !v.sel.months && !v.sel.var2) check(v.yearS === v.vc.n_samples, `${label}: the Time strip's samples in ${v.sel.years.join("–")} add up to the panel's ${v.vc.n_samples} samples (${v.yearS})`);
   if (v.lens !== "cruise" && v.lens !== "section" && v.vc && v.depthBins && v.sel.realm === "env") check(v.depthN === v.vc.n, `${label}: the Depth profile's bins in ${v.sel.depth.join("–")} m add up to the panel's count (${v.depthN} vs ${v.vc.n})`);
   if (v.lens === "section" && v.sec) check(v.secN === recs, `${label}: the section's cells hold the CSV's records (${v.secN} vs ${recs})`);
   if (v.lens === "cruise" && v.cruiseN) check(v.cruiseN === recs, `${label}: the cruise's samples hold the CSV's records (${v.cruiseN} vs ${recs})`);

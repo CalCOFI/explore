@@ -31,9 +31,10 @@ export interface Var2Cols { key: string; hex: string; km: string; where: string 
 const lit = (v: string) => `'${v.replace(/'/g, "''")}'`;
 /** the column dictionary the zip carries (Betty 2026-11-11: "value" alone does not say it is the raw sardine count) */
 const DICT: Record<string, string> = {
-  obs_id: "observation id in the release; blank = a tow that sampled this taxon's dataset but caught none (zero-filled)",
+  obs_id: "observation id in the release; blank = a tow (one net, sample_id) that sampled this taxon's dataset but caught none (zero-filled)",
   dataset_key: "the dataset the row comes from (names and citations: data/reference/dataset.csv)",
-  root_id: "the sample (tow or cast) the observation belongs to",
+  root_id: "the root sample the row belongs to: for a species the station visit (every net towed at one station on one cruise), for water the cast",
+  sample_id: "the sample the counts count (\"found in K of N samples\"): for a species one net tow — the release's sample_key (root_id on a release without it), the unit its zeros and mean run over; for water the cast (root_id)",
   grid_key: "CalCOFI station-grid cell; blank = taken off the station grid",
   site_key: "line and station as recorded (\"LLL.L SSS.S\")",
   line: "CalCOFI line number (from site_key)", station: "CalCOFI station number (from site_key)",
@@ -52,10 +53,10 @@ const DICT: Record<string, string> = {
   hex7: "H3 hexagon cell at resolution 7, as an integer (internal)", cruise_month: "the cruise's month (its median cast month)",
   season_year: "the season's year (December counts toward the next winter)",
   hex: "the map's hexagon this row falls in (H3 index)", hex_size_km: "that hexagon's size, km",
-  hex_mean: "mean of the map's value in this hexagon (map's units)", hex_median: "median of the map's value in this hexagon", hex_n: "records in this hexagon (for a species: samples that caught it — zero-filled tows are in the mean, not in this count)",
-  station_mean: "mean of the map's value at this station (map's units)", station_median: "median of the map's value at this station", station_n: "records at this station (for a species: samples that caught it — zero-filled tows are in the mean, not in this count)",
+  hex_mean: "mean of the map's value in this hexagon (map's units)", hex_median: "median of the map's value in this hexagon", hex_n: "records in this hexagon (for a species: its catch records — the zero-filled tows are in the mean, not in this count)",
+  station_mean: "mean of the map's value at this station (map's units)", station_median: "median of the map's value at this station", station_n: "records at this station (for a species: its catch records — the zero-filled tows are in the mean, not in this count)",
   region: "the boundary layer (e.g. Marine Protected Areas)", region_name: "the region within it this sample falls in; a sample in two overlapping regions is one row per region",
-  region_mean: "mean of the map's value in this region (map's units)", region_median: "median of the map's value in this region", region_n: "records in this region (for a species: samples that caught it — zero-filled tows are in the mean, not in this count)",
+  region_mean: "mean of the map's value in this region (map's units)", region_median: "median of the map's value in this region", region_n: "records in this region (for a species: its catch records — the zero-filled tows are in the mean, not in this count)",
 };
 const describeCol = (c: string, unit: string) => {
   const m = /^(.+)_hex_(mean|n)$/.exec(c);

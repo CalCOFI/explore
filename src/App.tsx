@@ -131,6 +131,7 @@ const hasClim = (cat: Catalog | null) => !!cat?.tables.some((t) => t.name === "c
 const hasTrack = (cat: Catalog | null) => !!cat?.tables.some((t) => t.name === "sample_track");
 const ZEROS_TIP = `Datasets such as ichthyo record a tow only when it caught the taxon, so a mean over their records alone is a mean over positive tows — biased high, and a surveyed year with no catch looks like a year with no survey.
 By default every tow such a dataset sampled counts as 0 for this taxon (a "zero-filled tow": obs_id NULL in the export; never counted as an observation).
+A sample is the dataset's own sample — one net for the net tows, so a station visit that towed three nets is three samples, each its own 0 and its own count ("found in 5 of 12 samples"): the same samples the mean divides by.
 positive-only turns that off: mean, median and se run over the tows with a catch, as the raw records do. Datasets that record their own zeros (CUFES, ZooScan, ZooDB, phyllosoma) read the same either way.`;
 // an env variable's source: the union of its member objects, each stamped with its measurement_type (the hive key)
 const envSrc = (key: string) => `(${members(key).map((m) => `SELECT *, '${m}' AS measurement_type FROM '${envReg(m)}'`).join(" UNION ALL ")})`;
@@ -1810,7 +1811,7 @@ export function App() {
     if (!noneLeft || !sliceKey || areaPending) { setEmptyWhy(null); return; }
     let live = true;
     const n = (over: Record<string, any>) => engine.exec(render("count", { ...params, ...over }), "empty_why").then((r) => Number(r[0]?.n ?? 0));
-    const tows = sel.realm === "bio" ? engine.exec(`SELECT count(DISTINCT root_id) AS t FROM slice WHERE ${render("count", { ...params, zeros: true }).split("WHERE").slice(1).join("WHERE")}`, "empty_tows").then((r) => Number(r[0]?.t ?? 0)) : Promise.resolve(0);
+    const tows = sel.realm === "bio" ? engine.exec(`SELECT count(DISTINCT sample_id) AS t FROM slice WHERE ${render("count", { ...params, zeros: true }).split("WHERE").slice(1).join("WHERE")}`, "empty_tows").then((r) => Number(r[0]?.t ?? 0)) : Promise.resolve(0);
     const tries: { what: string; over: Record<string, any>; clear: () => void; on: boolean }[] = [
       { what: sel.cruises?.length === 1 ? `cruise ${sel.cruises[0]}` : "the cruises", over: { cruise_filter: "TRUE" }, clear: () => setSel({ cruises: null }), on: !!sel.cruises?.length },
       { what: "the area", over: { area_filter: "TRUE" }, clear: () => { setAreaRegionMode(false); setSel({ area: null }); }, on: !!area },
@@ -2467,7 +2468,8 @@ export function App() {
     {desk && denBlock}
     {/* the download's count (Betty 2026-11-11): every sample monitored leads, since a sample with no catch is data too, then
         how it splits ("40 samples" / "17 with a catch · 23 without"); with the no-catch tows left out of the file, the samples
-        in it and "positive catches only". No row count: a sample can hold several nets, so rows outnumber samples and read as a mismatch */}
+        in it and "positive catches only". A sample is one net (sql/slice_bio.sql sample_id), the unit the mean divides by. No row
+        count: a net can hold two records of one taxon and stage, so rows can outnumber samples and read as a mismatch */}
     <DownloadBar count={sliceKey ? (sel.realm === "bio" && countLabel && viewCount
         ? (() => { const all = sel.zeros && csvZeros, k = all ? viewCount.n_samples : viewCount.n_found, w = `${fmtN(k)} ${k === 1 ? "sample" : "samples"}`;
             // one line (Betty 2026-11-11): "40 samples · 17 with a catch · 23 without", or "17 samples · positive catches only"

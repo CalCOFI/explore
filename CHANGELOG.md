@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **fix: a species' counts count the nets its mean divides by.** The zeros are per net (`sample_key`; confirmed by Ben
+  2026-11-16), but *found in K of N samples*, the hovers, the Time strip, the Regions list and the download line counted
+  station visits (`root_id`), so Pacific sardine larvae per 10 m² read *found in 5,817 of 49,208 samples* under a mean of
+  35.9 over 52,780 nets; it now reads *found in 6,273 of 52,780 samples*. Every slice carries `sample_id` (the net for a
+  species, `root_id` on a release without `sample_key`; the cast for water, so water counts are unchanged), every
+  template counts it, and the CSV carries it with a column-dictionary entry. `tests/zerofill.counts.test.ts`,
+  `scripts/lean_check.mjs` (the CSV's samples per station / hexagon / region and the Time strip's against the panel).
 - **the lean "Find data" panel is the default (PR #53); `?ui=classic` brings back Select / Refine / Share.** One
   top-down panel: What (one search over species and measurements, by category or by dataset, with the life stage, the
   units, Count zeros and the dataset under it) → When (years, seasons, cruises) → Where (regions, line / station, the
