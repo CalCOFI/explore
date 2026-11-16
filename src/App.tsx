@@ -55,7 +55,7 @@ import { feedbackEndpoint } from "./feedback";
 import { cruiseStage, hasStageCols, stageIndex, stageProbeSql, viewStage, type StageIndex } from "./stage";
 import { shipAfter, shipName, shipOfCruise } from "./ship";
 import {
-  DEFAULTS, DEN_SHORT, fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LENS_DESC, LENS_ICON, RES_KM, INTERPS, INTERP_LABEL, INTERP_WORD, INTERP_HOW, SURFACES, SURFACE_LABEL, GRAIN_LABEL, GRAIN_HOW, type Surface, type Grain, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, DEN_HOW, SHF_NOTE, STAT_LABEL, YEAR_OPEN, MAP_HOME,
+  DEFAULTS, resetPatch, DEN_SHORT, fromUrl, toUrl, defaultStage, defaultDen, LENSES, LENS_TITLE, LENS_SHORT, LENS_DESC, LENS_ICON, RES_KM, INTERPS, INTERP_LABEL, INTERP_WORD, INTERP_HOW, SURFACES, SURFACE_LABEL, GRAIN_LABEL, GRAIN_HOW, type Surface, type Grain, ENV_VARS_FALLBACK, VAL_COL, DEN_LABEL, DEN_HOW, SHF_NOTE, STAT_LABEL, YEAR_OPEN, MAP_HOME,
   type Sel, type Lens, type Den, type Stat, type PickerRow, type PanelId,
 } from "./state";
 type FigureId = PanelId | "map"; // what exports PNG · SVG · CSV from a header: every panel, and the map from its own ⬇
@@ -2244,8 +2244,8 @@ export function App() {
   }, [grid]);
   const drawnWord = area?.kind === "poly" ? "Area drawn on the map" : area?.kind === "box" ? "Box drawn on the map"
     : area?.kind === "pattern" ? (area.patterns.includes("extended") ? "113-station grid" : "75-station grid") : null;
-  // "Reset all": every filter and view setting back to its default — Stations, all years, seasons and depths, everywhere, every dataset — keeping only what you chose to look at (the variable) and the map's position
-  const resetAll = () => { const d = DEFAULTS; setAreaRegionMode(false); setSel({ cruises: null, lens: d.lens, res: d.res, interp: d.interp, surface: d.surface, grain: d.grain, inputs: d.inputs, labels: d.labels, stage: null, den: null, zeros: d.zeros, years: d.years, months: d.months, q: d.q, yview: d.yview, depth: d.depth, layer: d.layer, region: d.region, line: d.line, cruise: d.cruise, stat: d.stat, anom: d.anom, base: d.base, datasets: d.datasets, area: d.area, station: d.station, view3d: d.view3d, obs: d.obs, strip: d.strip, tbin: d.tbin, effort: d.effort, data: d.data }); };
+  // "Reset all": state.ts resetPatch() — every filter and view setting back to its default, keeping the pick (with its stage and units)
+  const resetAll = () => { setAreaRegionMode(false); setAreaLayerPick(null); setSel(resetPatch()); };
   const whatSel = whatItems.find((i) => i.key === (sel.realm === "bio" ? sel.taxon : sel.var) || (sel.realm === "env" && i.alt?.includes(sel.var)));
   const pickWhat = (k: string, ds?: string) => { if (whatIsOrganism.has(k)) setSel({ realm: "bio", taxon: k, stage: null, den: null, cruise: null, datasets: ds ? [ds] : null }); else {
     // a measurement made several ways (bottle samples, CTD sensor, underway …) is plotted from ONE dataset at a time, never silently pooled:

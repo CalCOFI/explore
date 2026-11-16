@@ -236,6 +236,18 @@ export const DEFAULTS: Sel = {
   hide: DEFAULT_HIDE, max: null, map: null, bathy: null, bathyo: null, land: true, baseLabels: true, basemapo: null, layers: null, view3d: false, exag: null, cam: null, strip: null, tbin: "season", area: null, ramp: null, data: true, datao: null, lines: false, obs: null, effort: false,
 };
 
+/** "Reset all" (the lean panel's header): every filter and view setting back to its default — Stations, all years, seasons
+ *  and depths, everywhere, every cruise, the default layers — keeping only what you chose to look at: the species or
+ *  measurement with its life stage, units and zeros (they are part of What, review 2026-11-16: Reset dropped them), and the
+ *  map's position. The added variable and the Lines layer go too (they were left behind). */
+export function resetPatch(): Partial<Sel> {
+  const d = DEFAULTS;
+  return { cruises: null, lens: d.lens, res: d.res, interp: d.interp, surface: d.surface, grain: d.grain, inputs: d.inputs, labels: d.labels,
+    years: d.years, months: d.months, q: d.q, yview: d.yview, depth: d.depth, layer: d.layer, region: d.region, line: d.line, cruise: d.cruise,
+    stat: d.stat, anom: d.anom, base: d.base, datasets: d.datasets, area: d.area, station: d.station, view3d: d.view3d, obs: d.obs, strip: d.strip,
+    tbin: d.tbin, effort: d.effort, data: d.data, lines: d.lines, var2: null };
+}
+
 const num = (v: string | null, d: number) => (v != null && v !== "" && !isNaN(+v) ? +v : d);
 const pair = (v: string | null, d: [number, number]): [number, number] => {
   if (!v) return d;
