@@ -217,7 +217,8 @@ async function roundTrip(label) {
   check(!diff.length, `${label}: reload keeps the state${diff.length ? ` — differs in ${diff.map((k) => `${k}: ${JSON.stringify(a.sel[k])} → ${JSON.stringify(b.sel[k])}`).join("; ")}` : ""}`);
   check(a.inView === b.inView && a.st.length === b.st.length && a.hex.length === b.hex.length && a.reg.length === b.reg.length, `${label}: reload draws the same numbers (${a.inView} / ${a.st.length} st / ${a.hex.length} hex / ${a.reg.length} reg → ${b.inView} / ${b.st.length} / ${b.hex.length} / ${b.reg.length})`);
   const norm = (s) => (s ?? "").replace(/\s+/g, " ").trim();
-  check(norm(pa) === norm(pb), `${label}: reload shows the same panel text${norm(pa) === norm(pb) ? "" : ` — "${norm(pa).slice(0, 120)}…" vs "${norm(pb).slice(0, 120)}…"`}`);
+  const A = norm(pa), B = norm(pb); let i = 0; while (i < A.length && A[i] === B[i]) i++;
+  check(A === B, `${label}: reload shows the same panel text${A === B ? "" : ` — at ${i}: "…${A.slice(Math.max(0, i - 40), i + 60)}…" vs "…${B.slice(Math.max(0, i - 40), i + 60)}…"`}`);
   await p2.close(); page = old;
 }
 const layerToggle = async (name) => {
@@ -456,7 +457,7 @@ C("var2", async () => {
   await page.type(".wp-search input", "temperature"); await sleep(400);
   await page.evaluate(() => document.querySelector(".wp .wp-item")?.click()); await sleep(500); await idle();
   const v = await view();
-  check(!!v.sel.var2, `a second variable is added (${v.sel.var2}; ${listed} offered)`);
+  check(/^temperature/.test(v.sel.var2 ?? ""), `with a species picked, temperature is offered and added as the second variable (${v.sel.var2}; ${listed} offered)`);
   // colour by the second variable, then reload: the choice is in the link
   if (await exists(".v2-switch button[role=radio]:nth-child(2), [role=radiogroup] button[aria-checked=false]")) {
     await page.evaluate(() => { const b = [...document.querySelectorAll("button[role=radio]")].find((x) => x.getAttribute("aria-checked") === "false" && x.closest(".v2sw, .v2-switch, .color-by, [role=radiogroup]")); b?.click(); });
@@ -516,19 +517,26 @@ C("reset", async () => {
 });
 
 C("history", async () => {
-  await ready(`var=temperature`); await closeWhat();
+  await ready(`var=temperature&years=2010-2019`); await closeWhat();
   await lens("Hexagon");
+  await clickText(".ws-opt", "75-station grid"); await idle();
   await lens("Contour");
-  await page.goBack(); await sleep(600); await idle();
-  const a = await view();
-  check(a.lens === "hex", `Back returns to the previous view (${a.lens})`);
-  await page.goForward(); await sleep(600); await idle();
-  check((await view()).lens === "contour", "Forward goes to the next one");
+  await page.goBack(); await sleep(800); await idle();
+  let v = await view();
+  check(v.lens === "hex" && v.sel.area === "std", `Back undoes the last step: Hexagon on the 75-station grid (${v.lens}, ${v.sel.area})`);
+  check((await text(".va-name")).includes("Hexagon") && (await page.evaluate(() => [...document.querySelectorAll(".ws-opt input")][1]?.checked)), "and the panel shows it");
+  await page.goBack(); await sleep(800); await idle();
+  v = await view();
+  check(v.lens === "hex" && !v.sel.area, `Back again: Hexagon, no area (${v.lens}, ${v.sel.area})`);
+  await page.goBack(); await sleep(800); await idle();
+  check((await view()).lens === "station", `Back again: Stations (${(await view()).lens})`);
+  await page.goForward(); await sleep(800); await idle();
+  check((await view()).lens === "hex", "Forward: Hexagon");
   noErrors("history");
 });
 
 C("pool_datasets", async () => {
-  await ready(`var=temperature`); await closeWhat();
+  await ready(`var=temperature&years=2010-2019`); await closeWhat();
   const v = await view();
   check(v.sel.datasets?.length === 1, `one dataset by default (${v.sel.datasets})`);
   if (await exists(".ds-c-sel:not([disabled])")) {
@@ -587,12 +595,12 @@ C("tour", async () => {
     await page.evaluate(() => window.__tour()); await sleep(900);
     let steps = 0, missing = [];
     for (let i = 0; i < 40; i++) {
-      const s = await page.evaluate(() => { const d = window.__tourDriver; if (!d) return null; const st = d.getActiveStep?.(); const el = d.getActiveElement?.(); const r = el?.getBoundingClientRect?.(); return { t: st?.popover?.title ?? "", el: st?.element ?? null, found: !!el && el.id !== "driver-dummy-element" && r && r.width > 0, last: !d.hasNextStep() }; });
+      const s = await page.evaluate(() => { const d = window.__tourDriver; if (!d) return null; const st = d.getActiveStep?.(); const el = d.getActiveElement?.(); const r = el?.getBoundingClientRect?.(); return { t: st?.popover?.title ?? "", el: st?.element ? "anchor" : null, found: !!el && el.id !== "driver-dummy-element" && r && r.width > 0, last: !d.hasNextStep() }; });
       if (!s) break;
       steps++;
       if (s.el && !s.found) missing.push(`${s.t} (${s.el})`);
       if (s.last) break;
-      await page.evaluate(() => window.__tourDriver.moveNext()); await sleep(700);
+      await page.evaluate(() => document.querySelector(".driver-popover-next-btn")?.click()); await sleep(1100);   // Next, as a person clicks it: the step's own before() runs
     }
     check(steps > 3, `${ui} tour: ${steps} steps`);
     check(!missing.length, `${ui} tour: every step finds its element${missing.length ? ` — missing ${missing.join("; ")}` : ""}`);

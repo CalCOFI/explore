@@ -1143,6 +1143,10 @@ export function App() {
     const pad = (b: [number, number, number, number] | null, k: string) => b ? { key: k, bbox: b } : null;
     if (sel.lens === "region") {
       const withData = layerFeatures.filter((f) => regionStats.has(f.properties.spatial_key));
+      // a map already moved to some of these regions stays where it is (review 2026-11-16: "By region" zoomed a close look at
+      // the Channel Islands out to the whole coast); from the home view, or nowhere near them, it frames them as before
+      const vb = sel.map ? (window as any).__map?.getBounds?.() : null;
+      if (vb && (withData.length ? withData : layerFeatures).some((f) => { const fb = featuresBbox([f]); return !!fb && fb[0] < vb.getEast() && fb[2] > vb.getWest() && fb[1] < vb.getNorth() && fb[3] > vb.getSouth(); })) return null;
       const b = featuresBbox(withData.length ? withData : layerFeatures);
       return pad(b, `region|${sel.layer}|${withData.length ? "data" : "none"}`);
     }
