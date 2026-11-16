@@ -237,25 +237,41 @@ export function LineStation(p: { lines: number[]; stationsOf: (line: number) => 
 }
 
 // ── the Download bar ───────────────────────────────────────────────────────────────────────────────────
-/** how many rows, one prominent Download CSV (the filtered observations), a ▾ for the other formats, and the two small
- *  links people reach for next. The zip package lives only in the ▾ — it used to be a second, competing button */
-export function DownloadBar(p: { count: ReactNode; sub?: ReactNode; busy: string | null; disabled: boolean; onCsv: () => void; onZip: () => void; onCopy: (k: "sql" | "r" | "py") => void; onCite: () => void; onLink: () => void; onReset?: () => void; zerosOpt?: { checked: boolean; onChange: (b: boolean) => void } | null }) {
+/** how many rows, one prominent Download CSV (the data behind the view, filters applied) with the Zip package beside it,
+ *  and a row of small tools: How to cite, Copy link and More ▾ — the picture of the whole view, the numbers it shows, the
+ *  citation as text or BibTeX, the code, and the SQL & timing card. It stays pinned to the panel's bottom (style.css), so
+ *  it is reachable without scrolling whatever the steps above it hold. */
+export interface DownloadMore { picture: (how: "copy" | "download") => void; numbers: () => void; numbersLabel: string; cite: (kind: "text" | "bibtex") => void; timing: () => void; timingOn: boolean }
+export function DownloadBar(p: { count: ReactNode; sub?: ReactNode; busy: string | null; disabled: boolean; onCsv: () => void; onZip: () => void; onCopy: (k: "sql" | "r" | "py") => void; onCite: () => void; onLink: () => void; onReset?: () => void; zerosOpt?: { checked: boolean; onChange: (b: boolean) => void } | null; more?: DownloadMore }) {
+  const m = p.more;
+  const moreItems: MenuItem[] = [
+    ...(m ? [
+      { label: "Picture of the view", icon: "ui-image" as IconName, hint: "PNG, stamped with the selection and link", onSelect: () => m.picture("download") },
+      { label: "Copy the picture", icon: "ui-copy" as IconName, hint: "to the clipboard", onSelect: () => m.picture("copy") },
+      { label: "Numbers shown", icon: "ui-data" as IconName, hint: m.numbersLabel, onSelect: m.numbers },
+      { label: "Copy the citation", icon: "ui-cite" as IconName, hint: "plain text, every dataset in view", onSelect: () => m.cite("text") },
+      { label: "Copy BibTeX", icon: "ui-code" as IconName, hint: "one @misc per dataset", onSelect: () => m.cite("bibtex") },
+    ] : []),
+    { label: "Copy SQL", icon: "ui-code", hint: "the query this view ran", onSelect: () => p.onCopy("sql") },
+    { label: "Copy R code", icon: "ui-code", onSelect: () => p.onCopy("r") },
+    { label: "Copy Python code", icon: "ui-code", onSelect: () => p.onCopy("py") },
+    ...(m ? [{ label: m.timingOn ? "Hide SQL & timing" : "Show SQL & timing", icon: "ui-sql" as IconName, hint: "the queries and how long they took", onSelect: m.timing, selected: m.timingOn }] : []),
+  ];
   return (
     <div className="dl-foot" data-tour="share">
       <div className="dl-count"><b>{p.count}</b></div>
       {p.sub && <div className="dl-sub">{p.sub}</div>}
       <div className="dl-split">
-        <button type="button" className="dl-main" disabled={p.disabled || !!p.busy} onClick={p.onCsv} title="every observation behind this view, with your filters applied, as one CSV">
+        <button type="button" className="dl-main" disabled={p.disabled || !!p.busy} onClick={p.onCsv} title="the data behind this view: every observation, with your filters applied, as one CSV">
           <Icon name="ui-download" />{p.busy ?? "Download CSV"}</button>
-        <button type="button" className="dl-zip" disabled={p.disabled || !!p.busy} onClick={p.onZip} title="everything as a package: the data, the citation, and the exact SQL, R and Python"><Icon name="ui-download" size="0.9rem" />Zip</button>
+        <button type="button" className="dl-zip" disabled={p.disabled || !!p.busy} onClick={p.onZip} title="everything as a package: the data, the numbers shown, the citation, and the exact SQL, R and Python"><Icon name="ui-download" size="0.9rem" />Zip</button>
       </div>
       {p.zerosOpt && <label className="dl-zeros" title="a sampled tow with no catch is a row with a value of 0 and no observation ID — most rows of a common species"><input type="checkbox" checked={p.zerosOpt.checked} onChange={(e) => p.zerosOpt!.onChange(e.target.checked)} />Include tows with no catch</label>}
       <div className="dl-tools">
         <button type="button" className="dl-tool" onClick={p.onCite} title="the sources and citations for this view"><Icon name="ui-cite" size="0.95rem" />How to cite</button>
         <button type="button" className="dl-tool" onClick={p.onLink} title="copy a link that reopens this exact view"><Icon name="ui-link" size="0.95rem" />Copy link</button>
-        <Menu className="dl-tool-menu" icon="ui-code" label="Code" align="right" title="copy the code that reproduces this view"
-          items={[{ label: "Copy SQL", icon: "ui-code", hint: "the query this view ran", onSelect: () => p.onCopy("sql") }, { label: "Copy R code", icon: "ui-code", onSelect: () => p.onCopy("r") }, { label: "Copy Python code", icon: "ui-code", onSelect: () => p.onCopy("py") }]} />
-        {p.onReset && <button type="button" className="dl-tool" onClick={p.onReset} title="back to the defaults: Stations, all years, all seasons, all depths, everywhere, every dataset — keeps your variable">Reset all</button>}
+        <Menu className="dl-tool-menu dl-more" icon="ui-more" label="More" align="right" title="the picture of the view, the numbers shown, the citation as text or BibTeX, the code, and the SQL & timing" items={moreItems} />
+        {p.onReset && <button type="button" className="dl-tool" onClick={p.onReset} title="back to the defaults: Stations, all years, all seasons, all depths, everywhere — keeps your pick">Reset all</button>}
       </div>
     </div>);
 }

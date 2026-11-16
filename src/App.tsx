@@ -2445,7 +2445,10 @@ export function App() {
             return <>{w}<span style={{ fontWeight: 400 }}>{rest}</span></>; })()
         : countLabel ?? `${fmtN(inView)} ${countWord}`) : isErrStatus(status) ? plainStatus(status) : ""}
       zerosOpt={sel.realm === "bio" && sel.zeros && nFilled > 0 ? { checked: csvZeros, onChange: setCsvZeros } : null} busy={bundling} disabled={!sliceKey || areaPending} onCsv={downloadCsv} onCite={openSources} onLink={() => { copyLink(); trackEvent("share", { kind: "link" }); }}
-      onZip={download} onCopy={(k) => copy(k)} />
+      onZip={download} onCopy={(k) => copy(k)}
+      more={{ picture: (how) => shareImage(how), numbers: () => saveFigure("map", "csv")(), numbersLabel: `CSV, one row per ${sel.lens === "hex" ? "hexagon" : sel.lens === "region" ? "region" : sel.lens === "cruise" ? "sample on the track" : sel.lens === "section" ? "section cell" : "station"} as the map draws it`,
+        cite: (k) => { copyCite(k); trackEvent("share", { kind: k === "bibtex" ? "bibtex" : "cite" }); }, timingOn: advanced && !minCards.timing,
+        timing: () => { if (advanced && !minCards.timing) setAdvanced(false); else { setAdvanced(true); openCard("timing"); } } }} />
     {!desk && <section className="group more-group" data-group="more">
       <button type="button" className="more-toggle" aria-expanded={more} onClick={() => setMore(!more)} title={`${more ? "fold" : "open"} the extra controls — they stay as you leave them`} data-tour="denominator"><Icon name={more ? "ui-down" : "ui-right"} size="0.95rem" /><b>More options</b><span>· {STAT_LABEL[stat]}{sel.realm === "bio" && sel.den ? ` · ${({ per_10m2: "per 10 m²", per_1000m3: "per 1000 m³", raw: "raw count" } as Record<string, string>)[sel.den]}` : ""}</span></button>
       {more && <div className="more-body">{!lensInline && lensOptions}{phone && depthGroup}{moreInner}</div>}
@@ -2548,8 +2551,9 @@ export function App() {
     const el = panelElOf(id); if (!el) throw new Error(`${id}: nothing to export`);
     return { blob: await canvasBlob(await captureView({ root: el, stamp: st })), name }; // the station card: several mini plots -> the DOM capture
   };
+  const saveFigure = (id: FigureId, kind: "png" | "svg" | "csv") => async () => { try { const f = await figure(id, kind); saveBlob(f.blob, f.name); setStatus(`saved ${f.name}`); trackEvent("export", { panel: id, kind }); } catch (e: any) { setStatus(`export failed: ${e.message}`); } };
   const exportItems = (id: FigureId): MenuItem[] => {
-    const go = (kind: "png" | "svg" | "csv") => async () => { try { const f = await figure(id, kind); saveBlob(f.blob, f.name); setStatus(`saved ${f.name}`); trackEvent("export", { panel: id, kind }); } catch (e: any) { setStatus(`export failed: ${e.message}`); } };
+    const go = (kind: "png" | "svg" | "csv") => saveFigure(id, kind);
     const items: MenuItem[] = [{ label: "PNG", icon: "ui-image", hint: id === "map" ? "the map and its title, 2×, with the selection and release stamped" : "2×, with the selection and release stamped", onSelect: go("png") }];
     if (id !== "station" && id !== "timing" && id !== "map") items.push({ label: "SVG", icon: "ui-code", hint: "vector, for papers", onSelect: go("svg") });
     items.push({ label: "CSV", icon: "ui-data", hint: id === "timing" ? "the timing marks" : id === "map" ? `the ${sel.lens === "cruise" ? "samples on the track" : `${LENS_SHORT[sel.lens].toLowerCase()} summary`} the map draws (the bundle's, too)` : "this panel's table (the bundle's, too)", onSelect: go("csv") });

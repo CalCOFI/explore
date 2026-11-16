@@ -766,8 +766,6 @@ a.lic:hover { color: var(--accent); border-color: var(--accent); }
 .dl-split { display: flex; align-items: stretch; }
 .dl-main { all: unset; box-sizing: border-box; flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 9px 12px; background: var(--accent); color: #fff; font-size: 14px; font-weight: 600; border-radius: 6px 0 0 6px; cursor: pointer; }
 .dl-main:hover:not(:disabled) { filter: brightness(1.1); } .dl-main:disabled { opacity: .55; cursor: default; }
-.dl-more .menu-btn { height: 100%; border-radius: 0 6px 6px 0; border: 0; border-left: 1px solid color-mix(in srgb, #fff 35%, transparent); background: var(--accent); color: #fff; padding: 0 10px; }
-.dl-more { display: flex; }
 .dl-links { display: flex; gap: 8px; justify-content: center; font-size: 12px; color: var(--muted); }
 /* the view rail: the map's right edge, under the zoom · layers · export row */
 .view-rail { position: absolute; right: 10px; top: 48px; z-index: var(--z-pills); width: 88px; display: flex; flex-direction: column; gap: 4px; padding: 6px; max-height: calc(100% - 140px); overflow-y: auto; background: color-mix(in srgb, var(--panel) 94%, transparent); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 3px 12px color-mix(in srgb, var(--fg) 14%, transparent); }
@@ -824,7 +822,6 @@ a.lic:hover { color: var(--accent); border-color: var(--accent); }
 .lean-steps .dl-count { font-size: 13px; }
 .lean-steps .dl-count b { font-size: 15px; }
 .lean-steps .dl-main { padding: 13px 14px; font-size: 15px; border-radius: 9px 0 0 9px; }
-.lean-steps .dl-more .menu-btn { border-radius: 0 9px 9px 0; }
 .lean-steps .dl-links { gap: 18px; font-size: 13px; }
 .lean-steps .more-group { border-top: 0; padding-top: 0; }
 
@@ -1777,6 +1774,9 @@ body.driver-active .sum-row:has(.sp-list) { padding-bottom: 116px; }
 
 /* v196: the action row lines up with the button above — first icon on its left edge, last chevron on its right */
 .dl-tools { margin: 0 -6px; padding-bottom: 2px; }
+/* the Download area stays pinned to the bottom of the Find-data panel, reachable without scrolling (review 2026-11-16: it sat
+   below the fold under the steps); the steps scroll above it */
+.lean-steps > .dl-foot { position: sticky; bottom: -14px; z-index: 3; margin-top: auto; margin-bottom: -14px; padding-bottom: 14px; background: var(--panel); box-shadow: 0 -8px 10px -8px color-mix(in srgb, var(--fg) 22%, transparent); }
 
 /* v197: dark mode — near-white, not light blue, on the main actions and the selected states. The step numbers, links and icons stay blue. */
 :root[data-theme="dark"] { --wh: #f4f8fc; --wh-on: #0d2238; }

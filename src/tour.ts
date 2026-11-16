@@ -68,7 +68,7 @@ export const TOUR_STEPS: TourStep[] = [
   { id: "layers", element: q('[data-tour="layers"]'), side: "left", align: "end", title: "Layers — the sea floor, and the boundaries you can draw on top",
     description: "The sea floor is GEBCO 2025 — shaded relief, depth colour and isobaths — under the OpenStreetMap coast, and the registry's boundary and reference layers (EEZ, sanctuaries, MPAs, counties, undersea feature names …) stack over it in the order you set. Every choice lands in the URL, so a shared link reopens the same map." },
   { id: "share", element: q('[data-tour="share"]'), side: "right", align: "end", title: "Download and share",
-    description: "Download CSV gives the table behind the view. Zip beside it is the full package: the data, the citations, and the exact SQL, R and Python to reproduce it. Copy SQL, R or Python puts that code on your clipboard. How to cite opens the sources and citations; Copy link shares the whole view, map extent included.",
+    description: "Download CSV gives the data behind the view, every filter applied. Zip beside it is the full package: the data, the numbers shown, the citations, and the exact SQL, R and Python to reproduce it. More holds a picture of the view, the numbers the map shows, the citation as text or BibTeX, the code and the SQL & timing card. How to cite opens the sources; Copy link shares the whole view, map extent included.",
     before: (a) => { rail(a, "select"); if (a.phone) a.expand("export"); }, wait: 300 },
   // the anchor is the feedback button now that it has left the Help menu; Help ▾ sits immediately left of it, so the
   // popover covers both. `q()` falls back to Help if the button is ever hidden, so the step always has a real element.
