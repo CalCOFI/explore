@@ -974,8 +974,10 @@ export function App() {
     let live = true;
     const ep = { track_src: q(REG.sample_track), root_src: q(REG.sample_root), ym0: params.ym0, ym1: params.ym1, quarter_filter: params.quarter_filter, dataset_filter: params.dataset_filter, area_filter: params.area_filter, cruise_filter: params.cruise_filter, cruise: effortCruise };
     // the path's month is the cruise's median cast month where the release's cruise table carries it, as the slice's
+    // a one-hexagon area filters on hex7: the path takes its sample_root row's cell, when the release carries one
     Promise.all([ensure(REG.sample_track), ensure(REG.sample_root), probeCruiseMedian()])
-      .then(([, , median]) => engine.query("effort_track", median ? { ...ep, cruise_src: cruiseSrcSql(q(REG.cruise)) } : ep))
+      .then(async ([, , median]) => ({ median, hex7: await (rootHex7Ref.current ??= engine.exec(`SELECT count(*) AS n FROM (DESCRIBE SELECT * FROM ${q(REG.sample_root)}) WHERE column_name = 'hex7'`, "probe:sample_root.hex7").then((r) => Number(r[0]?.n) > 0)) }))
+      .then(({ median, hex7 }) => engine.query("effort_track", { ...ep, ...(median ? { cruise_src: cruiseSrcSql(q(REG.cruise)) } : {}), track_hex7: hex7 ? "r.hex7" : "NULL::UBIGINT" }))
       .then((r) => { if (live) setEffortPaths(toEffortPaths(r as unknown as EffortRow[])); })
       .catch((e) => { console.warn("sample_track:", e.message); if (live) setEffortPaths([]); });
     return () => { live = false; };

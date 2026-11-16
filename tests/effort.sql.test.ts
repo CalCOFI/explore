@@ -4,6 +4,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { render, cruiseFilterSql, datasetFilterSql, type Params } from "../src/sqltpl";
 import { effortPath, effortPaths, effortSummary, type EffortRow } from "../src/effort";
 import { openDuck, type Duck } from "./helpers/duck";
+import { latLngToCell } from "h3-js";
+import { areaSql } from "../src/area";
 
 const DS = "sio_cetacean-sightings";
 let db: Duck;
@@ -75,6 +77,16 @@ describe("effort_track.sql — sample_track placed by sample_root, filtered with
   it("the Area filter reads the midpoint (latitude / longitude) and the root row (grid_key)", () => {
     expect(keys({ area_filter: "(latitude BETWEEN 32.5 AND 34 AND longitude BETWEEN -120 AND -118)" })).toEqual(["other_ds:transect:9"]);
     expect(keys({ area_filter: "grid_key IN ('st60-ln90')" })).toEqual(["other_ds:transect:9", `${DS}:transect:1`, `${DS}:sighting:11`]);
+  });
+  // review 2026-11-16: a one-hexagon area (area=hx:) filters on hex7, which sample_track has no column for — the query
+  // failed ("hex7 not found") and the layer went empty. The path takes its root row's cell (a sight line its segment's)
+  it("a one-hexagon area reads the root row's hex7: the segment in that cell and its sight line", () => {
+    const cell = latLngToCell(32.0, -120.0, 7), other = latLngToCell(31.5, -121.0, 7);
+    db.exec(`CREATE OR REPLACE TABLE root7 AS SELECT *, (CASE root_id WHEN 1 THEN ${BigInt("0x" + cell)} WHEN 2 THEN ${BigInt("0x" + other)} END)::UBIGINT AS hex7 FROM root`);
+    const hx = (over: Params) => db.exec(render("effort_track", P({ root_src: "root7", area_filter: areaSql({ kind: "hex", cell }, { gridKeys: null, spatialSrc: "" })!, ...over }))).map((r) => r.sample_key);
+    expect(hx({ track_hex7: "r.hex7" })).toEqual([`${DS}:transect:1`, `${DS}:sighting:11`]);
+    // a release whose sample_root has no hex7: the query still runs, and places nothing in the hexagon
+    expect(keys({ area_filter: areaSql({ kind: "hex", cell }, { gridKeys: null, spatialSrc: "" })! })).toEqual([]);
   });
 });
 
