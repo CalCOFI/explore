@@ -338,13 +338,15 @@ export function toUrl(s: Sel) {
   if (s.lens === "hex") p.set("res", String(s.res));
   if (s.lens === "contour") { if (s.interp !== DEFAULTS.interp) p.set("interp", s.interp); if (s.surface !== DEFAULTS.surface) p.set("surface", s.surface); if (s.grain !== DEFAULTS.grain) p.set("grain", s.grain); if (s.inputs != null) p.set("inputs", s.inputs ? "on" : "off"); if (!s.labels) p.set("labels", "off"); }
   if (s.realm === "env") p.set("var", s.var);
-  if (s.var2) p.set("var2", s.var2);
   else {
     p.set("taxon", s.taxon);
     if (s.stage) p.set("stage", s.stage);
     if (s.den) p.set("den", s.den);
     if (!s.zeros) p.set("zeros", "0");
   }
+  // the added variable is its own parameter, beside either realm's pick (it sat between the realm's if and its else, so a
+  // species with an added variable lost its taxon, stage, units and zeros from the link, and a variable gained a taxon)
+  if (s.var2) p.set("var2", s.var2);
   if (s.years[0] !== 1949 || s.years[1] !== YEAR_OPEN || s.months) p.set("years", fmtYears(s.years, s.months));
   if (s.q?.length && s.q.length < 4) p.set("q", s.q.join(","));
   if (s.yview && s.yview[1] > s.yview[0]) p.set("yview", `${+s.yview[0].toFixed(2)}-${+s.yview[1].toFixed(2)}`);
