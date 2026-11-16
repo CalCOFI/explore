@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **fix: the Find data panel always runs the map's full height.** A resize from its corner stored a height in the
+  browser for that window size, and from then on the panel opened short (Ben 2026-11-16: 555 px of an 800 px map), with
+  nothing on screen saying why; only a double-click on its bar reset it. In the lean layout its height is never
+  remembered now: a resize changes its width only (the top and bottom edges no longer resize it), and a height stored
+  by an earlier resize is ignored. Classic and the phone are unchanged.
+
 - **a dot of the Observations layer opens what was recorded there, and when** (Ben 2026-11-16, on the cetacean
   sightings preview: a sighting could not be clicked to see the species). A click on a site (`obs=`) opens a card pinned
   to it: each sample there — a sighting, a net, a cast — with its date and time on the Pacific clock (PST / PDT; UTC in
