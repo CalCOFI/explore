@@ -246,6 +246,38 @@ measurements, by station, hexagon or region, with no code. It answers Rasmus Swa
   0 to 20 m. The Explorer's own depth filter (`sql/_filters.sql`) still includes it.
 - One table takes up to 40 columns (`MAX_PICKS`): each is a slice in the browser's memory.
 
+### The Query Builder's own address (`/query/`)
+
+The code stays here (`src/builder/` imports the Explorer's engine, SQL templates, export, citation and area modules);
+the page gets its own address, **https://calcofi.io/query/**, served by the thin repo
+[CalCOFI/query](https://github.com/CalCOFI/query), whose Pages workflow checks this repo out and builds only the
+Query Builder. `src/queryurl.ts` holds the rules, `tests/queryurl.test.ts` pins them.
+
+| build | what it makes |
+|---|---|
+| `npm run build` | `dist/`: the Explorer (`index.html`) and the Query Builder beside it (`builder.html`), as before |
+| `npm run build:query` (`VITE_APP=query`) | `dist-query/`: the Query Builder alone, as `index.html`, with `rel=canonical` to its live address. Its own script is 700 kB (208 kB gzipped) and 12 kB of CSS, against the Explorer's 7,130 kB (2,127 kB) and 237 kB; both ship the same DuckDB-WASM. Set `VITE_BASE=/query/` |
+| `VITE_QUERY_URL=https://calcofi.io/query/ npm run build` | `dist/` with `builder.html` as a small **redirect page** (`redirectHtml()`): it goes to that address carrying `location.search` and `location.hash` unchanged, so the dataset pages' `?pick=…&rows=sample&stations=all&download=1` links and anything already shared still land and still download; `noindex`, canonical to the new address, a plain link without JavaScript. The Query Builder is not built into `dist/` at all |
+
+- **Links between the two, one place each** (`src/links.ts`): the Explorer's link to the Query Builder is `QUERY_URL`
+  (`VITE_QUERY_URL`, else `./builder.html`); the Query Builder's link to the Explorer is `EXPLORE_URL` (`./` beside
+  it; from its own build `<VITE_SITE_URL>explore/`, or `VITE_EXPLORE_URL`).
+- **The Explorer links to the Query Builder** under its downloads (*Build a table across datasets · Query Builder*; the
+  lean panel's download area, the classic *Share* tab, and the same line on a phone). The link carries the view's
+  species or measurement, once per dataset in view, and the lens when it is Stations, Hexagons or Regions
+  (`viewPicks()`, `viewLens()`). It does not carry the years, seasons, depth, area, life stage, units or an added
+  variable: the builder's links take picks and a shape only, and the link's title says so. A measurement the builder
+  does not list (one value per cast) opens it with nothing picked.
+- **The SQL console had `/query/` first**: from 2026-08-10 calcofi.io/query/ sent readers on to `/db-query/`. The
+  Query Builder's head therefore says *Prefer to write SQL? db-query* (`SQL_CONSOLE`).
+- **Going live, in order**: (1) create CalCOFI/query with Pages and let it deploy, then delete the site repo's
+  `query/index.html` (the old redirect to `/db-query/`); (2) check https://calcofi.io/query/ answers with the Query
+  Builder; (3) deploy the site with its links to `/query/`; (4) set the repository variable `VITE_QUERY_URL` to
+  `https://calcofi.io/query/` here and re-run `pages`, which turns `/explore/builder.html` into the redirect. Until
+  (4) both addresses serve the app. Setting the variable before (2) would redirect the old address to the SQL console.
+- A push here does not start CalCOFI/query's workflow by itself: it runs on a daily schedule, on demand, and on a
+  `repository_dispatch` of type `explore-updated` (its README has the one step this repo's `pages.yml` would need).
+
 ### How a net is matched to a cast
 
 Ben, 2026-11-17: "We need a time, xy distance, z depth filter for matching, and preference for matching by time vs
@@ -424,6 +456,7 @@ node scripts/verify.mjs http://localhost:5178/ shots/dev --only=<regex>   # driv
 node scripts/verify.mjs http://localhost:5179/ shots/prod --timing        # + cold/warm lens timings
 node scripts/bundle_check.mjs http://localhost:5178/ shots/bundle          # download two bundles and list them
 node scripts/builder_check.mjs http://localhost:4047/ shots/builder        # the Query Builder against the live release (npx vite preview --port 4047)
+node scripts/builder_check.mjs http://localhost:4047/explore/ shots/builder --builder=/query/   # the same, at its own address; old_address follows the redirect
 node scripts/lean_check.mjs http://localhost:4047/ shots/lean              # the lean panel, every view and download, and the brand's header
 node scripts/card_shots.mjs ~/Github/CalCOFI/CalCOFI.github.io/images     # the two themed card screenshots
 node scripts/tour_shots.mjs http://localhost:5179/ shots/tour              # the docs/deck pictures: a lens each + the UI close-ups
@@ -520,7 +553,8 @@ page reads `{prefix}/latest.txt` → `{prefix}/{version}/catalog.json` (plus the
 `coverage_stations.json`, `grid.geojson` and `spatial.geojson` sidecars) and every object by its catalog
 path — never a hand-built `releases/{v}/parquet/` path. The build has two entries (`vite.config.ts`
 `rollupOptions.input`): `index.html`, the Explorer, and `builder.html`, the Query Builder, published side by
-side as `/explore/` and `/explore/builder.html`.
+side as `/explore/` and `/explore/builder.html`. Once the repository variable `VITE_QUERY_URL` is set,
+`builder.html` is a redirect to the Query Builder's own address (§ The Query Builder's own address).
 
 ### The layers registry (where it lives)
 

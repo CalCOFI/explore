@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **the Query Builder can live at its own address, calcofi.io/query/** (Ben, 2026-11-17: "can we move the Query
+  Builder to its own dedicated 'query'? And then cross-link"). The code stays in this repo; the thin repo
+  CalCOFI/query builds it from here.
+  - `npm run build:query` (`VITE_APP=query`) builds the Query Builder alone into `dist-query/` as `index.html`: 700 kB
+    of script (208 kB gzipped) against the Explorer's 7,130 kB (2,127 kB), plus the DuckDB-WASM both ship.
+  - With `VITE_QUERY_URL` set on the Explorer's build, `builder.html` is a redirect page to that address that
+    carries the link's query string and fragment, so every `?pick=…&download=1` link still lands and downloads.
+    Unset (the default, and the deploy until the repository variable says otherwise), nothing changes.
+  - **The Explorer links to the Query Builder** for the first time: *Build a table across datasets · Query Builder*
+    under the downloads, carrying the view's species or measurement (one pick per dataset in view) and its lens.
+  - The Query Builder's head says *Prefer to write SQL? db-query*: `/query/` was the SQL console's address first.
+  - `src/queryurl.ts`, `src/links.ts`, `tests/queryurl.test.ts`; `old_address` in `scripts/builder_check.mjs`
+    (`--builder=<path>` runs every case at the new address), `query_link` in `scripts/lean_check.mjs`.
+  - **Deploy order** in README § The Query Builder's own address.
+
 - **Query Builder: every sample is one row per net, with each water dataset's nearest cast beside it** (Ben,
   2026-11-17: "a time, xy distance, z depth filter for matching, and preference for matching by time vs distance,
   and the calculation included in each row"). Under Stations › Every sample with a species picked:

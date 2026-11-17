@@ -3,7 +3,10 @@
 // a region chosen, every hexagon size, an empty result, a phone-width window, both themes, and the keyboard — and every CSV
 // opened and checked against what the page said. Re-runnable; prints ok / FAIL per check and exits 1 on any FAIL.
 //   npm run build && npx vite preview --port 4047 &
-//   node scripts/builder_check.mjs [baseUrl] [outDir] [--only=regex] [--headed]
+//   node scripts/builder_check.mjs [baseUrl] [outDir] [--only=regex] [--headed] [--builder=<path or URL>]
+// THE ADDRESS: baseUrl is the Explorer's folder and the Query Builder is builder.html in it — unless --builder names its
+// own address, a path on the same host (--builder=/query/) or a full URL. Every case then runs against that address, and
+// old_address checks that builder.html under baseUrl redirects there with a link's picks (a build with VITE_QUERY_URL).
 // Brand v3 (the default build since 2026-11-17) loads its header from VITE_BRAND_URL: until calcofi.io/brand/v3/ is live,
 // check a build made with VITE_BRAND_URL pointing at a served copy of the site's brand/ folder (README § Brand), or a
 // VITE_BRAND=v2 build, on which brand_header reports and skips.
@@ -37,7 +40,10 @@ const IGNORE = /favicon|plausible|ERR_BLOCKED|net::ERR_ABORTED|Failed to load re
 const SARDINE = "bio:swfsc_ichthyo:worms:217452", TEMP = "env:calcofi_bottle:temperature", TEMP_CTD = "env:calcofi_ctd-cast:temperature";
 /** the ending a water dataset's match columns carry in a CSV (the same its measurements carry): "_hydrographic_bottle" */
 const castSfx = (head, re) => (head.find((h) => /^cast_id_/.test(h) && re.test(h)) ?? "cast_id_none").slice("cast_id".length);
-const link = (picks, extra = "") => `${base}builder.html${picks.length ? "?" + picks.map((p) => "pick=" + encodeURIComponent(p)).join("&") : ""}${extra}`;
+// the Query Builder's address: its own (--builder) or builder.html beside the Explorer; OLD is always the latter
+const OLD = `${base}builder.html`, BUILDER = opt.builder && opt.builder !== true ? new URL(opt.builder, base).href : OLD;
+const linkAt = (at, picks, extra = "") => `${at}${picks.length ? "?" + picks.map((p) => "pick=" + encodeURIComponent(p)).join("&") : ""}${picks.length ? extra : extra.replace(/^&/, "?")}`;
+const link = (picks, extra = "") => linkAt(BUILDER, picks, extra);
 
 async function open(url, viewport = DESK) {
   if (page) await page.close().catch(() => {});
@@ -130,6 +136,9 @@ const cases = {
     // brand v3 (2026-11-17): the crumb and the h1 are in the wave band (.tb-title in both layouts); a v2 build keeps the crumb in .tb-hd
     check(/Query Builder/.test((await text(".tb-title .crumb")) ?? (await text(".tb-hd .crumb"))) && (await text(".tb-title h1")) === "Query Builder", "crumb and heading say Query Builder");
     check((await selected()) === 2, "the link's two picks are ticked (2 selected)");
+    // the SQL console had the address /query/ before this page did: one plain link for a reader who came for it
+    const sqlc = await page.evaluate(() => { const a = document.querySelector("a[data-sql-console]"); if (!a) return null; const r = a.getBoundingClientRect(); return { href: a.href, said: a.closest("p, nav")?.textContent ?? "", shown: r.width > 0 && r.height > 0 }; });
+    check(!!sqlc && sqlc.shown && sqlc.href === "https://calcofi.io/db-query/" && /SQL/.test(sqlc.said), `a plain link to the SQL console: “${(/Prefer[^.]*/.exec(sqlc?.said ?? "") ?? [sqlc?.said])[0]}” → ${sqlc?.href}`);
     // REGRESSION (2026-11-17): the first Show preview, clicked before the datasets' names had arrived, built a table that was
     // stale the moment they did, so nothing appeared until a second click
     const p = await preview(120000);
@@ -171,6 +180,28 @@ const cases = {
     check(!!c && !c.head.some((h) => /^cast_/.test(h)), "a species alone carries no cast columns");
     check(!(await page.$(".tb .match")), "and the page shows no “Match water to each net” group (there is no water to match)");
     check((await page.evaluate(() => document.querySelector('.tb select[aria-label="Stations"]').value)) === "all", "and Stations reads Every station");
+    noErrors();
+  },
+  // ── the Query Builder's own address: the old one (builder.html beside the Explorer) redirects with the link's picks ──
+  async old_address() {
+    const html = await (await fetch(OLD)).text();
+    if (!/location\.replace\(/.test(html) || /id="root"/.test(html)) { pass(`${OLD.replace(/^https?:\/\/[^/]+/, "")} is the app itself in this build (no VITE_QUERY_URL): nothing to redirect (old_address skipped)`); return; }
+    check(/<meta name="robots" content="noindex">/.test(html) && /<link rel="canonical" href="https:\/\/calcofi\.io\/query\/">/.test(html) && /<a href="[^"]+">/.test(html), "the old address is a redirect page: noindex, canonical https://calcofi.io/query/, and a plain link");
+    const extra = "&rows=sample&stations=all&download=1";
+    await open(linkAt(OLD, [SARDINE], extra));
+    const a = await download(120000, false), at = await page.evaluate(() => location.href);
+    const moved = new URL(at), old = new URL(OLD);
+    check(moved.pathname !== old.pathname && /\/$/.test(moved.pathname), `a pick link opened at ${old.pathname} lands on ${moved.pathname}`);
+    check(moved.searchParams.get("pick") === SARDINE && moved.searchParams.get("rows") === "sample" && moved.searchParams.get("stations") === "all", `with its picks and shape (${moved.search})`);
+    check((await selected()) === 1 && (await page.evaluate(() => document.querySelector('.tb select[aria-label="Stations"]').value)) === "all", "the pick is ticked and Stations reads Every station");
+    check(!!a && a.n > 1000, `and its CSV downloads there (${a?.n.toLocaleString()} rows)`);
+    // the same link opened at the new address directly: the same file
+    await open(`${moved.origin}${moved.pathname}?pick=${encodeURIComponent(SARDINE)}${extra}`);
+    const b = await download(120000, false);
+    check(!!a && !!b && a.n === b.n && a.bytes === b.bytes && a.head.join() === b.head.join(), `the same CSV as from the new address itself (${b?.n.toLocaleString()} rows, ${b?.bytes.toLocaleString()} bytes both)`);
+    // a fragment and no query: both carried as they came
+    await page.goto(`${OLD}#x`, { waitUntil: "domcontentloaded" }); await page.waitForSelector(".tb .grp", { timeout: 60000 });
+    check((await page.evaluate(() => location.pathname + location.search + location.hash)) === `${moved.pathname}#x`, "a bare address with a fragment goes to the bare new address with it");
     noErrors();
   },
   async link_offgrid() {

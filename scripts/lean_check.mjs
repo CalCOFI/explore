@@ -563,6 +563,44 @@ C("var2", async () => {
   noErrors("var2");
 });
 
+// the way to the Query Builder (2026-11-17: the Explorer had no link to it): under the downloads, carrying the view's pick
+C("query_link", async () => {
+  const link = () => page.evaluate(() => { const e = document.querySelector("[data-query-link]"); if (!e) return null; e.scrollIntoView({ block: "nearest" }); const r = e.getBoundingClientRect();
+    return { href: e.href, raw: e.getAttribute("href"), text: e.innerText.replace(/\s+/g, " ").trim(), shown: r.width > 0 && r.height > 0, inFoot: !!e.closest(".dl-foot"), title: e.title }; });
+  await ready(`${SARDINE}&stage=larva&den=per_10m2`); await closeWhat();
+  let a = await link();
+  check(!!a && a.shown && a.inFoot && /Build a table across datasets/.test(a.text) && /Query Builder/.test(a.text), `the lean panel's download area links to the Query Builder: “${a?.text}” → ${a?.raw}`);
+  let u = new URL(a.href);
+  check(u.searchParams.getAll("pick").join() === "bio:swfsc_ichthyo:worms:217452" && u.searchParams.get("lens") === "station", `it carries the species from the dataset in view, and the lens (${u.search})`);
+  check(/years, seasons, depth and area are not carried/.test(a.title), "its title says what is not carried over");
+  await lens("Hexagon"); a = await link(); u = new URL(a.href);
+  check(u.searchParams.get("lens") === "hex", `Hexagon view: lens=hex (${u.search})`);
+  await lens("Cross-section"); a = await link(); u = new URL(a.href);
+  check(!u.searchParams.has("lens") && u.searchParams.getAll("pick").length >= 1, `Cross-section has no counterpart there: the pick, no lens (${u.search})`);
+  // a measurement held by two datasets: one pick each
+  await ready("var=temperature&years=2015-2019"); await closeWhat();
+  a = await link(); u = new URL(a.href);
+  const picks = u.searchParams.getAll("pick"), inView = (await view()).sel;
+  check(picks.length >= 1 && picks.every((p) => /^env:[^:]+:temperature$/.test(p)), `temperature: ${picks.join(", ")}`);
+  // follow it: the Query Builder opens with exactly those ticked (a pick it did not know would not be)
+  await page.goto(a.href, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".tb .grp", { timeout: 60000 });
+  const n = await page.evaluate(() => Number((/(\d+) selected/.exec(document.querySelector(".cols .chead .r")?.textContent ?? "") ?? [0, 0])[1]));
+  check(n === picks.length && (await page.title()) === "Query Builder · CalCOFI.io", `the link opens the Query Builder at ${new URL(await page.evaluate(() => location.href)).pathname} with ${n} of its ${picks.length} picks ticked`);
+  void inView;
+  // classic: under Download data in the Share tab; a phone: the same line in the panel's download area
+  await ready(`ui=classic&${SARDINE}`);
+  await clickText(".tabs [role=tab]", "Share"); await sleep(300);
+  a = await link();
+  check(!!a && a.shown && !a.inFoot && new URL(a.href).searchParams.getAll("pick").length === 1, `classic: the Share tab carries the same link (${a?.raw})`);
+  await ready("ui=lean");
+  await ready(`${SARDINE}`, PHONE); await closeWhat();
+  a = await link();
+  check(!!a && new URL(a.href).searchParams.getAll("pick").length === 1, `a phone: the link is in the panel's download area (${a ? (a.shown ? "drawn" : "in the folded panel") : "missing"})`);
+  await page.setViewport(DESK);
+  noErrors("query_link");
+});
+
 C("depth_band", async () => {
   await ready(`var=temperature&years=2010-2019`); await closeWhat();
   await click(".depth-row"); await sleep(400);
