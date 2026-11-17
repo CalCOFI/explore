@@ -2826,8 +2826,8 @@ export function App() {
         {/* feedback is an icon button beside the theme toggle — the shape calcofi.io and the docs book wear
             (CalCOFI.github.io/_layouts/default.html: .cc-icon-button.cc-feedback immediately left of .cc-theme-toggle),
             not an item buried under Help ▾: one place for it on every product, phone included */}
-        {/* brand v3: the brand's words (Data ▾ · Map ▾ · Query · Cite · Learn ▾ · FAQ · News · calcofi.org ↗). The nav is left
-            EMPTY: the brand's header.js draws the words into it from <brand>/v3/nav.json and runs the menus and this
+        {/* brand v3: the brand's words, whatever <brand>/v3/nav.json lists (calcofi.io's one list: Data, Map, Query, Cite …)
+            — never typed here. The nav is left EMPTY: the brand's header.js draws the words into it and runs the menus and this
             button (React renders no children here, so it never touches what the brand drew). */}
         {BRAND_HEADER && <nav className="cc-links cc-nav" id="cc-nav" data-cc-nav="" aria-label="Sections" />}
         {BRAND_HEADER && <button className="cc-icon-button cc-menu-button hdr" type="button" aria-label="Open the menu" aria-controls="cc-nav" aria-expanded="false" title="calcofi.io: data, maps, docs, news">

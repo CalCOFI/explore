@@ -798,7 +798,8 @@ C("what_sort", async () => {
 });
 
 // brand v3 (2026-11-17): the Explorer's bar keeps its own controls and wears the brand's — the menu button at every width,
-// whose words are the brand's (nav.json beside the brand's header.js), sentence case, and the wave strip under the bar —
+// whose words are the brand's (nav.json beside the brand's header.js: how many, which have a menu and where each goes are
+// READ from it, never typed here), sentence case, and the wave strip under the bar —
 // in the lean and the classic layout, on a tablet and a phone; and the map still gets exactly what is left of the window.
 C("brand_header", async () => {
   await ready(`${SARDINE}`); await closeWhat();
@@ -830,7 +831,7 @@ C("brand_header", async () => {
     check(h.oneRow && h.hdr.h <= 52, `${where}: the bar is one row (${h.hdr.h} px)`);
   };
   let h = await bar();
-  check(JSON.stringify(h.words) === JSON.stringify(want) && want.length === 8, `the menu's eight words are the brand's, from ${navUrl.replace(/^https?:\/\/[^/]+/, "")}: ${h.words.join(" · ")}`);
+  check(JSON.stringify(h.words) === JSON.stringify(want) && want.length >= 3, `the menu's ${want.length} words are the brand's, from ${navUrl.replace(/^https?:\/\/[^/]+/, "")}: ${h.words.join(" · ")}`);
   check(h.tt.length === 1 && h.tt[0] === "none" && h.title[1] === "none" && h.title[0] === "Explorer", `sentence case: the words and the title "${h.title[0]}" are not uppercased (text-transform ${h.tt.join(", ")} / ${h.title[1]})`);
   check(JSON.stringify(h.links) === JSON.stringify(lines), `every line links where the brand's list says (${h.links.length} links)`);
   check(!h.navShown && h.burger, "the bar keeps its own controls: the words are behind the menu button, at 1400 px too");
@@ -852,7 +853,8 @@ C("brand_header", async () => {
   check(c.onTop && JSON.stringify(h.map) === JSON.stringify(mapBefore), `the open menu lies over the map and the map does not move (map ${h.map.t}–${h.map.b})`);
   await shot("brand_menu_open");
   // a word with a menu inside the column is a heading there: its lines are already shown and say so
-  check(await page.evaluate(() => [...document.querySelectorAll("#cc-nav .cc-m2-t")].every((t) => t.getAttribute("aria-expanded") === "true")), "in the column each menu's word says its lines are shown (aria-expanded true)");
+  const nMenus = nav.words.filter((w) => w.menu).length;
+  check(await page.evaluate((n) => { const t = [...document.querySelectorAll("#cc-nav .cc-m2-t")]; return t.length === n && t.every((x) => x.getAttribute("aria-expanded") === "true"); }, nMenus), `in the column each of the ${nMenus} menus' words says its lines are shown (aria-expanded true)`);
   await page.keyboard.press("Escape"); await sleep(300);
   check(await page.evaluate(() => !document.querySelector(".cc-header").classList.contains("cc-nav-open") && document.activeElement === document.querySelector(".cc-menu-button")), "Escape closes it and focus is back on the menu button");
   // the feedback capture still draws the view, the strip included (html-to-image clones the bar and what follows it)

@@ -348,7 +348,8 @@ const cases = {
     noErrors();
   },
   // ── brand v3 (2026-11-17): the page wears calcofi.io's bar and wave ───────────────────────────────────────────────────
-  // The words are the brand's (nav.json beside the brand's header.js), in sentence case; a word with a menu opens on a
+  // The words are the brand's (nav.json beside the brand's header.js: how many, which open a menu and where each goes are
+  // READ from it, never typed here), in sentence case; a word with a menu opens on a
   // press and closes on Escape with focus back on it; under 1100 px the menu button's column lists every line and every
   // line can be reached on a 375 x 667 phone; the wave band follows the bar; and the page still fits its window.
   async brand_header() {
@@ -373,7 +374,7 @@ const cases = {
         home: hdr.querySelector(".cc-home")?.getAttribute("href"), h1: document.querySelectorAll("h1").length, h1In: !!document.querySelector(".cc-wave h1") };
     });
     let h = await bar();
-    check(JSON.stringify(h.words) === JSON.stringify(want) && want.length === 8, `the bar's eight words are the brand's, from ${navUrl.replace(/^https?:\/\/[^/]+/, "")}: ${h.words.join(" · ")}`);
+    check(JSON.stringify(h.words) === JSON.stringify(want) && want.length >= 3, `the bar's ${want.length} words are the brand's, from ${navUrl.replace(/^https?:\/\/[^/]+/, "")}: ${h.words.join(" · ")}`);
     check(h.tt.length === 1 && h.tt[0] === "none" && h.title[1] === "none" && h.title[0] === "Query Builder", `sentence case: the words and the title "${h.title[0]}" are not uppercased (text-transform ${h.tt.join(", ")} / ${h.title[1]})`);
     check(JSON.stringify(h.links) === JSON.stringify(lines), `every line links where the brand's list says (${h.links.length} links)`);
     check(h.navShown && !h.burger, "at 1400 px the words are in the bar and the menu button is not drawn");
@@ -387,13 +388,14 @@ const cases = {
     await page.focus("#cc-nav .cc-m2-t"); await sleep(250); m = await menu();
     check(m.vis === "hidden", "focus alone does not open it (tabbing past the bar opens nothing)");
     await page.keyboard.press("Enter"); await sleep(350); m = await menu();
-    check(m.ex === "true" && m.vis === "visible" && m.n >= 3, `Enter opens it (${m.n} lines, aria-expanded ${m.ex})`);
+    const firstMenu = nav.words.find((w) => w.menu), firstN = firstMenu.menu.flatMap((c) => c.items).filter((i) => !i.rule).length;
+    check(m.ex === "true" && m.vis === "visible" && m.n === firstN, `Enter opens it: "${firstMenu.title}", its ${m.n} lines (aria-expanded ${m.ex})`);
     await page.keyboard.press("Tab"); await sleep(100);
     await page.keyboard.press("Escape"); await sleep(400); m = await menu();
     check(m.ex === "false" && m.vis === "hidden" && m.focus, "Escape closes it and focus is back on its word");
     // the breakpoint: 1100 px is the bar, 1099 px the menu button; then a phone
     await page.setViewport({ width: 1100, height: 800 }); await sleep(300); h = await bar();
-    check(h.navShown && !h.burger && h.oneRow && h.sw <= h.iw, `1100 px: the eight words on one row, no menu button (bar ${h.hdrH} px, document ${h.sw} px wide)`);
+    check(h.navShown && !h.burger && h.oneRow && h.sw <= h.iw, `1100 px: the title and all ${want.length} words on one row, no menu button (bar ${h.hdrH} px, document ${h.sw} px wide)`);
     await page.setViewport({ width: 1099, height: 800 }); await sleep(300); h = await bar();
     check(!h.navShown && h.burger && h.oneRow && h.sw <= h.iw, `1099 px: the menu button carries the words, the bar stays one row (${h.hdrH} px)`);
     for (const vp of [{ width: 820, height: 1180 }, { width: 375, height: 667, deviceScaleFactor: 2, isMobile: true, hasTouch: true }]) {

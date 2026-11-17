@@ -7,11 +7,12 @@
   loaded from (default `https://calcofi.io/brand/`; a preview with its own copy of the site sets `/brand/`).
   `src/brandurl.ts`, `tests/brandurl.test.ts`, `brand/v3.head.html`.
   - **Neither page types the header's words.** The brand's `header.js` draws them from `brand/v3/nav.json`, the one
-    list every product reads: Data ▾ · Map ▾ · Query · Cite · Learn ▾ · FAQ · News · calcofi.org ↗, sentence case.
+    list every product reads (on 2026-11-17: Data ▾ · Map ▾ · Query · Cite · Learn · Docs · FAQ · News · calcofi.org ↗),
+    sentence case. Nothing in this repo names a word or counts them.
   - **The Query Builder** is a page at the reading scale: calcofi.io's bar (lockup, "Query Builder", the words from
     1100 px, the menu button below), and its crumb, h1, one line and release in the navy wave band under it. Its own
     DATA · EXPLORER · DOCS links are gone.
-  - **The Explorer** keeps its bar of controls and gains the brand's menu button at every width (the eight words in
+  - **The Explorer** keeps its bar of controls and gains the brand's menu button at every width (the brand's words in
     a panel that drops from the bar), the title in sentence case, and a 15 px wave strip under the bar. The map still
     gets exactly what is left of the window, in the lean and the classic layout and on a phone; `--cc-header-h` is
     the strip's bottom. On a phone the bar holds one more button and stays one row at 375 px.

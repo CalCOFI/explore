@@ -239,7 +239,7 @@ export function Builder() {
       {BRAND_HEADER ? <>
         {/* brand v3 (2026-11-17): the bar calcofi.io wears — the lockup, this page's name, the brand's words, the menu
             button under 1100 px, the toggle. The nav is left EMPTY: the brand's header.js draws the words into it from
-            <brand>/v3/nav.json (Data ▾ · Map ▾ · Query · Cite · Learn ▾ · FAQ · News · calcofi.org ↗) and runs the menus
+            <brand>/v3/nav.json (calcofi.io's one list — never typed here) and runs the menus
             and the button; React renders no children there, so it never touches what the brand drew. */}
         <header className="cc-header">
           <a className="cc-home" href={HOME} aria-label="CalCOFI.io home"><img className="cc-logo-dark" src={LOGO.dark} alt="CalCOFI.io" /><img className="cc-logo-light" src={LOGO.light} alt="CalCOFI.io" /></a>

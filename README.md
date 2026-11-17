@@ -376,7 +376,7 @@ in two orders, a 375 px window, both themes (contrast of the small text), and th
 Enter and Space).
 
 Both `builder_check.mjs` and `lean_check.mjs` have a `brand_header` case (brand v3): the words equal `nav.json`'s
-eight titles and link where it says, sentence case, a menu opens on a press and closes on Escape with focus back on
+titles and link where it says (how many words, and which open a menu, are read from it), sentence case, a menu opens on a press and closes on Escape with focus back on
 its word, the menu button's column lists every line and each can be brought into a 375 × 667 window, a `.cc-wave`
 directly follows the bar, and the page still fits its window (for the Explorer: bar + strip + map fill it exactly,
 in the lean and the classic layout). **Until `calcofi.io/brand/v3/` is live**, run them against a build that loads
@@ -398,18 +398,19 @@ holds the rules (`tests/brandurl.test.ts`):
 
 - **v3 is v2 with the brand's header.** Tokens, type, logos and favicons are v2's own files, still at `brand/v2/`.
   v3 adds `header.css`, `header.js`, `theme.js` (version "3") and `nav.json`: the header's words are **one list for
-  every product** (Data ▾ · Map ▾ · Query · Cite · Learn ▾ · FAQ · News · calcofi.org ↗, sentence case), and under
+  every product** (on 2026-11-17: Data ▾ · Map ▾ · Query · Cite · Learn · Docs · FAQ · News · calcofi.org ↗, sentence
+  case; the list is calcofi.io's to change, and nothing here names a word or counts them), and under
   the bar sits a navy band that ends in a wave. `brand/v3.head.html` is the head block.
 - **Neither page types the words.** Each renders an empty
   `<nav class="cc-links cc-nav" id="cc-nav" data-cc-nav>` and the brand's menu button; the brand's `header.js`
   draws the words into the nav from `nav.json` beside itself and runs the menus and the button. React renders no
   children in that nav, so it never touches what the brand drew.
 - **The Query Builder is a page**, at the reading scale (its head block drops the app-scale meta): the bar is
-  calcofi.io's (lockup, "Query Builder", the eight words from 1100 px, the menu button below, the toggle), and its
+  calcofi.io's (lockup, "Query Builder", the brand's words from 1100 px, the menu button below, the toggle), and its
   crumb, h1, one line and release are in the wave band. Its own DATA · EXPLORER · DOCS links are gone; the brand's
   words carry them. The page's column is the brand's container with the site's 24 px inset.
 - **The Explorer is an app** whose bar is full of its own controls, so it keeps them and asks for the brand's menu
-  button at every width (`class="cc-header cc-nav-menu"`): the same eight words are one press away, in a panel that
+  button at every width (`class="cc-header cc-nav-menu"`): the same words are one press away, in a panel that
   drops from the bar's right end. Under the bar, the wave is a 15 px strip, a row of the app's grid, so the map
   still gets exactly what is left of the window; `--cc-header-h` is measured to the strip's bottom.
 - **A preview that carries its own copy of the site** sets `VITE_BRAND_URL=/brand/` (with `VITE_BASE=/explore/
