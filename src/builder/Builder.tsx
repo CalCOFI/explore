@@ -233,7 +233,7 @@ export function Builder() {
       <header className="tb-hd"><div className="in">
         <a href={SITE_URL} aria-label="CalCOFI.io home"><img className="logo-l" src={LOGO.light} alt="" /><img className="logo-d" src={LOGO.dark} alt="" /></a>
         <span className="crumb">Pull exact data › <b>Query Builder</b></span>
-        <nav aria-label="CalCOFI.io"><a href={`${SITE_URL}datasets/`}>Data</a><a href="./">Explorer</a><a href={`${SITE_URL}docs/`}>Docs</a></nav>
+        <nav aria-label="CalCOFI.io"><a href={`${SITE_URL}datasets/`}>Data</a><a href="./">Explorer</a><a href="https://calcofi.io/docs/">Docs</a>{/* the docs book is its own site, as in the Explorer's Help menu */}</nav>
         <button className="cc-theme-toggle" type="button" aria-label="Toggle dark / light theme">
           <svg className="cc-theme-icon cc-icon-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={ICON_SUN} /></svg>
           <svg className="cc-theme-icon cc-icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={ICON_MOON} /></svg>
