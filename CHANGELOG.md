@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+- **Query Builder: every sample is one row per net, with each water dataset's nearest cast beside it** (Ben,
+  2026-11-17: "a time, xy distance, z depth filter for matching, and preference for matching by time vs distance,
+  and the calculation included in each row"). Under Stations › Every sample with a species picked:
+  - **The rule.** One row per net. Each water dataset gives the row one cast: of its casts within ± 12 hours and
+    5 km of the net with a value in the depth range, the nearest in time (or in distance; the other breaks a tie).
+    Time and distance are the samples' own (UTC, great circle), not station numbers, calendar dates or cruise names.
+    A water value is the average of that one cast's values from 0 to 10 m. A net with no cast keeps its row, blank.
+  - **The controls**: a group *Match water to each net* in step 2 (time, distance, the water's depth range,
+    prefer), shown only when it applies; it replaces the plain Depth row while it shows.
+  - **The calculation in each row**: after each water dataset's measurements, `cast_id`, `cast_time`,
+    `cast_station`, `cast_hours` (cast minus net), `cast_km`, `cast_depth_min_m`, `cast_depth_max_m`,
+    `cast_n_depths`, each ending like that dataset's measurements. The net's own `net_id`, `net_time`, `latitude`,
+    `longitude` and `tow_type` open the row. The preview says how many nets found a cast.
+  - **What it pairs** (release v2026.11.14, sardine larvae and bottle temperature, standard grid): 16,479 of 25,719
+    nets. In the earlier rule's unit, 13,642 of 18,926 rows (72%) against 12,378 (65%): a cast on the other side of
+    00:00 UTC, or filed under another station number than the net's grid cell, pairs now. README § How a net is
+    matched to a cast has the measurements behind the defaults.
+  - **Changed for existing links and downloads**: `&rows=sample` gives one row per net (it was one row per station ×
+    date × 10 m step, where a visit's nets were averaged) and its columns are `date, cruise, line, station, net_id,
+    net_time, latitude, longitude, tow_type, …` (no `depth_m`). Every sample with water alone is unchanged.
+  - The other shapes (yearly, seasonal, monthly, Custom, Hexagons, Regions) keep their rule, and *How rows are
+    matched* now says in each that nets are not paired with casts.
+  - `netSql()`, `matchOf()`, `ruleLines()`, `matchLine()` in `src/builder/query.ts`; `tests/builder.match.test.ts`
+    (29 fixture assertions), `tests/builder.rule.test.ts`; `match_nets` and `task_line_933_spring` in
+    `scripts/builder_check.mjs`.
+- **fix (Query Builder): a depth range ends before its deeper end.** "0 to 10 m" pooled 0 to 20 m, because the 10 m
+  step that starts at the deeper end was included; the page said "so down to 20 m". Now "0 to 10 m" is the first
+  step and the default "0 to 500 m" is the fifty steps above 500 m, in every shape. The Explorer's depth filter is
+  unchanged.
+
 - **brand v3: the Explorer and the Query Builder wear calcofi.io's header** (Ben, 2026-11-17: one look, the wave,
   the same words everywhere). `VITE_BRAND` takes `v3` and defaults to it; `VITE_BRAND_URL` says where the brand is
   loaded from (default `https://calcofi.io/brand/`; a preview with its own copy of the site sets `/brand/`).
