@@ -22,6 +22,7 @@ import { subsetName } from "./filename";
 import { StatPick, ViewAs, ViewMenu, WhereControl, LineStation, LayerSelect, DownloadBar, DepthPill, WhatPicker, QueryLinkRow, type QueryLink } from "./leanpanel";
 import { QUERY_URL } from "./links";
 import { addVarButton, addVarClose, addVarPress, var2Shows } from "./addvar";
+import { waveOver } from "./brandurl";
 import { queryHref, viewLens, viewPicks } from "./queryurl";
 import { Icon } from "./icons";
 import { cellToLatLng } from "h3-js";
@@ -489,9 +490,20 @@ export function App() {
   useEffect(() => {
     // brand v3: the wave strip under the bar belongs to the header, so the height is measured to ITS bottom
     const h = document.querySelector(".cc-header + .cc-wave") ?? document.querySelector(".cc-header"); if (!h) return;
-    const set = () => document.documentElement.style.setProperty("--cc-header-h", `${Math.ceil(h.getBoundingClientRect().bottom)}px`);
-    set(); const ro = new ResizeObserver(set); ro.observe(h); window.addEventListener("resize", set);
-    return () => { ro.disconnect(); window.removeEventListener("resize", set); };
+    // THE WAVE OVER THE MAP (brand v3 .cc-wave-over; Ben, 2026-11-17: "move the map up to fully sit underneath it but not
+    // overcrowd the controls"): the brand's variant takes no room (a negative bottom margin of its own height) and is cut
+    // to the wave, so what follows shows through under its edge. --wave-over is that height AS THE BRAND APPLIED IT, read
+    // from the strip (0 when the brand served has no such variant yet, or on v1 / v2): style.css gives it back to .main,
+    // so every panel, card, button row and the phone's sheet stays exactly where it was, and runs only the map's canvas
+    // up under the wave. --cc-header-h stays the strip's bottom: where a dialog may start.
+    const set = () => {
+      const root = document.documentElement, over = h.classList.contains("cc-wave-over") ? waveOver(getComputedStyle(h).marginBottom) : 0;
+      root.style.setProperty("--cc-header-h", `${Math.ceil(h.getBoundingClientRect().bottom)}px`);
+      root.style.setProperty("--wave-over", `${over}px`);
+      root.classList.toggle("wave-over", over > 0);
+    };
+    set(); const ro = new ResizeObserver(set); ro.observe(h); window.addEventListener("resize", set); window.addEventListener("load", set);
+    return () => { ro.disconnect(); window.removeEventListener("resize", set); window.removeEventListener("load", set); };
   }, []);
 
   // the per-station card's detail is its own sidecar, fetched on the first station selection
@@ -2867,8 +2879,10 @@ export function App() {
           <svg className="cc-theme-icon cc-icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={ICON_MOON} /></svg>
         </button>
       </header>
-      {/* brand v3: the wave, a 15 px strip at the app scale — the same edge every calcofi.io page has under its bar */}
-      {BRAND_HEADER && <div className="cc-wave cc-wave-slim" aria-hidden="true" />}
+      {/* brand v3: the wave, a 15 px strip at the app scale — the same edge every calcofi.io page has under its bar.
+          cc-wave-over: it lies OVER the map (the map runs up under it; no strip of page ground between), and the
+          controls keep clear of it (the --wave-over effect above, and "the wave over the map" in style.css) */}
+      {BRAND_HEADER && <div className="cc-wave cc-wave-slim cc-wave-over" aria-hidden="true" />}
       <div className="main">
         <div className="panel mapwrap" ref={mapBox} data-tour="map">
           {view3dOn

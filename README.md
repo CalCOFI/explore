@@ -536,8 +536,15 @@ holds the rules (`tests/brandurl.test.ts`):
   words carry them. The page's column is the brand's container with the site's 24 px inset.
 - **The Explorer is an app** whose bar is full of its own controls, so it keeps them and asks for the brand's menu
   button at every width (`class="cc-header cc-nav-menu"`): the same words are one press away, in a panel that
-  drops from the bar's right end. Under the bar, the wave is a 15 px strip, a row of the app's grid, so the map
-  still gets exactly what is left of the window; `--cc-header-h` is measured to the strip's bottom.
+  drops from the bar's right end. Under the bar, the wave is a 15 px strip that lies **over the map**
+  (`cc-wave cc-wave-slim cc-wave-over`): the brand's variant takes no room and is cut to the wave, so the map shows
+  under its edge with no sliver of page ground between. The controls do not move for it: `App.tsx` reads how far
+  the strip overlaps from the strip itself (`--wave-over`, `waveOver()` in `src/brandurl.ts`; 0 when the brand
+  served has no such variant, and then the strip is in the flow as before), `.main` takes that height back as a
+  top margin, so the box every panel, card, button row and the phone's sheet is placed in stays where it was, and
+  only the map's canvas runs up under the wave. `--cc-header-h` is still the strip's bottom, where a dialog may
+  start. `wave_over` in `scripts/lean_check.mjs` checks it in both layouts, both themes and on a phone, and that
+  the same statements fail with the class taken off.
 - **A preview that carries its own copy of the site** sets `VITE_BRAND_URL=/brand/` (with `VITE_BASE=/explore/
   VITE_SITE_URL=/`), so the header it shows is the one under review and the words' links stay on the preview.
 - **v2 and v1 still build.** `VITE_BRAND=v2` is what was live until v3: the Explorer's bar without the menu button

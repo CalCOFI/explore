@@ -896,6 +896,80 @@ C("what_sort", async () => {
 // whose words are the brand's (nav.json beside the brand's header.js: how many, which have a menu and where each goes are
 // READ from it, never typed here), sentence case, and the wave strip under the bar —
 // in the lean and the classic layout, on a tablet and a phone; and the map still gets exactly what is left of the window.
+// brand v3, the wave OVER the map (Ben, 2026-11-17: no sliver of page ground between the wave and the map, and the
+// controls not crowded by it): the map's canvas starts at the bar's bottom, the wave lies over its first rows, and every
+// floating control is where it was — below the wave's bottom. src/App.tsx (--wave-over), style.css "the wave over the map".
+C("wave_over", async () => {
+  // one pixel of the page as drawn (a 1 x 1 PNG: one filter byte, then the pixel)
+  const zlib = await import("node:zlib");
+  const pixel = async (x, y) => {
+    const b = Buffer.from(await page.screenshot({ clip: { x, y, width: 1, height: 1 } })); let i = 8, idat = [];
+    while (i < b.length) { const n = b.readUInt32BE(i), t = b.toString("latin1", i + 4, i + 8); if (t === "IDAT") idat.push(b.subarray(i + 8, i + 8 + n)); i += 12 + n; }
+    const d = zlib.inflateSync(Buffer.concat(idat)); return [d[1], d[2], d[3]];
+  };
+  const navy = ([r, g, bl]) => r < 50 && g < 80 && bl > 50 && bl < 125 && bl - r > 30;   // the band: #14284a to #1d3d66
+  const geo = () => page.evaluate(() => {
+    const R = (e) => { const r = e.getBoundingClientRect(); return { t: Math.round(r.top * 10) / 10, b: Math.round(r.bottom * 10) / 10, h: Math.round(r.height * 10) / 10 }; };
+    const shown = (e) => { const c = getComputedStyle(e), r = e.getBoundingClientRect(); return c.display !== "none" && c.visibility !== "hidden" && r.width > 0 && r.height > 0; };
+    const bar = document.querySelector(".cc-header"), wave = document.querySelector(".cc-header + .cc-wave"), box = document.querySelector(".mapwrap"), map = box.querySelector(".map, .curtain-scene");
+    const kids = [...box.children].filter((e) => e !== map && shown(e)), sheet = [...document.querySelectorAll(".sheet, .sheet-handle, .max-panel, .main > :not(.mapwrap)")].filter(shown);
+    const tops = [...kids, ...sheet].map((e) => ({ k: (typeof e.className === "string" ? e.className : e.tagName).trim().split(/\s+/).slice(0, 2).join("."), t: Math.round(e.getBoundingClientRect().top * 10) / 10 }));
+    const ml = [...map.querySelectorAll(".maplibregl-ctrl-top-left > *, .maplibregl-ctrl-top-right > *, .maplibregl-ctrl-bottom-right > *, .maplibregl-ctrl-bottom-left > *")].filter(shown).map((e) => Math.round(e.getBoundingClientRect().top));
+    return { bar: R(bar), wave: wave ? { ...R(wave), over: wave.classList.contains("cc-wave-over"), mb: getComputedStyle(wave).marginBottom, z: Number(getComputedStyle(wave).zIndex) || 0, pe: getComputedStyle(wave).pointerEvents } : null,
+      box: R(box), map: R(map), canvas: map.querySelector("canvas") ? R(map.querySelector("canvas")) : null, mapZ: Number(getComputedStyle(map).zIndex) || 0, tops, ml,
+      hvar: getComputedStyle(document.documentElement).getPropertyValue("--cc-header-h").trim(), ovar: getComputedStyle(document.documentElement).getPropertyValue("--wave-over").trim(), ih: innerHeight, iw: innerWidth };
+  });
+  // the three statements Ben's note asks for, as one predicate: used for every layout, and again with the class taken off
+  const holds = (g) => ({
+    mapAtBar: Math.abs(g.map.t - g.bar.b) <= 1 && (!g.canvas || Math.abs(g.canvas.t - g.bar.b) <= 1),
+    overlap: Math.abs(g.wave.t - g.bar.b) <= 1 && Math.abs((g.wave.b - g.map.t) - g.wave.h) <= 1 && g.wave.h >= 10,
+    clear: g.tops.every((x) => x.t >= g.wave.b - 0.5) && g.ml.every((t) => t >= g.wave.b - 0.5),
+  });
+  await ready(`${SARDINE}&theme=light`); await closeWhat();
+  const ver = await page.evaluate(() => window.ccTheme?.version ?? null);
+  if (ver !== "3") {
+    const g = await geo();
+    check(!g.wave && g.ovar !== "15px" && Math.abs(g.map.t - g.box.t) <= 1, `a brand v${ver ?? "?"} build: no wave strip, the map is its box as before (wave_over skipped)`); return;
+  }
+  let g = await geo();
+  if (!g.wave?.over || !(parseFloat(g.wave.mb) < 0)) { check(Math.abs(g.box.t - g.wave.b) <= 1 && Math.abs(g.map.t - g.box.t) <= 1, `the brand served here has no .cc-wave-over (margin-bottom ${g.wave?.mb}): the strip is in the flow and the map starts under it, as before (wave_over skipped)`); return; }
+  for (const [where, qs, vp] of [["lean, 1470 px, light", `${SARDINE}&theme=light`, { width: 1470, height: 900 }], ["lean, 1470 px, dark", `${SARDINE}&theme=dark`, { width: 1470, height: 900 }],
+    ["classic, 1400 px", `ui=classic&${SARDINE}&theme=light`, DESK], ["a phone, 375 px, light", `ui=lean&${SARDINE}&theme=light`, PHONE], ["a phone, 375 px, dark", `${SARDINE}&theme=dark`, PHONE]]) {
+    await ready(qs, vp); await closeWhat(); await sleep(400);
+    g = await geo(); const h = holds(g);
+    check(h.mapAtBar, `${where}: the map's top is the bar's bottom, no strip of page ground between (map ${g.map.t}, bar ${g.bar.b})`);
+    check(h.overlap, `${where}: the wave lies over the map by its own height (${g.wave.t}–${g.wave.b}, ${g.wave.h} px; --wave-over ${g.ovar})`);
+    check(h.clear && g.tops.length >= 3, `${where}: no control starts above the wave's bottom at ${g.wave.b} (highest: ${g.tops.slice().sort((a, b) => a.t - b.t).slice(0, 3).map((x) => `${x.k} ${x.t}`).join(", ")})`);
+    check(Math.abs(g.box.t - g.wave.b) <= 1 && g.box.b <= g.ih + 0.5, `${where}: the box the controls are placed in still starts at the wave's bottom and ends at the window's (${g.box.t}–${g.box.b})`);
+    check(g.hvar === `${Math.ceil(g.wave.b)}px`, `${where}: --cc-header-h is still the wave's bottom, where a dialog may start (${g.hvar})`);
+    check(g.wave.z > g.mapZ && g.wave.pe === "none", `${where}: the wave is above the map (z ${g.wave.z} over ${g.mapZ}) and takes no pointer`);
+    // drawn: in the band's solid part the page shows the band, and just under the wave's lowest point it shows the map, not the page ground
+    const top = await pixel(Math.round(g.iw / 2), Math.round(g.bar.b) + 2), ground = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    const under = await pixel(Math.round(g.iw * 0.27), Math.round(g.wave.b) - 1), gr = (/(\d+), (\d+), (\d+)/.exec(ground) ?? []).slice(1).map(Number);
+    check(navy(top), `${where}: the band is drawn over the map (rgb ${top.join(" ")} at 2 px under the bar)`);
+    check(!(Math.abs(under[0] - gr[0]) < 6 && Math.abs(under[1] - gr[1]) < 6 && Math.abs(under[2] - gr[2]) < 6) || /dark/.test(where), `${where}: under the wave's edge the map shows, not the page ground (rgb ${under.join(" ")}; ground ${gr.join(" ")})`);
+  }
+  // the bar's own menus open OVER the wave: the brand's words, and one of the app's
+  await ready(`${SARDINE}&theme=light`, { width: 1470, height: 900 }); await closeWhat();
+  g = await geo();
+  await page.click(".cc-header .cc-menu-button"); await sleep(500);
+  const pn = await page.evaluate(() => { const n = document.getElementById("cc-nav"), r = n.getBoundingClientRect(); return { l: r.left, r: r.right, t: r.top, b: r.bottom, bg: getComputedStyle(n).backgroundColor }; });
+  if (pn.t <= g.bar.b + 3 && pn.b > g.wave.b) { const px = await pixel(Math.round((pn.l + pn.r) / 2), Math.round(g.bar.b) + 3); check(!navy(px), `the brand's open words cover the wave's band (rgb ${px.join(" ")} where the band was)`); }
+  else pass(`the brand's open words start at ${Math.round(pn.t)}, clear of the band (${g.bar.b}–${g.wave.b})`);
+  await page.keyboard.press("Escape"); await sleep(300);
+  await clickText(".cc-header button", "Help"); await sleep(400);
+  const ml = await page.evaluate(() => { const m = document.querySelector(".menu-list"); if (!m) return null; const r = m.getBoundingClientRect(); return { l: r.left, r: r.right, t: r.top, b: r.bottom, z: Number(getComputedStyle(m).zIndex) }; });
+  check(!!ml && ml.z > g.wave.z, `an app menu of the bar (Help) is above the wave (z ${ml?.z} over ${g.wave.z}; it opens at ${Math.round(ml?.t ?? 0)})`);
+  if (ml && ml.t < g.wave.b) { const px = await pixel(Math.round((ml.l + ml.r) / 2), Math.round(Math.max(ml.t + 2, g.bar.b + 2))); check(!navy(px), `and is drawn over it (rgb ${px.join(" ")})`); }
+  await page.keyboard.press("Escape"); await sleep(200);
+  // THE TEETH: take the class off the strip and the same statements fail — the strip is back in the flow, the map under it
+  await page.evaluate(() => { document.querySelector(".cc-header + .cc-wave").classList.remove("cc-wave-over"); dispatchEvent(new Event("resize")); }); await sleep(600);
+  const off = await geo(), ho = holds(off);
+  check(!ho.mapAtBar && !ho.overlap, `with cc-wave-over taken off the strip the checks above fail, as they should: the map starts at ${off.map.t}, ${Math.round(off.map.t - off.bar.b)} px under the bar (--wave-over ${off.ovar})`);
+  check(ho.clear && Math.abs(off.box.t - g.box.t) <= 1, `and the controls have not moved: their box starts at ${off.box.t} either way`);
+  noErrors("wave_over");
+});
+
 C("brand_header", async () => {
   await ready(`${SARDINE}`); await closeWhat();
   const ver = await page.evaluate(() => window.ccTheme?.version ?? null);

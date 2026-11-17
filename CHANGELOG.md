@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Explorer: the wave lies over the map, and the controls stay clear of it** (Ben, 2026-11-17: the dark blue wave
+  "looks weird … because of the plain white sliver underneath and before the map"; then, of a preview that moved
+  everything up: "controls are now too high up so bleed into top nav"). The strip under the bar is the brand's
+  `cc-wave-over` variant: it takes no room and is cut to the wave, so the map shows under its edge. The map's canvas
+  starts at the bar's bottom (15 px higher); every floating control (the Find data panel, the title and legend
+  card, the zoom, layers and download buttons, the Time panel, the phone's cards and sheet) is exactly where it was,
+  10 px under the wave's bottom: 72 positions measured before and after at 1470 and 375 px, both themes, lean and
+  classic, none changed. With a brand copy that has no such variant, or `VITE_BRAND=v2`, nothing changes.
+  `waveOver()` in `src/brandurl.ts`, `wave_over` in `scripts/lean_check.mjs`.
+
 - **Explorer: "+ Add a variable" is in every view** (Ben, 2026-11-17: he could not find it; it was drawn in the
   Hexagon view only, and the default view is Stations). Outside the Hexagon view the button reads *+ Add a variable
   (Hexagon view)*, its title and name say it switches the map to hexagons, and a press does that and opens the

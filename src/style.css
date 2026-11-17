@@ -10,6 +10,18 @@ a { color: var(--accent); }
    the button opens are the brand's (<brand>/v3/nav.json, drawn by the brand's header.js). Under the bar, the wave: a
    strip that is a row of its own, so the map still gets exactly what is left of the window. */
 .app.app-wave { grid-template-rows: auto auto 1fr; }
+/* THE WAVE OVER THE MAP (brand v3 .cc-wave-over, 2026-11-17). The brand's strip takes no room and is cut to the wave, so
+   the map shows through under its edge instead of a sliver of page ground. --wave-over is the strip's height as the brand
+   applied it (App.tsx reads it off the strip; 0px without the variant, and then none of this does anything):
+     · .main gets that height back as a top margin, so the map's box — the frame every floating panel, card, button row
+       and the phone's sheet is placed in — is exactly where it was, and nothing of the app sits in the wave's band
+     · only the map's own canvas runs up under the wave: it starts that much above its box, and the box lets it show
+   MapLibre's own corners at the top keep clear of the band too (none is used today; the attribution is at the bottom). */
+.app.app-wave .main { margin-top: var(--wave-over, 0px); }
+:root.wave-over .mapwrap { overflow: visible; }
+:root.wave-over .mapwrap .map { top: calc(-1 * var(--wave-over)); height: calc(100% + var(--wave-over)) !important; }
+:root.wave-over .mapwrap .curtain-scene { top: calc(-1 * var(--wave-over)); }   /* the 3-D view's scene, in the map's place */
+:root.wave-over .mapwrap .map .maplibregl-ctrl-top-left, :root.wave-over .mapwrap .map .maplibregl-ctrl-top-right, :root.wave-over .mapwrap .map .draw-hint { margin-top: var(--wave-over); }
 .cc-header .cc-menu-button.hdr { width: 2rem; height: 2rem; }
 /* (on a .cc-nav-menu bar the open words drop as a panel and the bar never wraps: brand/v3/header.css does that since
    2026-11-17; the stopgap that stood here for it is gone) */
