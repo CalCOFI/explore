@@ -9,6 +9,8 @@ import { Icon, type IconName } from "../icons";
 import { CATEGORY_ICON } from "../categories";
 import { BRAND_HEADER, ICON_MENU, ICON_MENU_CLOSE, LOGO } from "../brand";
 import { SITE_URL } from "../preview";
+import { EXPLORE_URL, QUERY_SELF } from "../links";
+import { SQL_CONSOLE } from "../queryurl";
 import { citationText, releaseCitation } from "../cite";
 import { boot, datasetInfo, ensure, envReg, envSrc, probe, regions, REG, urlOf, type Boot, type DatasetInfo, type ListItem } from "./data";
 import { offGridNotice, parsePicks, parseShape, startLens, unknownNotice, withoutDownload } from "./picks";
@@ -257,7 +259,7 @@ export function Builder() {
             and the button; React renders no children there, so it never touches what the brand drew. */}
         <header className="cc-header">
           <a className="cc-home" href={HOME} aria-label="CalCOFI.io home"><img className="cc-logo-dark" src={LOGO.dark} alt="CalCOFI.io" /><img className="cc-logo-light" src={LOGO.light} alt="CalCOFI.io" /></a>
-          <a className="cc-title" href="./builder.html">Query Builder</a>
+          <a className="cc-title" href={QUERY_SELF}>Query Builder</a>
           <span className="cc-spacer" />
           <nav className="cc-links cc-nav" id="cc-nav" data-cc-nav="" aria-label="Sections" />
           <button className="cc-icon-button cc-menu-button" type="button" aria-label="Open the menu" aria-controls="cc-nav" aria-expanded="false">
@@ -269,13 +271,15 @@ export function Builder() {
         {/* the wave: the page's own head, in the navy band every calcofi.io page has under its bar */}
         <div className="cc-wave tb-wave"><div className="cc-wave-in tb-title">
           <p className="crumb">Pull exact data › <b>Query Builder</b></p>
-          <h1>Query Builder</h1><p>Build your own table: any species and measurements, in one CSV.</p>{b && <span className="rel">Release {b.version}</span>}
+          <h1>Query Builder</h1>
+          {/* the SQL console had the address /query/ before this page: one plain line for a reader who came for it */}
+          <p>Build your own table: any species and measurements, in one CSV. <span className="sqlc">Prefer to write SQL? <a href={SQL_CONSOLE} data-sql-console>db-query</a></span></p>{b && <span className="rel">Release {b.version}</span>}
         </div></div>
       </> : <header className="tb-hd"><div className="in">
         {/* a v1 or v2 build: the page's own small header, as before brand v3 */}
         <a href={SITE_URL} aria-label="CalCOFI.io home"><img className="logo-l" src={LOGO.light} alt="" /><img className="logo-d" src={LOGO.dark} alt="" /></a>
         <span className="crumb">Pull exact data › <b>Query Builder</b></span>
-        <nav aria-label="CalCOFI.io"><a href={`${SITE_URL}datasets/`}>Data</a><a href="./">Explorer</a><a href="https://calcofi.io/docs/">Docs</a>{/* the docs book is its own site, as in the Explorer's Help menu */}</nav>
+        <nav aria-label="CalCOFI.io"><a href={`${SITE_URL}datasets/`}>Data</a><a href={EXPLORE_URL}>Explorer</a><a href={SQL_CONSOLE} data-sql-console title="Prefer to write SQL? The SQL console, db-query">SQL</a><a href="https://calcofi.io/docs/">Docs</a>{/* the docs book is its own site, as in the Explorer's Help menu */}</nav>
         {toggle_}
       </div></header>}
     <div className="tb">

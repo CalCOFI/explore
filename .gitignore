@@ -6,3 +6,4 @@ shots/
 public/data2
 Claude outputs/
 *.zip
+dist-query/

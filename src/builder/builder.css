@@ -37,6 +37,10 @@
 .tb-wave .tb-title h1 { color: #fff; font-size: 34px; }
 .tb-wave .tb-title p { color: #d3dcea; }
 .tb-wave .tb-title .rel { color: #c3cfe2; }
+/* "Prefer to write SQL? db-query": the SQL console had the address /query/ first; white on the navy band, underlined */
+.tb-wave .tb-title .sqlc { white-space: nowrap; margin-left: 6px; color: #c3cfe2; }
+.tb-wave .tb-title .sqlc a { color: #fff; text-decoration: underline; text-underline-offset: 2px; }
+.tb-wave .tb-title .sqlc a:focus-visible { outline: 2px solid #fff; outline-offset: 2px; border-radius: 2px; }
 .tb-page > .cc-wave ~ .tb main, .tb-page > .cc-wave ~ .tb .tb-bar .in { max-width: var(--container, 1170px); padding-left: 24px; padding-right: 24px; }
 .tb-page > .cc-wave ~ .tb main { padding-top: 12px; }
 .tb-title { display: flex; align-items: baseline; gap: 16px; flex: none; }
