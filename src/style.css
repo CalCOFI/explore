@@ -5,6 +5,31 @@ html, body, #root { height: 100%; margin: 0; overflow: clip; } /* clip, not hidd
 body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: var(--fs, 13px); }
 a { color: var(--accent); }
 .app { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+/* ── brand v3 in this app's bar (2026-11-17) ─────────────────────────────────────────────────────────────────────────
+   The bar keeps the app's own controls and asks the brand for its menu button at every width (.cc-nav-menu); the words
+   the button opens are the brand's (<brand>/v3/nav.json, drawn by the brand's header.js). Under the bar, the wave: a
+   strip that is a row of its own, so the map still gets exactly what is left of the window. */
+.app.app-wave { grid-template-rows: auto auto 1fr; }
+.cc-header .cc-menu-button.hdr { width: 2rem; height: 2rem; }
+/* STOPGAP for brand/v3/header.css, asked of the brand (README § Brand): on a .cc-nav-menu bar the open words should be a
+   panel that drops from the bar's right end, and the bar should not wrap. As the brand has it (the phone's column: a
+   full-width row of the bar, flex-wrap: wrap) the bar grew by 640 px and pushed the map off a 900 px window, and on a
+   phone the toggle wrapped to a second row. Remove this block when brand/v3 does it. */
+.cc-header.cc-nav-menu { flex-wrap: nowrap; }
+.cc-header.cc-nav-menu.cc-nav-open .cc-links.cc-nav {
+  position: absolute; top: calc(100% + 4px); right: 6px; left: auto; width: min(300px, calc(100vw - 12px)); box-sizing: border-box;
+  flex-basis: auto; order: 0; margin: 0; padding: 6px 10px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.08), 0 18px 44px rgb(10 20 36 / 0.28);
+  max-height: calc(100vh - var(--cc-header-h, 60px) - 12px); max-height: calc(100dvh - var(--cc-header-h, 60px) - 12px);
+}
+/* a phone's bar holds one more button now (⭘ Explorer [release] ? ☰ 💬 🌓): 4 px gaps and no caret on Help keep it on
+   one row at 375 px; under 375 px the mark alone says whose app it is */
+@media (max-width: 479px) {
+  .cc-header.cc-nav-menu { gap: 4px; }
+  .cc-header.cc-nav-menu .cc-help .menu-btn > .cc-icon:last-child { display: none; }
+  .cc-header.cc-nav-menu .cc-feedback { margin-left: 0; }
+}
+@media (max-width: 374px) { .cc-header.cc-nav-menu .cc-title { display: none; } }
 .cc-header .cc-title small { margin-left: 0.5rem; }
 /* brand v2's header logo: the lockup on a desktop, the bare mark under 480 px — two <img>s per theme and a media query
    (a <picture> does not survive html-to-image's clone, and the feedback capture is set from this header); the theme

@@ -46,12 +46,12 @@ import { IconButton, type MenuItem } from "./ui";
 import { figureName, plotPng, plotSvg, csvBlob, copyImage, stampLines, type Stamp } from "./export";
 import { captureView, canvasBlob, luminanceStats, blobStats } from "./capture";
 import { track as trackEvent } from "./track";
-import { BRAND, LOGO, DEFAULT_THEME, fontEmbedCss } from "./brand";
+import { BRAND, BRAND_HEADER, ICON_MENU, ICON_MENU_CLOSE, LOGO, DEFAULT_THEME, fontEmbedCss } from "./brand";
 import { categoryRank, categoryIcon, envCategory, DATASET_CATEGORY_FALLBACK } from "./categories";
 import { titleCaseCommonName, humanizeCode, fixDisplayName, canonicalBase, repScore, shortName, knownName } from "./names";
 import { dtEmpty, type DtRow } from "./depthtime";
 import { CLIM_MIN_CRUISES, SEASON_CODE, SEASON_NAME, SEASON_WORD, anomTokens, baselineWord, climBaseSql, cruiseMonth, hasSeasonCols, noBaseline, noBaselineWhy, sectionRange, type ClimBase } from "./anomaly";
-import { PREVIEW, PREVIEW_HOME } from "./preview";
+import { PREVIEW, PREVIEW_HOME, SITE_URL } from "./preview";
 import { feedbackEndpoint } from "./feedback";
 import { cruiseStage, hasStageCols, stageIndex, stageProbeSql, viewStage, type StageIndex } from "./stage";
 import { shipAfter, shipName, shipOfCruise } from "./ship";
@@ -483,7 +483,8 @@ export function App() {
   useEffect(() => { const pop = () => setSelRaw(fromUrl()); window.addEventListener("popstate", pop); return () => window.removeEventListener("popstate", pop); }, []);
   // the header's height as --cc-header-h: a dialog's backdrop starts below the header, so a tall dialog never slides under it
   useEffect(() => {
-    const h = document.querySelector(".cc-header"); if (!h) return;
+    // brand v3: the wave strip under the bar belongs to the header, so the height is measured to ITS bottom
+    const h = document.querySelector(".cc-header + .cc-wave") ?? document.querySelector(".cc-header"); if (!h) return;
     const set = () => document.documentElement.style.setProperty("--cc-header-h", `${Math.ceil(h.getBoundingClientRect().bottom)}px`);
     set(); const ro = new ResizeObserver(set); ro.observe(h); window.addEventListener("resize", set);
     return () => { ro.disconnect(); window.removeEventListener("resize", set); };
@@ -2783,9 +2784,12 @@ export function App() {
       return lean ? (extras ? { left, right } : { left: left + r0 - 110, right: r0 }) : { left, right }; })()} />;
 
   return (
-    <div className="app">
-      <header className="cc-header">
-        <a className="cc-home" href="https://calcofi.io" aria-label="CalCOFI.io home">
+    <div className={`app${BRAND_HEADER ? " app-wave" : ""}`}>
+      {/* brand v3 (2026-11-17): this bar is full of the app's own controls, so it asks for the brand's menu button at
+          every width (cc-nav-menu); the words it opens are the brand's, the same as on calcofi.io (see the nav below) */}
+      <header className={`cc-header${BRAND_HEADER ? " cc-nav-menu" : ""}`}>
+        {/* the lockup goes home: calcofi.io, or the preview's own copy of the site (VITE_SITE_URL) */}
+        <a className="cc-home" href={SITE_URL === "https://calcofi.io/" ? "https://calcofi.io" : SITE_URL} aria-label="CalCOFI.io home">
           {/* v2: the horizontal lockup at the app scale's 28 px, the bare mark under 480 px — four <img>s and a media query
               (style.css), not <picture>: html-to-image's clone loses the image inside a <picture>, and the feedback capture
               is set from this header; v1: the 32 px mark (src/brand.ts) */}
@@ -2822,6 +2826,14 @@ export function App() {
         {/* feedback is an icon button beside the theme toggle — the shape calcofi.io and the docs book wear
             (CalCOFI.github.io/_layouts/default.html: .cc-icon-button.cc-feedback immediately left of .cc-theme-toggle),
             not an item buried under Help ▾: one place for it on every product, phone included */}
+        {/* brand v3: the brand's words (Data ▾ · Map ▾ · Query · Cite · Learn ▾ · FAQ · News · calcofi.org ↗). The nav is left
+            EMPTY: the brand's header.js draws the words into it from <brand>/v3/nav.json and runs the menus and this
+            button (React renders no children here, so it never touches what the brand drew). */}
+        {BRAND_HEADER && <nav className="cc-links cc-nav" id="cc-nav" data-cc-nav="" aria-label="Sections" />}
+        {BRAND_HEADER && <button className="cc-icon-button cc-menu-button hdr" type="button" aria-label="Open the menu" aria-controls="cc-nav" aria-expanded="false" title="calcofi.io: data, maps, docs, news">
+          <svg className="cc-menu-icon-open" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={ICON_MENU} /></svg>
+          <svg className="cc-menu-icon-close" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={ICON_MENU_CLOSE} /></svg>
+        </button>}
         <IconButton icon="ui-feedback" label="Send feedback" title="Send feedback — with a screenshot of this view"
           className="cc-feedback hdr" data-tour="feedback" onClick={() => openModal("feedback")} />
         <button className="cc-theme-toggle" type="button" aria-label="Toggle dark / light theme" title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}>
@@ -2830,6 +2842,8 @@ export function App() {
           <svg className="cc-theme-icon cc-icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={ICON_MOON} /></svg>
         </button>
       </header>
+      {/* brand v3: the wave, a 15 px strip at the app scale — the same edge every calcofi.io page has under its bar */}
+      {BRAND_HEADER && <div className="cc-wave cc-wave-slim" aria-hidden="true" />}
       <div className="main">
         <div className="panel mapwrap" ref={mapBox} data-tour="map">
           {view3dOn

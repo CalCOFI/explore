@@ -2,6 +2,9 @@
 // the URL round-trip, back / forward, classic, light / dark and a phone-width window — and every download opened and
 // checked against the filters in force and the numbers the view draws. Re-runnable; prints PASS / FAIL per check.
 //   node scripts/lean_check.mjs [baseUrl] [outDir] [--only=regex] [--headed] [--list]
+// Brand v3 (the default build since 2026-11-17) loads its header from VITE_BRAND_URL: until calcofi.io/brand/v3/ is live,
+// check a build made with VITE_BRAND_URL pointing at a served copy of the site's brand/ folder (README § Brand), or a
+// VITE_BRAND=v2 build, on which brand_header reports and skips.
 // downloads land in <outDir>/dl/<case>/ (the browser's own download, not a hook); screenshots in <outDir>/<case>.png
 import puppeteer from "puppeteer-core";
 import fs from "node:fs";
@@ -792,6 +795,82 @@ C("what_sort", async () => {
   check(/Most observations/.test(await text(".wp-sortrow .sp-btn") ?? ""), "the sort is remembered by the browser");
   await setSort("Suggested");
   noErrors("what_sort");
+});
+
+// brand v3 (2026-11-17): the Explorer's bar keeps its own controls and wears the brand's — the menu button at every width,
+// whose words are the brand's (nav.json beside the brand's header.js), sentence case, and the wave strip under the bar —
+// in the lean and the classic layout, on a tablet and a phone; and the map still gets exactly what is left of the window.
+C("brand_header", async () => {
+  await ready(`${SARDINE}`); await closeWhat();
+  const ver = await page.evaluate(() => window.ccTheme?.version ?? null);
+  if (ver !== "3") { pass(`a brand v${ver ?? "?"} build: the brand's header is not worn here (brand_header skipped)`); return; }
+  const navReady = async () => { for (let i = 0; i < 100; i++) { if (await page.evaluate(() => document.querySelector("#cc-nav")?.getAttribute("data-cc-nav-state") === "ready")) return true; await sleep(150); } return false; };
+  check(await navReady(), "the brand's header.js drew the words into the empty nav");
+  const navUrl = await page.evaluate(() => new URL("nav.json", [...document.scripts].find((x) => /\/v3\/header\.js/.test(x.src)).src).href);
+  const nav = await (await fetch(navUrl)).json();
+  const want = nav.words.map((w) => w.title);
+  const lines = nav.words.flatMap((w) => (w.menu ? w.menu.flatMap((c) => c.items).filter((i) => !i.rule).map((i) => i.url) : [w.url]));
+  const bar = () => page.evaluate(() => {
+    const navEl = document.getElementById("cc-nav"), hdr = document.querySelector(".cc-header"), wave = hdr.nextElementSibling, main = document.querySelector(".main"), map = document.querySelector(".mapwrap");
+    const shown = (e) => { if (!e) return false; const c = getComputedStyle(e), r = e.getBoundingClientRect(); return c.display !== "none" && c.visibility !== "hidden" && r.width > 0 && r.height > 0; };
+    const word = (e) => (e.matches("a") ? e : e.querySelector(".cc-m2-t")), R = (e) => { const r = e.getBoundingClientRect(); return { t: Math.round(r.top), b: Math.round(r.bottom), l: Math.round(r.left), r: Math.round(r.right), h: Math.round(r.height) }; };
+    const kids = [...hdr.children].filter(shown).filter((e) => !(e.id === "cc-nav" && hdr.classList.contains("cc-nav-open"))).map((e) => { const r = e.getBoundingClientRect(); return (r.top + r.bottom) / 2; });
+    return { words: [...navEl.children].map((e) => word(e).textContent.trim()), tt: [...new Set([...navEl.children].map((e) => getComputedStyle(word(e)).textTransform))],
+      title: [document.querySelector(".cc-header .cc-title")?.firstChild?.textContent.trim(), getComputedStyle(document.querySelector(".cc-header .cc-title")).textTransform],
+      links: [...navEl.querySelectorAll("a")].map((a) => a.getAttribute("href")), navShown: shown(navEl), burger: shown(hdr.querySelector(".cc-menu-button")),
+      wave: wave?.classList.contains("cc-wave") ?? false, hdr: R(hdr), waveR: wave ? R(wave) : null, main: R(main), map: map ? R(map) : null,
+      oneRow: Math.max(...kids) - Math.min(...kids) < 14, sw: document.documentElement.scrollWidth, sh: document.documentElement.scrollHeight, iw: innerWidth, ih: innerHeight,
+      hvar: getComputedStyle(document.documentElement).getPropertyValue("--cc-header-h").trim() };
+  });
+  // the window is filled exactly: bar, wave strip, then the map's row down to the bottom edge; nothing scrolls; --cc-header-h is the strip's bottom
+  const fits = (h, where) => {
+    check(h.wave && h.waveR.t === h.hdr.b && h.waveR.h >= 10 && h.waveR.h <= 20, `${where}: the wave strip directly follows the bar (${h.waveR?.h} px, at ${h.waveR?.t})`);
+    check(h.hdr.t === 0 && h.main.t === h.waveR.b && h.main.b === h.ih && h.sw <= h.iw && h.sh <= h.ih, `${where}: bar + strip + map fill the ${h.iw} x ${h.ih} window exactly (bar 0–${h.hdr.b}, strip –${h.waveR.b}, main ${h.main.t}–${h.main.b}; document ${h.sw} x ${h.sh})`);
+    check(h.hvar === `${h.waveR.b}px`, `${where}: --cc-header-h is the strip's bottom, so a dialog starts under it (${h.hvar})`);
+    check(h.oneRow && h.hdr.h <= 52, `${where}: the bar is one row (${h.hdr.h} px)`);
+  };
+  let h = await bar();
+  check(JSON.stringify(h.words) === JSON.stringify(want) && want.length === 8, `the menu's eight words are the brand's, from ${navUrl.replace(/^https?:\/\/[^/]+/, "")}: ${h.words.join(" · ")}`);
+  check(h.tt.length === 1 && h.tt[0] === "none" && h.title[1] === "none" && h.title[0] === "Explorer", `sentence case: the words and the title "${h.title[0]}" are not uppercased (text-transform ${h.tt.join(", ")} / ${h.title[1]})`);
+  check(JSON.stringify(h.links) === JSON.stringify(lines), `every line links where the brand's list says (${h.links.length} links)`);
+  check(!h.navShown && h.burger, "the bar keeps its own controls: the words are behind the menu button, at 1400 px too");
+  fits(h, "lean, 1400 px");
+  const mapBefore = h.map;
+  // the menu button: a press opens every line, in one column, over the map (the map does not move); Escape closes it
+  await page.click(".cc-header .cc-menu-button"); await sleep(400);
+  const col = async (vp) => page.evaluate(async () => {
+    const navEl = document.getElementById("cc-nav"), as = [...navEl.querySelectorAll("a")], out = { n: as.length, ex: document.querySelector(".cc-menu-button").getAttribute("aria-expanded"), unreachable: [] };
+    out.oneColumn = new Set(as.map((a) => Math.round(a.getBoundingClientRect().left / 40))).size <= 2;
+    for (const a of as) { a.scrollIntoView({ block: "nearest" }); await new Promise((r) => setTimeout(r, 15)); const r = a.getBoundingClientRect(); if (!(r.height > 0 && r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth)) out.unreachable.push(a.textContent.trim().slice(0, 24)); }
+    const nr = navEl.getBoundingClientRect(); out.nav = { l: Math.round(nr.left), r: Math.round(nr.right) }; out.sw = document.documentElement.scrollWidth;
+    const top = document.elementFromPoint((nr.left + nr.right) / 2, nr.top + 12); out.onTop = !!top && navEl.contains(top);
+    return out;
+  });
+  let c = await col();
+  h = await bar();
+  check(c.ex === "true" && c.n === lines.length && c.oneColumn && c.unreachable.length === 0, `the menu button opens all ${c.n} lines in one column, every one in the window${c.unreachable.length ? ` — not: ${c.unreachable.join(", ")}` : ""}`);
+  check(c.onTop && JSON.stringify(h.map) === JSON.stringify(mapBefore), `the open menu lies over the map and the map does not move (map ${h.map.t}–${h.map.b})`);
+  await shot("brand_menu_open");
+  // a word with a menu inside the column is a heading there: its lines are already shown and say so
+  check(await page.evaluate(() => [...document.querySelectorAll("#cc-nav .cc-m2-t")].every((t) => t.getAttribute("aria-expanded") === "true")), "in the column each menu's word says its lines are shown (aria-expanded true)");
+  await page.keyboard.press("Escape"); await sleep(300);
+  check(await page.evaluate(() => !document.querySelector(".cc-header").classList.contains("cc-nav-open") && document.activeElement === document.querySelector(".cc-menu-button")), "Escape closes it and focus is back on the menu button");
+  // the feedback capture still draws the view, the strip included (html-to-image clones the bar and what follows it)
+  const cap = await page.evaluate(() => (window.__captureView ? window.__captureView().then((r) => ({ ok: true, len: r.dataUrl.length, w: r.w ?? null })).catch((e) => ({ ok: false, err: String(e) })) : { ok: null }));
+  if (cap.ok === null) pass("(no __captureView hook in this build: the capture was not exercised here)"); else check(cap.ok && cap.len > 20000, `the feedback capture still draws (${cap.ok ? `${Math.round(cap.len / 1024)} KB` : cap.err})`);
+  // the other layouts and widths
+  for (const [qs, vp, where] of [[`ui=classic&${SARDINE}`, DESK, "classic, 1400 px"], [`${SARDINE}`, { width: 1100, height: 800 }, "lean, 1100 px"], [`${SARDINE}`, { width: 1099, height: 800 }, "lean, 1099 px"], [`${SARDINE}`, { width: 820, height: 1180 }, "820 px"], [`${SARDINE}`, { width: 375, height: 667, deviceScaleFactor: 2, isMobile: true, hasTouch: true }, "375 x 667"]]) {
+    await ready(qs, vp); await closeWhat(); await navReady();
+    h = await bar(); fits(h, where);
+    check(!h.navShown && h.burger, `${where}: the menu button is in the bar`);
+    await page.click(".cc-header .cc-menu-button"); await sleep(400);
+    c = await col();
+    check(c.n === lines.length && c.unreachable.length === 0 && c.sw <= vp.width, `${where}: all ${c.n} lines can be brought into the window, no sideways scroll${c.unreachable.length ? ` — not: ${c.unreachable.join(", ")}` : ""}`);
+    if (vp.width === 375) await shot("brand_menu_open_phone");
+    await page.keyboard.press("Escape"); await sleep(250);
+  }
+  await ready(`ui=lean&${SARDINE}`);
+  noErrors("brand_header");
 });
 
 if (opt.list) { console.log(CASES.map((c) => c.name).join("\n")); process.exit(0); }
