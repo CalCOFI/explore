@@ -2,7 +2,7 @@
 // with the Explorer's own slices underneath (per-net zero-fill for a positive-only species, the cruise's year).
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { latLngToCell } from "h3-js";
-import { builderSql, type Spec, type Ctx } from "../src/builder/query";
+import { builderSql, cleanupSql, MAX_PICKS, tooMany, probeSql, resolvePick, resolveSpec, slicesSql, tableSql, type PickFacts, type Spec, type Ctx } from "../src/builder/query";
 import { openDuck, type Duck } from "./helpers/duck";
 
 let db: Duck;
@@ -67,6 +67,10 @@ describe("one row per station per year, species and temperature side by side", (
 });
 
 describe("other places and times", () => {
+  it("per sample date: the date is text a spreadsheet reads (it reached the CSV as milliseconds), with the cruise", () => {
+    const r = run({ ...BASE, time: "sample" });
+    expect(r.map((x) => [x.date, x.cruise, x.line, x.station])).toEqual([["1960-03-10", "1960-03-JD", 80, 60], ["1990-07-02", "1990-07-NH", 90, 70], ["2012-04-02", "2012-04-RL", 80, 60]]);
+  });
   it("no split by place, all years: one row, the average of everything", () => {
     const r = run({ ...BASE, place: "all", time: "all" });
     expect(r).toHaveLength(1);
@@ -96,6 +100,15 @@ describe("other places and times", () => {
 });
 
 describe("a pick is one dataset's species or measurement", () => {
+  // REGRESSION (2026-11-17): the release has 11 pairs of taxa that share a common name within one dataset
+  it("two taxa under one common name in one dataset: two columns, each carrying its own key", () => {
+    const spec: Spec = { ...BASE, place: "all", time: "all", picks: [
+      { realm: "bio", taxon: ANCHOVY, label: "Octopus", dataset: "ichthyo", tag: "Ichthyo" }, { realm: "bio", taxon: SARDINE, label: "Octopus", dataset: "ichthyo", tag: "Ichthyo" }] };
+    const r = run(spec)[0];
+    expect(Object.keys(r)).toEqual(["octopus_larva_per_10m2_ichthyo_worms_217452", "octopus_larva_per_10m2_ichthyo_worms_126422"]);
+    expect(r.octopus_larva_per_10m2_ichthyo_worms_217452).toBeCloseTo(7.81 / 3, 9);
+    expect(r.octopus_larva_per_10m2_ichthyo_worms_126422).toBeCloseTo((15 + 3) / 3, 9);
+  });
   it("the same species from one dataset only, named for it; another dataset's rows are left out", () => {
     db.exec(`CREATE OR REPLACE TABLE obs AS SELECT * FROM obs UNION ALL SELECT 9, 'zooscan', root_id, grid_key, site_key, cruise_key, latitude, longitude, datetime, year, quarter,
       depth_min_m, depth_max_m, depth_bin, taxon_key, life_stage, measurement_type, units, value, measurement_qual, qual_ok, tow_type, std_haul_factor, prop_sorted,
@@ -110,3 +123,101 @@ describe("a pick is one dataset's species or measurement", () => {
   });
 });
 
+
+// REGRESSION (2026-11-17, release v2026.11.14): in the release a net tow's depth_bin is 0, not NULL as the fixture above has
+// it, so a depth band starting below 10 m dropped every tow and the species column went blank beside the temperature asked for
+describe("the depth band is for water; a tow that fished through the band stays", () => {
+  const ctx0: Ctx = { ...ctx, bioSrc: "obs0" };
+  beforeAll(() => {
+    // the ichthyo tows as the release ships them (depth_bin 0, 0–210 m), plus a depth-resolved organism sample at 30 m (eDNA from a bottle)
+    db.exec(`CREATE OR REPLACE TABLE obs0 AS SELECT * REPLACE (0 AS depth_bin) FROM obs WHERE dataset_key = 'ichthyo'
+      UNION ALL SELECT 21, 'edna', 1, grid_key, site_key, cruise_key, latitude, longitude, datetime, year, quarter, 30.0, 30.0, 30, taxon_key, NULL, 'edna_presence', 'presence', 1.0, NULL, TRUE,
+        NULL, NULL, NULL, NULL, NULL, NULL, 'presence', hex7 FROM obs WHERE obs_id = 1`);
+  });
+  const run0 = (spec: Spec) => { const s = builderSql(spec, ctx0); s.slice(0, -1).forEach((x) => db.exec(x)); return db.exec(s[s.length - 1]); };
+  const ICH = { realm: "bio" as const, taxon: ANCHOVY, label: "Northern Anchovy", dataset: "ichthyo" };
+  it("temperature at 10–100 m: the 0–210 m tow is kept, only the 10 m temperature counts", () => {
+    const r = run0({ ...BASE, picks: [ICH, BASE.picks[1]], depth: [10, 100] }).find((x) => x.year === 1960)!;
+    expect(r[A]).toBeCloseTo(7.81, 9); expect(r[T]).toBe(12);
+  });
+  it("a band below the tow's deepest depth drops it", () => {
+    expect(run0({ ...BASE, picks: [ICH], depth: [300, 500] })).toHaveLength(0);
+  });
+  it("a depth-resolved organism sample passes only when its own depth is in the band", () => {
+    const EDNA = { realm: "bio" as const, taxon: ANCHOVY, label: "Northern Anchovy", dataset: "edna", den: "value" as const, stages: null };
+    expect(run0({ ...BASE, picks: [EDNA], depth: [0, 30], place: "all", time: "all" })[0].northern_anchovy_count).toBe(1);
+    expect(run0({ ...BASE, picks: [EDNA], depth: [50, 100], place: "all", time: "all" })[0].northern_anchovy_count).toBeNull(); // one row (no keys), its cell blank
+  });
+});
+
+// REGRESSION (2026-11-17): one "Species units" and "Life stage" choice for the whole table left every pick it did not fit as a
+// blank column with no word why — of the release's 12 organism datasets only the ichthyoplankton tows fit the defaults
+// (larva, per 10 m²). Each pick now takes what its dataset holds, and says so.
+describe("units and life stage per pick", () => {
+  const F = (stage: string | null, n: number, n_10m2: number, n_1000m3: number, units = "count"): PickFacts => ({ stage, n, n_10m2, n_1000m3, units });
+  const bird = { realm: "bio" as const, taxon: "worms:1", label: "Sooty Shearwater", dataset: "birds", tag: "Bird & mammal" };
+  it("the choice stands where the dataset holds it: no note, nothing overridden", () => {
+    const r = resolvePick({ realm: "bio", taxon: ANCHOVY, label: "Northern Anchovy" }, BASE, [F("larva", 10, 10, 10), F("egg", 4, 4, 4)]);
+    expect(r.notes).toEqual([]); expect(r.pick).toMatchObject({ units: "count" });
+    expect("den" in r.pick).toBe(false); expect("stages" in r.pick).toBe(false);
+  });
+  it("a dataset with no life stage and no effort: no stage filter, given as counted, and the note says so", () => {
+    const r = resolvePick(bird, BASE, [F(null, 50, 0, 0, "individuals")]);
+    expect(r.pick).toMatchObject({ den: "value", stages: null });
+    expect(r.notes).toEqual(["Sooty Shearwater (Bird & mammal) is given as counted (individuals): this dataset has no values per 10 m² of sea surface."]);
+  });
+  it("per 10 m² asked, only per 1000 m³ held: falls to it; per 1000 m³ asked, only per 10 m² held: falls to that", () => {
+    expect(resolvePick(bird, BASE, [F("larva", 9, 0, 9)]).pick).toMatchObject({ den: "density_per_1000m3" });
+    expect(resolvePick(bird, { ...BASE, den: "density_per_1000m3" }, [F("larva", 9, 9, 0)]).pick).toMatchObject({ den: "density_per_10m2" });
+  });
+  it("none of the page's default stage: given at the dataset's most-recorded stage, named in the column and the note", () => {
+    const r = resolvePick(bird, BASE, [F("adult", 9, 9, 0), F("egg", 7, 7, 0)]);
+    expect(r.pick).toMatchObject({ stages: ["adult"] });
+    expect(r.notes).toEqual(["Sooty Shearwater (Bird & mammal) is given as adult: this dataset has no larva records of it (it records adult, egg; choose under More options › Life stage)."]);
+  });
+  it("none of the stages the READER set: the column stays blank and the note names the stages the dataset records", () => {
+    const r = resolvePick(bird, { ...BASE, stagesStrict: true }, [F("egg", 7, 0, 0)]);
+    expect("stages" in r.pick).toBe(false);
+    expect(r.notes[0]).toContain("no larva records"); expect(r.notes[0]).toContain("records it as egg");
+  });
+  it("two stages chosen, one held: a column for that one only", () => {
+    expect(resolvePick(bird, { ...BASE, stages: ["larva", "egg"] }, [F("egg", 7, 7, 7)]).pick).toMatchObject({ stages: ["egg"] });
+  });
+  it("nothing in the release for the pick: said, not silent", () => {
+    expect(resolvePick(bird, BASE, []).notes).toEqual(["Sooty Shearwater (Bird & mammal): the release holds no records for it."]);
+  });
+  it("a water measurement takes its units from the release", () => {
+    expect(resolvePick(BASE.picks[1], BASE, [F(null, 3, 0, 0, "degC")]).pick).toMatchObject({ units: "degC" });
+  });
+  it("end to end: a bird count beside anchovy larvae per 10 m² — built, probed, resolved, then shaped", () => {
+    db.exec(`CREATE OR REPLACE TABLE obsb AS SELECT * FROM obs WHERE dataset_key = 'ichthyo'
+      UNION ALL SELECT 31, 'birds', 1, grid_key, site_key, cruise_key, latitude, longitude, datetime, year, quarter, 0.0, 0.0, 0, 'worms:1', NULL, 'count', 'individuals', 4.0, NULL, TRUE,
+        NULL, NULL, NULL, NULL, NULL, NULL, 'count_only', hex7 FROM obs WHERE obs_id = 1`);
+    const cb: Ctx = { ...ctx, bioSrc: "obsb" };
+    const spec: Spec = { ...BASE, place: "all", time: "all", picks: [{ realm: "bio", taxon: ANCHOVY, label: "Northern Anchovy", dataset: "ichthyo" }, bird] };
+    slicesSql(spec, cb).forEach((x) => db.exec(x));
+    const blank = tableSql(spec, cb); db.exec(blank[0]);
+    expect(db.exec(blank[1])[0].sooty_shearwater_larva_per_10m2_bird_mammal).toBeNull();   // as it was: larva + per 10 m² asked of a bird
+    const { spec: res, notes } = resolveSpec(spec, spec.picks.map((p, i) => db.exec(probeSql(p, i)) as PickFacts[]));
+    const t = tableSql(res, cb); db.exec(t[0]);
+    const r = db.exec(t[1])[0];
+    expect(Object.keys(r)).toEqual(["northern_anchovy_larva_per_10m2", "sooty_shearwater_count_bird_mammal"]);
+    expect(r.sooty_shearwater_count_bird_mammal).toBe(4);
+    expect(r.northern_anchovy_larva_per_10m2).toBeCloseTo(7.81 / 3, 9);
+    expect(notes).toHaveLength(1);
+  });
+});
+
+describe("how much one table takes", () => {
+  it("up to MAX_PICKS columns; more is refused with a sentence, before anything is built", () => {
+    expect(tooMany(MAX_PICKS)).toBeNull();
+    expect(tooMany(1641)).toBe(`1,641 columns are selected; one table takes up to ${MAX_PICKS}. Untick some, or download the whole dataset from its page.`);
+    const many: Spec = { ...BASE, picks: Array.from({ length: MAX_PICKS + 1 }, () => BASE.picks[0]) };
+    expect(() => builderSql(many, ctx)).toThrow(/one table takes up to/);
+  });
+  it("a build's working tables are dropped afterwards", () => {
+    run(BASE);
+    cleanupSql(BASE.picks.length).forEach((x) => db.exec(x));
+    expect(db.exec(`SELECT count(*) AS n FROM information_schema.tables WHERE table_name LIKE 'bld_%' OR table_name = 'slice'`)[0].n).toBe(0);
+  });
+});
