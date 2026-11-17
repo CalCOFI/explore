@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- **brand v3: the Explorer and the Query Builder wear calcofi.io's header** (Ben, 2026-11-17: one look, the wave,
+  the same words everywhere). `VITE_BRAND` takes `v3` and defaults to it; `VITE_BRAND_URL` says where the brand is
+  loaded from (default `https://calcofi.io/brand/`; a preview with its own copy of the site sets `/brand/`).
+  `src/brandurl.ts`, `tests/brandurl.test.ts`, `brand/v3.head.html`.
+  - **Neither page types the header's words.** The brand's `header.js` draws them from `brand/v3/nav.json`, the one
+    list every product reads: Data ▾ · Map ▾ · Query · Cite · Learn ▾ · FAQ · News · calcofi.org ↗, sentence case.
+  - **The Query Builder** is a page at the reading scale: calcofi.io's bar (lockup, "Query Builder", the words from
+    1100 px, the menu button below), and its crumb, h1, one line and release in the navy wave band under it. Its own
+    DATA · EXPLORER · DOCS links are gone.
+  - **The Explorer** keeps its bar of controls and gains the brand's menu button at every width (the eight words in
+    a panel that drops from the bar), the title in sentence case, and a 15 px wave strip under the bar. The map still
+    gets exactly what is left of the window, in the lean and the classic layout and on a phone; `--cc-header-h` is
+    the strip's bottom. On a phone the bar holds one more button and stays one row at 375 px.
+  - The lockup goes to the preview's own copy of the site when `VITE_SITE_URL` names one.
+  - `brand_header` in `scripts/builder_check.mjs` and `scripts/lean_check.mjs` checks all of it.
+  - **Deploy order:** the site's `brand/v3/` has to be live before a v3 build of this app is. `pages.yml` deploys
+    `v2` until the repository variable `VITE_BRAND` says `v3` (README § Brand).
+
 - **fix: the Find data panel always runs the map's full height.** A resize from its corner stored a height in the
   browser for that window size, and from then on the panel opened short (Ben 2026-11-16: 555 px of an 800 px map), with
   nothing on screen saying why; only a double-click on its bar reset it. In the lean layout its height is never

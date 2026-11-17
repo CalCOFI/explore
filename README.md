@@ -341,6 +341,7 @@ node scripts/verify.mjs http://localhost:5178/ shots/dev --only=<regex>   # driv
 node scripts/verify.mjs http://localhost:5179/ shots/prod --timing        # + cold/warm lens timings
 node scripts/bundle_check.mjs http://localhost:5178/ shots/bundle          # download two bundles and list them
 node scripts/builder_check.mjs http://localhost:4047/ shots/builder        # the Query Builder against the live release (npx vite preview --port 4047)
+node scripts/lean_check.mjs http://localhost:4047/ shots/lean              # the lean panel, every view and download, and the brand's header
 node scripts/card_shots.mjs ~/Github/CalCOFI/CalCOFI.github.io/images     # the two themed card screenshots
 node scripts/tour_shots.mjs http://localhost:5179/ shots/tour              # the docs/deck pictures: a lens each + the UI close-ups
 ```
@@ -373,6 +374,57 @@ organism dataset (no blank column), the task "sardine larvae and temperature, li
 shape, the three lenses, a region chosen, every hexagon size, an empty result, the column limit, the same picks made
 in two orders, a 375 px window, both themes (contrast of the small text), and the keyboard (names, focus rings,
 Enter and Space).
+
+Both `builder_check.mjs` and `lean_check.mjs` have a `brand_header` case (brand v3): the words equal `nav.json`'s
+eight titles and link where it says, sentence case, a menu opens on a press and closes on Escape with focus back on
+its word, the menu button's column lists every line and each can be brought into a 375 × 667 window, a `.cc-wave`
+directly follows the bar, and the page still fits its window (for the Explorer: bar + strip + map fill it exactly,
+in the lean and the classic layout). **Until `calcofi.io/brand/v3/` is live**, run them against a build that loads
+the brand from a served copy: build the site (`CalCOFI.github.io`), build this app with `VITE_BASE=/explore/
+VITE_SITE_URL=/ VITE_BRAND_URL=/brand/`, serve the site's `_site` with this `dist` at `/explore/`, and pass that
+`…/explore/` as the base URL. A plain `vite preview` of a default build would ask the live site for a v3 it does
+not have yet.
+
+## Brand (the bar, the words, the wave)
+
+The app and the Query Builder wear calcofi.io's brand, loaded live from `calcofi.io/brand/` (`CalCOFI.github.io`
+publishes it; its contract is `brand/v3/README.md` there). Two build variables choose it, and `src/brandurl.ts`
+holds the rules (`tests/brandurl.test.ts`):
+
+| variable | values | default |
+|---|---|---|
+| `VITE_BRAND` | `v1` · `v2` · `v3` | `v3` since 2026-11-17 |
+| `VITE_BRAND_URL` | where the brand is served | `https://calcofi.io/brand/` |
+
+- **v3 is v2 with the brand's header.** Tokens, type, logos and favicons are v2's own files, still at `brand/v2/`.
+  v3 adds `header.css`, `header.js`, `theme.js` (version "3") and `nav.json`: the header's words are **one list for
+  every product** (Data ▾ · Map ▾ · Query · Cite · Learn ▾ · FAQ · News · calcofi.org ↗, sentence case), and under
+  the bar sits a navy band that ends in a wave. `brand/v3.head.html` is the head block.
+- **Neither page types the words.** Each renders an empty
+  `<nav class="cc-links cc-nav" id="cc-nav" data-cc-nav>` and the brand's menu button; the brand's `header.js`
+  draws the words into the nav from `nav.json` beside itself and runs the menus and the button. React renders no
+  children in that nav, so it never touches what the brand drew.
+- **The Query Builder is a page**, at the reading scale (its head block drops the app-scale meta): the bar is
+  calcofi.io's (lockup, "Query Builder", the eight words from 1100 px, the menu button below, the toggle), and its
+  crumb, h1, one line and release are in the wave band. Its own DATA · EXPLORER · DOCS links are gone; the brand's
+  words carry them. The page's column is the brand's container with the site's 24 px inset.
+- **The Explorer is an app** whose bar is full of its own controls, so it keeps them and asks for the brand's menu
+  button at every width (`class="cc-header cc-nav-menu"`): the same eight words are one press away, in a panel that
+  drops from the bar's right end. Under the bar, the wave is a 15 px strip, a row of the app's grid, so the map
+  still gets exactly what is left of the window; `--cc-header-h` is measured to the strip's bottom.
+- **A preview that carries its own copy of the site** sets `VITE_BRAND_URL=/brand/` (with `VITE_BASE=/explore/
+  VITE_SITE_URL=/`), so the header it shows is the one under review and the words' links stay on the preview.
+- **v2 and v1 still build.** `VITE_BRAND=v2` is what was live until v3: the Explorer's bar without the menu button
+  or the strip, the Query Builder with its own small header. `brand_header` in both check scripts reports and skips.
+- **Asked of the brand, with a stopgap here until it has them** (each marked STOPGAP or "asked of the brand" in
+  `src/style.css` / `src/builder/builder.css`): on a `.cc-nav-menu` bar the open words should be a panel that drops
+  from the bar, not a full-width row of it, and the bar should not wrap; `.cc-wave-in` should be `border-box`;
+  `.cc-wave` should carry a background colour under its gradient.
+
+**Deploy order.** A v3 build loads `calcofi.io/brand/v3/`, so the site has to be live first: a v3 Explorer deployed
+before it would have no `theme.js`. `pages.yml` builds `VITE_BRAND: ${{ vars.VITE_BRAND || 'v2' }}`, so the deploy
+stays on v2 until the repository variable says `v3`. The order: merge and deploy `CalCOFI.github.io`; check that
+`https://calcofi.io/brand/v3/nav.json` answers; set the variable `VITE_BRAND` to `v3`; re-run `pages`.
 
 ## Deploy
 
@@ -413,9 +465,10 @@ screenshot in the mail). Usage analytics go through the fleet's GA4 snippet in `
   `cc:theme` event) · deck.gl `MapboxOverlay` (`ScatterplotLayer` carries the station dots between
   lenses, `H3HexagonLayer`, `GeoJsonLayer`, `TripsLayer`, `BitmapLayer` for the contoured surface) · DuckDB-WASM self-hosted in a Web Worker,
   no extensions, objects fetched whole and registered as buffers · Plotly for the depth strip, year
-  strip, section and cruise series · `h3-js` · the brand from `calcofi.io/brand/<VITE_BRAND>/` — v2, the SIO look
-  (light default, Source Sans 3, the lockup at 28 px, `data-cc-scale="app"`), since the flip on
-  2026-09-04; `VITE_BRAND=v1` still builds the superseded dark-default look. `vite.config.ts` injects
+  strip, section and cruise series · `h3-js` · the brand from `<VITE_BRAND_URL>/<VITE_BRAND>/` — v3 since 2026-11-17
+  (§ Brand above): v2, the SIO look (light default, Source Sans 3, the lockup at 28 px, `data-cc-scale="app"`, since
+  the flip on 2026-09-04), with the brand's header; `VITE_BRAND=v2` builds v2 alone and `v1` the superseded
+  dark-default look. `vite.config.ts` injects
   `brand/<v>.head.html`; `src/brand.ts` carries the same choice into the header and the capture (v2 embeds
   the woff2 files so the feedback PNG is set in Source Sans 3). `verify.mjs`'s `v2_*` states check the
   default build and skip on a v1 one.
