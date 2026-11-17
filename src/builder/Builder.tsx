@@ -12,7 +12,7 @@ import { SITE_URL } from "../preview";
 import { citationText, releaseCitation } from "../cite";
 import { boot, datasetInfo, ensure, envReg, envSrc, probe, regions, REG, urlOf, type Boot, type DatasetInfo, type ListItem } from "./data";
 import { offGridNotice, parsePicks, parseShape, startLens, unknownNotice, withoutDownload } from "./picks";
-import { aboutText, cleanupSql, pickColumns, probeSql, tooMany, resolveSpec, ruleLines, sentence, slicesSql, tableSql, STAT_WORD, type PickFacts, type Den, type DepthBy, type Item, type Lens, type Place, type Spec, type Stat, type TimeBy } from "./query";
+import { aboutText, cleanupSql, matchLine, netRows, pickColumns, probeSql, tooMany, resolveSpec, ruleLines, sentence, slicesSql, tableSql, waters, MATCH_DEFAULT, MATCH_DEPTH, MATCH_MAX, STAT_WORD, type Prefer, type PickFacts, type Den, type DepthBy, type Item, type Lens, type Place, type Spec, type Stat, type TimeBy } from "./query";
 
 type Preset = "sample" | "year" | "season" | "month" | "custom";
 // a built table: its rows, the statements that made it, the spec with every pick resolved to what its dataset holds, and what that changed
@@ -57,6 +57,12 @@ export function Builder() {
   const [years, setYears] = useState<[number, number]>([1949, 2026]);
   const [season, setSeason] = useState<number | 0>(0);
   const [depth, setDepth] = useState<[number, number]>([0, 500]);
+  // how a net is given its cast (query.ts netSql): the two windows, the preference, and the water's own depth range. They
+  // apply — and show, as "Match water to each net" — only when the table is one row per net and holds water (pairing)
+  const [mHours, setMHours] = useState(MATCH_DEFAULT.hours);
+  const [mKm, setMKm] = useState(MATCH_DEFAULT.km);
+  const [mPrefer, setMPrefer] = useState<Prefer>(MATCH_DEFAULT.prefer);
+  const [mDepth, setMDepth] = useState<[number, number]>(MATCH_DEPTH);
   const [preset, setPreset] = useState<Preset>(shape0.rows ?? "year");
   const [place, setPlace] = useState<Place>(PLACE_OPTS[shape0.lens ?? "station"][0].id);
   const [time, setTime] = useState<TimeBy>("year");
@@ -127,6 +133,8 @@ export function Builder() {
   const effDepth: DepthBy = preset === "custom" ? depthBy : preset === "sample" ? "10" : "avg";
   const effStat: Stat = preset === "custom" ? stat : "avg";
   const raw = effPlace === "station" && effTime === "sample" && effDepth === "10";
+  // one row per net (Stations › Every sample with a species), and whether there is water to match to it
+  const nets = lens === "station" && effPlace === "station" && effTime === "sample" && nBio > 0, pairing = nets && nEnv > 0;
 
   const area: Area | null = lens === "station" && stations !== "all" ? { kind: "pattern", patterns: stations === "std" ? ["standard"] : ["standard", "extended"] } : null;
   const areaPred = b ? (areaSql(area, { gridKeys: b.gridKeys, spatialSrc: `'${REG.sample_spatial}'`, allKeys: b.allKeys }) ?? "TRUE") : "TRUE";
@@ -136,8 +144,9 @@ export function Builder() {
       : { realm: "env", key: p.key, label: p.label, members: p.members, units: p.units, dataset: p.dataset, tag: dsName(p.dataset) }),
     lens, place: effPlace, hexRes, layer: lens === "region" ? layer : null, regionNames: lens === "region" ? regionNames : null,
     area: [areaPred, regionPred].filter((x) => x !== "TRUE").join(" AND ") || "TRUE",
-    years, seasons: season ? [season] : null, depth, time: effTime, depthBy: effDepth, stat: effStat,
+    years, seasons: season ? [season] : null, depth: pairing ? mDepth : depth, time: effTime, depthBy: effDepth, stat: effStat,
     stages: nBio ? stages : null, stagesStrict: stagesSet, den, zeros, qualOnly, datasets: null,
+    ...(pairing ? { match: { hours: mHours, km: mKm, prefer: mPrefer } } : {}),
   };
   const specKey = JSON.stringify(spec);
   const over = tooMany(picks.length);
@@ -167,8 +176,8 @@ export function Builder() {
       for (let i = 0; i < spec.picks.length; i++) facts.push(await engine.exec(probeSql(spec.picks[i], i), "builder:probe") as PickFacts[]);
       const res = resolveSpec(spec, facts);
       const table = tableSql(res.spec, ctx);
-      await engine.exec(table[0], "builder");
-      const rows = await engine.exec(table[1], "builder:table");
+      for (const s of table.slice(0, -1)) await engine.exec(s, "builder");
+      const rows = await engine.exec(table[table.length - 1], "builder:table");
       for (const s of cleanupSql(spec.picks.length)) await engine.exec(s, "builder:cleanup");   // the slices are not kept between builds
       const r: Built = { key: specKey, rows, sql: [...slices, ...table], spec: res.spec, notes: res.notes };
       setResult(r); setBusy(null);
@@ -195,7 +204,7 @@ export function Builder() {
         : `Regions of ${layer}${regionNames?.length ? `: ${regionNames.join(", ")}` : " (all of them)"}: every sample inside`,
       ...(lens !== "region" && regionLayer ? [`Only samples inside any region of: ${regionLayer}`] : []),
       `Years ${years[0]}–${years[1]}, ${season ? ["", "winter (Dec–Feb)", "spring (Mar–May)", "summer (Jun–Aug)", "fall (Sep–Nov)"][season] + " only" : "all seasons"}`,
-      `Depth ${depth[0]}–${depth[1]} m`,
+      matchLine(r.spec) ?? `Depth ${depth[0]}–${depth[1]} m`,
       qualOnly ? "Quality-checked values only" : "All values, flagged ones included",
       ...(nBio ? [zeros ? "A net with no catch counts as 0" : "Nets with a catch only"] : []),
     ];
@@ -225,6 +234,11 @@ export function Builder() {
   const toggle = (k: string) => setPicked((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
   const setMany = (ks: string[], on: boolean) => setPicked((s) => { const n = new Set(s); ks.forEach((k) => on ? n.add(k) : n.delete(k)); return n; });
   const cols = spec.picks.flatMap((p) => pickColumns(p, spec).map((c) => c.col));
+  // what the built per-net table matched: for each water dataset, the nets given a cast, of all the nets (rows)
+  const matched = result && !stale && netRows(result.spec) ? waters(result.spec.picks).map((w) => {
+    const n = result.rows.filter((r) => r[`cast_id${w.sfx}`] != null).length, of = result.rows.length;
+    return { name: w.name, n, of, text: `${n.toLocaleString("en-US")} of ${of.toLocaleString("en-US")} nets (${of ? Math.round(100 * n / of) : 0}%) have a ${w.name} cast inside the windows; the others keep their row with its columns blank.` };
+  }) : [];
   const stageChoices = useMemo(() => { const s = new Set<string>(); picks.forEach((p) => p.stages.forEach((x) => s.add(x))); const l = [...s]; return l.length ? l : STAGES; }, [picked, items]);
 
   if (err && !b) return <div className="tb-err" role="alert">{err}</div>;
@@ -342,24 +356,39 @@ export function Builder() {
                 <input className="num-in" type="number" aria-label="First year" value={years[0]} onChange={(e) => setYears([Number(e.target.value), years[1]])} /><span className="sub">to</span>
                 <input className="num-in" type="number" aria-label="Last year" value={years[1]} onChange={(e) => setYears([years[0], Number(e.target.value)])} />
                 <select aria-label="Season" value={season} onChange={(e) => setSeason(Number(e.target.value))}><option value={0}>All seasons</option><option value={1}>Winter</option><option value={2}>Spring</option><option value={3}>Summer</option><option value={4}>Fall</option></select></div></div>
-              <div className="row"><span>Depth</span><div className="ctl">
+              {/* while water is matched to nets the depth range is the water's, and sits with the match (below) */}
+              {!pairing && <div className="row"><span>Depth</span><div className="ctl">
                 <input className="num-in" type="number" aria-label="Shallowest depth (m)" value={depth[0]} onChange={(e) => setDepth([Number(e.target.value), depth[1]])} /><span className="sub">to</span>
-                <input className="num-in" type="number" aria-label="Deepest depth (m)" value={depth[1]} onChange={(e) => setDepth([depth[0], Number(e.target.value)])} /><span className="sub">m</span></div></div>
+                <input className="num-in" type="number" aria-label="Deepest depth (m)" value={depth[1]} onChange={(e) => setDepth([depth[0], Number(e.target.value)])} /><span className="sub">m</span></div></div>}
               <div className="row"><span>Rows</span><div className="ctl">
                 <select aria-label="Rows" value={preset} onChange={(e) => setPreset(e.target.value as Preset)}><option value="sample">Every sample, as measured</option><option value="year">Yearly averages</option><option value="season">Seasonal averages</option><option value="month">Monthly averages</option><option value="custom">Custom…</option></select></div></div>
               {preset === "custom" && <>
                 <div className="row"><span>Group by</span><div className="ctl rowsel">
                   <select aria-label="Group by place" value={place} onChange={(e) => setPlace(e.target.value as Place)}>{PLACE_OPTS[lens].map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</select>
                   <select aria-label="Group by time" value={time} onChange={(e) => setTime(e.target.value as TimeBy)}><option value="sample">Per sample date</option><option value="month">Per month</option><option value="season">Per season</option><option value="year">Per year</option><option value="decade">Per decade</option><option value="all">All years together</option></select>
-                  <select aria-label="Group by depth" value={depthBy} onChange={(e) => setDepthBy(e.target.value as DepthBy)}><option value="avg">Depths together</option><option value="10">Per 10 m</option></select></div></div>
+                  <select aria-label="Group by depth" value={depthBy} disabled={nets} title={nets ? "One row per net: the water's depth range is set below" : undefined} onChange={(e) => setDepthBy(e.target.value as DepthBy)}><option value="avg">Depths together</option><option value="10">Per 10 m</option></select></div></div>
                 <div className={`statline${raw ? " dis" : ""}`}>If a row covers several samples, show their
                   <select aria-label="Statistic" value={stat} onChange={(e) => setStat(e.target.value as Stat)}>{(Object.keys(STAT_WORD) as Stat[]).map((s) => <option key={s} value={s}>{STAT_WORD[s][0].toUpperCase() + STAT_WORD[s].slice(1)}</option>)}</select></div>
               </>}
-              <div className="explain">{sentence({ lens, place: effPlace, time: effTime, depthBy: effDepth, stat: effStat }, raw)}</div>
+              {/* MATCH WATER TO EACH NET (Ben, 2026-11-17): shown only when it applies — one row per net, with water picked.
+                  The same four numbers make the SQL (query.ts netSql), the sentence below and "How rows are matched". */}
+              {pairing && <fieldset className="match">
+                <legend>Match water to each net</legend>
+                <div className="row"><span>Time</span><div className="ctl"><span className="sub">within ±</span>
+                  <input className="num-in" type="number" min={0.25} max={MATCH_MAX.hours} step="any" aria-label="Hours either side of the net" value={mHours} onChange={(e) => setMHours(Number(e.target.value))} /><span className="sub">hours of the net</span></div></div>
+                <div className="row"><span>Distance</span><div className="ctl"><span className="sub">within</span>
+                  <input className="num-in" type="number" min={0.1} max={MATCH_MAX.km} step="any" aria-label="Kilometres from the net" value={mKm} onChange={(e) => setMKm(Number(e.target.value))} /><span className="sub">km of the net</span></div></div>
+                <div className="row"><span>Depth</span><div className="ctl"><span className="sub">water from</span>
+                  <input className="num-in" type="number" min={0} step={10} aria-label="Shallowest water depth (m)" value={mDepth[0]} onChange={(e) => setMDepth([Number(e.target.value), mDepth[1]])} /><span className="sub">to</span>
+                  <input className="num-in" type="number" min={0} step={10} aria-label="Deepest water depth (m)" value={mDepth[1]} onChange={(e) => setMDepth([mDepth[0], Number(e.target.value)])} /><span className="sub">m</span></div></div>
+                <div className="row"><span>Prefer</span><div className="ctl">
+                  <select aria-label="Prefer" value={mPrefer} onChange={(e) => setMPrefer(e.target.value as Prefer)}><option value="time">The cast nearest in time</option><option value="distance">The cast nearest in distance</option></select></div></div>
+              </fieldset>}
+              <div className="explain">{sentence(spec, raw)}</div>
               {/* the matching rule in force, in words (query.ts ruleLines): a combined table has to say how its rows are matched */}
               <details className="adv rule">
                 <summary><span>How rows are matched</span><span className="sub">what shares a row, what a blank and a 0 mean</span><Icon name="ui-down" className="chev" /></summary>
-                <ul>{ruleLines({ lens, place: effPlace, time: effTime, depthBy: effDepth, stat: effStat, depth, zeros }).map((l) => <li key={l}>{l}</li>)}</ul>
+                <ul>{ruleLines(spec).map((l) => <li key={l}>{l}</li>)}</ul>
               </details>
               <details className="adv">
                 <summary><span>More options</span><span className="sub">{nBio ? `${stages.join(", ") || "all stages"} · ${DEN_LABEL[den].toLowerCase()} · ${zeros ? "no catch = 0" : "catches only"} · ` : ""}{qualOnly ? "quality-checked" : "all values"}</span><Icon name="ui-down" className="chev" /></summary>
@@ -378,6 +407,8 @@ export function Builder() {
           <div className="chead"><span className="num" aria-hidden="true">3</span><h2>Preview</h2>
             <span className="r"><span aria-live="polite">{busy ?? (b && !dsReady ? "Getting ready…" : result && !stale ? `${result.rows.length.toLocaleString()} ${result.rows.length === 1 ? "row" : "rows"}` : picks.length ? "" : "Choose at least one species or measurement")}</span>
               {picks.length > 0 && !busy && dsReady && (!result || stale) && <button type="button" className="lnkbtn" data-act="preview" onClick={() => { build(); }}>Show preview</button>}</span></div>
+          {/* the per-net table: how many nets found a cast, per water dataset — what a change of window changes */}
+          {matched.length > 0 && <ul className="tb-matched" aria-label="Nets matched to a cast">{matched.map((m) => <li key={m.name} data-matched={m.n} data-nets={m.of}>{m.text}</li>)}</ul>}
           {result && !stale && result.notes.length > 0 && <ul className="tb-notes" aria-label="What changed for some columns">{result.notes.map((n) => <li key={n}>{n}</li>)}</ul>}
           <div className="twrap" tabIndex={0} role="region" aria-label="Preview of the first rows"><table><thead><tr>{(result && !stale && result.rows[0] ? Object.keys(result.rows[0]) : cols).map((c) => <th key={c} scope="col" title={c}>{c}</th>)}</tr></thead>
             <tbody>{result && !stale ? result.rows.slice(0, 3).map((r, i) => <tr key={i}>{Object.values(r).map((v, j) => <td key={j}>{v == null ? "" : typeof v === "number" ? +v.toPrecision(5) : String(v instanceof Date ? v.toISOString().slice(0, 10) : v)}</td>)}</tr>)
