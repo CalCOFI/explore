@@ -1,9 +1,14 @@
 /* the Query Builder page (builder.html). Colours and type from the calcofi.io brand (theme.css, loaded by the brand head):
    --bg --panel --panel-2 --border --fg --muted --accent --accent-bg --cta-bg --cta-fg, Source Sans 3 and Teko. */
 .tb, .tb *, .tb *::before, .tb *::after { box-sizing: border-box; }
-.tb { --tb-skel: color-mix(in srgb, var(--muted) 18%, transparent); display: flex; flex-direction: column; min-height: 100vh; background: var(--bg); color: var(--fg);
+/* the page: the brand's bar and wave (brand v3, outside .tb so its resets never touch the brand's own markup), then
+   the builder, which takes the rest of the window */
+.tb-page { display: flex; flex-direction: column; min-height: 100vh; background: var(--bg); color: var(--fg);
   font: 14px/1.35 "Source Sans 3", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
-@media (min-width: 1100px) and (min-height: 700px) { .tb { height: 100vh; } .tb main { min-height: 0; } }
+.tb-page > .cc-header, .tb-page > .cc-wave, .tb-page > .tb-hd { flex: none; }
+.tb { --tb-skel: color-mix(in srgb, var(--muted) 18%, transparent); flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg); color: var(--fg);
+  font: 14px/1.35 "Source Sans 3", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+@media (min-width: 1100px) and (min-height: 700px) { .tb-page { height: 100vh; } .tb main { min-height: 0; } }
 .tb a { color: inherit; text-decoration: none; }
 .tb button, .tb input, .tb select { font: inherit; color: inherit; }
 .tb input[type=checkbox], .tb input[type=radio] { accent-color: var(--accent); margin: 0; width: 15px; height: 15px; flex: none; }
@@ -20,6 +25,21 @@
 .tb-hd nav a:hover { color: var(--fg); }
 
 .tb main { flex: 1; width: 100%; max-width: 1280px; margin: 0 auto; padding: 14px 32px 12px; display: flex; flex-direction: column; gap: 12px; }
+
+/* ── brand v3: the page's head lives in the wave (the navy band under the bar), and the page lines up with the bar ──
+   The bar is the brand's (.cc-header: lockup, "Query Builder", the brand's words, the menu button, the toggle); nothing
+   here styles it. The band holds the crumb, the h1, the one line and the release. The column is the brand's container
+   (1170 px at the reading scale) with the site's 24 px inset, so the lockup, the heading and the cards share an edge
+   with every calcofi.io page. */
+.tb-wave { background-color: #172f52; }   /* under the brand's gradient: a real colour for contrast tools and forced colours (see README: asked of the brand) */
+.tb-wave .tb-title { box-sizing: border-box; flex-wrap: wrap; gap: 2px 16px; padding: 12px 24px 2px; color: #fff; }   /* border-box: asked of the brand's .cc-wave-in too */
+.tb-wave .tb-title .crumb { flex-basis: 100%; margin: 0; font-size: 13px; color: #c3cfe2; }
+.tb-wave .tb-title .crumb b { color: #fff; font-weight: 600; }
+.tb-wave .tb-title h1 { color: #fff; font-size: 34px; }
+.tb-wave .tb-title p { color: #d3dcea; }
+.tb-wave .tb-title .rel { color: #c3cfe2; }
+.tb-page > .cc-wave ~ .tb main, .tb-page > .cc-wave ~ .tb .tb-bar .in { max-width: var(--container, 1170px); padding-left: 24px; padding-right: 24px; }
+.tb-page > .cc-wave ~ .tb main { padding-top: 12px; }
 .tb-title { display: flex; align-items: baseline; gap: 16px; flex: none; }
 .tb-title h1 { font-family: Teko, "Source Sans 3", sans-serif; font-weight: 500; font-size: 36px; line-height: .9; text-transform: uppercase; margin: 0; }
 .tb-title p { margin: 0; color: var(--muted); font-size: 14.5px; }
@@ -145,6 +165,10 @@ html, body { margin: 0; }
 /* a phone (375 px): one column, 16 px gutters, nothing wider than the window. The page was laid out for a desk only: at
    375 px it was 465 px wide, the header and the bar wrapped word by word and the two lists were cut off (2026-11-17) */
 @media (max-width: 640px) {
+  .tb-wave .tb-title { padding: 10px 16px 2px; }
+  .tb-wave .tb-title .crumb { display: none; }   /* the heading says the same */
+  .tb-page > .cc-wave ~ .tb main, .tb-page > .cc-wave ~ .tb .tb-bar .in { padding-left: 16px; padding-right: 16px; }
+  .tb-page > .cc-header .cc-title { display: none; }   /* a phone's bar holds the lockup and the buttons; the band names the page */
   .tb-hd .in { padding: 8px 16px; gap: 12px; }
   .tb-hd .crumb { display: none; }               /* the heading below says the same */
   .tb-hd nav { gap: 14px; font-size: 11.5px; }

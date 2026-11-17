@@ -7,7 +7,7 @@ import { csv, saveBlob } from "../export";
 import { areaSql, type Area } from "../area";
 import { Icon, type IconName } from "../icons";
 import { CATEGORY_ICON } from "../categories";
-import { LOGO } from "../brand";
+import { BRAND_HEADER, ICON_MENU, ICON_MENU_CLOSE, LOGO } from "../brand";
 import { SITE_URL } from "../preview";
 import { citationText, releaseCitation } from "../cite";
 import { boot, datasetInfo, ensure, envReg, envSrc, probe, regions, REG, urlOf, type Boot, type DatasetInfo, type ListItem } from "./data";
@@ -228,20 +228,46 @@ export function Builder() {
   const stageChoices = useMemo(() => { const s = new Set<string>(); picks.forEach((p) => p.stages.forEach((x) => s.add(x))); const l = [...s]; return l.length ? l : STAGES; }, [picked, items]);
 
   if (err && !b) return <div className="tb-err" role="alert">{err}</div>;
+  // the lockup goes home: calcofi.io, or the preview's own copy of the site (VITE_SITE_URL)
+  const HOME = SITE_URL === "https://calcofi.io/" ? "https://calcofi.io" : SITE_URL;
+  const toggle_ = <button className="cc-theme-toggle" type="button" aria-label="Toggle dark / light theme">
+    <svg className="cc-theme-icon cc-icon-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={ICON_SUN} /></svg>
+    <svg className="cc-theme-icon cc-icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={ICON_MOON} /></svg>
+  </button>;
   return (
-    <div className="tb">
-      <header className="tb-hd"><div className="in">
+    <div className="tb-page">
+      {BRAND_HEADER ? <>
+        {/* brand v3 (2026-11-17): the bar calcofi.io wears — the lockup, this page's name, the brand's words, the menu
+            button under 1100 px, the toggle. The nav is left EMPTY: the brand's header.js draws the words into it from
+            <brand>/v3/nav.json (Data ▾ · Map ▾ · Query · Cite · Learn ▾ · FAQ · News · calcofi.org ↗) and runs the menus
+            and the button; React renders no children there, so it never touches what the brand drew. */}
+        <header className="cc-header">
+          <a className="cc-home" href={HOME} aria-label="CalCOFI.io home"><img className="cc-logo-dark" src={LOGO.dark} alt="CalCOFI.io" /><img className="cc-logo-light" src={LOGO.light} alt="CalCOFI.io" /></a>
+          <a className="cc-title" href="./builder.html">Query Builder</a>
+          <span className="cc-spacer" />
+          <nav className="cc-links cc-nav" id="cc-nav" data-cc-nav="" aria-label="Sections" />
+          <button className="cc-icon-button cc-menu-button" type="button" aria-label="Open the menu" aria-controls="cc-nav" aria-expanded="false">
+            <svg className="cc-menu-icon-open" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={ICON_MENU} /></svg>
+            <svg className="cc-menu-icon-close" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={ICON_MENU_CLOSE} /></svg>
+          </button>
+          {toggle_}
+        </header>
+        {/* the wave: the page's own head, in the navy band every calcofi.io page has under its bar */}
+        <div className="cc-wave tb-wave"><div className="cc-wave-in tb-title">
+          <p className="crumb">Pull exact data › <b>Query Builder</b></p>
+          <h1>Query Builder</h1><p>Build your own table: any species and measurements, in one CSV.</p>{b && <span className="rel">Release {b.version}</span>}
+        </div></div>
+      </> : <header className="tb-hd"><div className="in">
+        {/* a v1 or v2 build: the page's own small header, as before brand v3 */}
         <a href={SITE_URL} aria-label="CalCOFI.io home"><img className="logo-l" src={LOGO.light} alt="" /><img className="logo-d" src={LOGO.dark} alt="" /></a>
         <span className="crumb">Pull exact data › <b>Query Builder</b></span>
         <nav aria-label="CalCOFI.io"><a href={`${SITE_URL}datasets/`}>Data</a><a href="./">Explorer</a><a href="https://calcofi.io/docs/">Docs</a>{/* the docs book is its own site, as in the Explorer's Help menu */}</nav>
-        <button className="cc-theme-toggle" type="button" aria-label="Toggle dark / light theme">
-          <svg className="cc-theme-icon cc-icon-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={ICON_SUN} /></svg>
-          <svg className="cc-theme-icon cc-icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={ICON_MOON} /></svg>
-        </button>
-      </div></header>
+        {toggle_}
+      </div></header>}
+    <div className="tb">
 
       <main>
-        <div className="tb-title"><h1>Query Builder</h1><p>Build your own table: any species and measurements, in one CSV.</p>{b && <span className="rel">Release {b.version}</span>}</div>
+        {!BRAND_HEADER && <div className="tb-title"><h1>Query Builder</h1><p>Build your own table: any species and measurements, in one CSV.</p>{b && <span className="rel">Release {b.version}</span>}</div>}
         {notice && <div className="tb-note" role="status"><span>{notice}</span><button type="button" aria-label="Dismiss this notice" onClick={() => setNotice(null)}>×</button></div>}
         <div className="tb-top">
           {/* 1 · COLUMNS */}
@@ -367,6 +393,7 @@ export function Builder() {
         <button type="button" className="lnk" disabled={!picks.length || !!busy || !dsReady} onClick={copySql}><Icon name="ui-sql" />{copied ? "Copied" : "Copy as SQL"}</button>
         <button className="dl" type="button" disabled={!picks.length || !!busy || !!over || !dsReady} onClick={download}><Icon name="ui-download" />Download CSV</button>
       </div></div>
+    </div>
     </div>
   );
 }
