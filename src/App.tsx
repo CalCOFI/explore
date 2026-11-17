@@ -19,7 +19,9 @@ import { DepthStrip, YearStrip, SectionPlot, DepthTimePlot, CruiseSeries, Statio
 import { resolveVersion, fetchCatalog, fetchVersions, sources, sidecarUrl, earlySidecar, type Catalog } from "./release";
 import { buildBundle, buildObservationsCsv, countZeroRows, saveBlob, copyAs } from "./bundle";
 import { subsetName } from "./filename";
-import { StatPick, ViewAs, ViewMenu, WhereControl, LineStation, LayerSelect, DownloadBar, DepthPill, WhatPicker } from "./leanpanel";
+import { StatPick, ViewAs, ViewMenu, WhereControl, LineStation, LayerSelect, DownloadBar, DepthPill, WhatPicker, QueryLinkRow, type QueryLink } from "./leanpanel";
+import { QUERY_URL } from "./links";
+import { queryHref, viewLens, viewPicks } from "./queryurl";
 import { Icon } from "./icons";
 import { cellToLatLng } from "h3-js";
 import { Picker, type PickerItem, type GroupOpt } from "./picker";
@@ -2228,11 +2230,20 @@ export function App() {
         : <>one dataset — click another to add it · <button type="button" className="linkish" onClick={poolAll}>all datasets</button></>}</div>
     </Group>
   </>;
+  // THE WAY TO THE QUERY BUILDER (2026-11-17; the Explorer had no link to it): "this, as a table, with other datasets".
+  // The link carries the view's species or measurement, once per dataset in view, and the lens where the builder has it
+  // (src/queryurl.ts viewPicks, viewLens). It does not carry the years, seasons, depth, area, life stage, units or an added
+  // variable: the builder's links take picks and a shape only (src/builder/picks.ts), and it says so in its title.
+  const queryPicks = viewPicks({ realm: sel.realm, taxon: sel.taxon, variable: sel.var, datasets: sliceKey === wantKey ? viewDatasetKeys : [], listed: sel.realm === "bio" || hasBinObject(catalog, sel.var) });
+  const queryLink: QueryLink = { href: queryHref(QUERY_URL, queryPicks, { lens: viewLens(sel.lens) }),
+    title: queryPicks.length ? `Open the Query Builder with this ${sel.realm === "bio" ? "species" : "measurement"} picked (${queryPicks.length === 1 ? "one column" : `${queryPicks.length} columns, one per dataset in view`}), to add other species and measurements and download one table. Your years, seasons, depth and area are not carried over.`
+      : "Open the Query Builder: any species and measurements from any dataset, in one table" };
   // Share: the data, the code, the citations, the link or the image, a product, feedback, the SQL
   const shareTab = <div className="share-col" data-tour="share">
     <button className="pill act" disabled={!sliceKey || !!bundling} onClick={download} title="README · CITATION · summary (+GeoJSON) · observations (parquet/CSV) · the exact SQL against the release's object URLs · reproduce.R / .py">
       <Icon name="ui-download" />{bundling ? `bundle: ${bundling}` : "Download data (zip)"}</button>
     <div className="hint">README · CITATION · the summary and the observations · the exact SQL · reproduce.R / .py</div>
+    <QueryLinkRow query={queryLink} />
     <Menu label="Copy code" icon="ui-code" title="the SQL this view ran, or R / Python that runs it" items={[
       { label: "SQL", hint: "against the release's object URLs", onSelect: () => copy("sql") },
       { label: "R", hint: "DBI + duckdb; calcofi4r noted", onSelect: () => copy("r") },
@@ -2521,7 +2532,7 @@ export function App() {
             return <>{w}<span style={{ fontWeight: 400 }}>{rest}</span></>; })()
         : countLabel ?? `${fmtN(inView)} ${countWord}`) : isErrStatus(status) ? plainStatus(status) : ""}
       zerosOpt={sel.realm === "bio" && sel.zeros && nFilled > 0 ? { checked: csvZeros, onChange: setCsvZeros } : null} busy={bundling} disabled={!sliceKey || areaPending} onCsv={downloadCsv} onCite={openSources} onLink={() => { copyLink(); trackEvent("share", { kind: "link" }); }}
-      onZip={download} onCopy={(k) => copy(k)}
+      onZip={download} onCopy={(k) => copy(k)} query={queryLink}
       more={{ picture: (how) => shareImage(how), numbers: () => saveFigure("map", "csv")(), numbersLabel: `CSV, one row per ${sel.lens === "hex" ? "hexagon" : sel.lens === "region" ? "region" : sel.lens === "cruise" ? "sample on the track" : sel.lens === "section" ? "section cell" : "station"} as the map draws it`,
         cite: (k) => { copyCite(k); trackEvent("share", { kind: k === "bibtex" ? "bibtex" : "cite" }); }, timingOn: advanced && !minCards.timing,
         timing: () => { if (advanced && !minCards.timing) setAdvanced(false); else { setAdvanced(true); openCard("timing"); } } }} />

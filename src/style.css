@@ -1777,6 +1777,14 @@ body.driver-active .sum-row:has(.sp-list) { padding-bottom: 116px; }
 
 /* v193: the three small actions under Download — an even, quiet row: icon + label, no underlines, no boxes */
 .dl-tools { display: flex; align-items: center; justify-content: space-between; gap: 4px; padding-top: 2px; }
+/* the way to the Query Builder: one quiet line under the downloads (lean) and under Download data (classic Share tab) */
+.dl-query { display: flex; align-items: center; gap: 6px; margin-top: 4px; padding: 6px 6px; border-top: 1px solid var(--border); font-size: 12.5px; color: color-mix(in srgb, var(--fg) 72%, var(--panel)); text-decoration: none; border-radius: 0 0 5px 5px; }
+.dl-query > .cc-icon { color: var(--accent); flex: none; }
+.dl-query span { min-width: 0; }
+.dl-query b { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; font-weight: 700; color: var(--accent); white-space: nowrap; }
+.dl-query:hover { color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.dl-query:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.share-col .dl-query { border-top: 0; margin-top: 0; padding: 4px 6px; }
 .dl-tool, .dl-tool-menu .menu-btn { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; gap: 5px; padding: 5px 6px; border-radius: 5px; font-size: 12.5px; color: color-mix(in srgb, var(--fg) 72%, var(--panel)); cursor: pointer; white-space: nowrap; }
 .dl-tool .cc-icon, .dl-tool-menu .menu-btn .cc-icon { color: var(--accent); }
 .dl-tool-menu .menu-btn .cc-icon:last-child { font-size: .7rem; opacity: .6; }
