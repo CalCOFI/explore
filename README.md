@@ -216,6 +216,30 @@ shows the registry's default-visible reference layers (the names, above the data
   `?` replays the tour · `Esc` closes a dialog, the welcome or a chip's popover, or restores an
   expanded panel · `↑ ↓ Enter` in the lists · `A`–`Z` strip to jump in the flat list.
 
+## The Query Builder (`builder.html`)
+
+A second page of the same build (`src/builder/`, a second Vite entry): one CSV of any species and water
+measurements, by station, hexagon or region, with no code. It answers Rasmus Swalethorp's wish from the
+12 November 2026 database tour ("a gui … that allows you to structure your query … think MS Access style").
+
+- **Each column is one species or measurement from one dataset**, built by the Explorer's own slice templates
+  (`sql/slice_bio.sql` with its per-net zero-fill, `sql/slice_env.sql`), so a value here is the value the Explorer
+  shows. `src/builder/query.ts` shapes them into one table; `tests/builder.sql.test.ts` runs it on a fixture.
+- **Links can pick for the reader**: `builder.html?pick=bio:<dataset_key>:<taxon_key>` or
+  `env:<dataset_key>:<measurement>`, repeated or comma-separated; `&download=1` also starts the CSV. calcofi.io's
+  dataset pages link this way. A pick the release does not hold shows a notice and nothing downloads
+  (`src/builder/picks.ts`, `tests/builder.picks.test.ts`).
+- **Units and life stage are per column.** The page's one choice (larva, per 10 m²) fits the ichthyoplankton tows
+  only; a dataset that cannot serve it is given per 1000 m³ or as counted, at the stage it records, and the page and
+  the column name say so (`resolvePick()`).
+- **How rows are matched is said on the page** (the fold of that name) and in *About this table*, a text file with
+  each column and its units, the rows kept, the rule and how to cite (`ruleLines()`, `aboutText()`,
+  `tests/builder.rule.test.ts`). The rule in force: one row per place × time (× 10 m depth step) that any column has
+  a sample for; a species and a water value share a row when their samples share those keys; nets and casts are
+  not paired one to one. **Which rule a combined table should use is an open decision**; change the SQL and
+  `ruleLines()` together.
+- One table takes up to 40 columns (`MAX_PICKS`): each is a slice in the browser's memory.
+
 ## Attribution
 
 These are sixteen datasets that people collected, curated and depend on being cited for, and a view
@@ -316,6 +340,7 @@ node scripts/smoke_release.mjs https://calcofi.io/explore/ smoke.png       # aft
 node scripts/verify.mjs http://localhost:5178/ shots/dev --only=<regex>   # drive the app through its states
 node scripts/verify.mjs http://localhost:5179/ shots/prod --timing        # + cold/warm lens timings
 node scripts/bundle_check.mjs http://localhost:5178/ shots/bundle          # download two bundles and list them
+node scripts/builder_check.mjs http://localhost:4047/ shots/builder        # the Query Builder against the live release (npx vite preview --port 4047)
 node scripts/card_shots.mjs ~/Github/CalCOFI/CalCOFI.github.io/images     # the two themed card screenshots
 node scripts/tour_shots.mjs http://localhost:5179/ shots/tour              # the docs/deck pictures: a lens each + the UI close-ups
 ```
@@ -342,13 +367,22 @@ Stations lens: every value placed and counted, no depth clause, the copied SQL c
 `sample_measurement` ⋈ `sample_root` join against content-addressed URLs). `SMOKE_CAST_VAR=<type>` picks the
 variable, `SMOKE_CAST=off` skips the pass for a release older than v2026.10.01.
 
+`builder_check.mjs` clicks the Query Builder through in headless Chrome against the live release and opens every CSV
+it saves: a link's picks and `&download=1`, a pick the release does not hold, the most-recorded species of every
+organism dataset (no blank column), the task "sardine larvae and temperature, line 93.3, spring", every *Rows*
+shape, the three lenses, a region chosen, every hexagon size, an empty result, the column limit, the same picks made
+in two orders, a 375 px window, both themes (contrast of the small text), and the keyboard (names, focus rings,
+Enter and Space).
+
 ## Deploy
 
 `.github/workflows/pages.yml` builds with `VITE_DATA_URL` + `VITE_RELEASE_PREFIX` + `VITE_BASE=/explore/`
 (and `VITE_FEEDBACK_URL`, see below) and publishes `dist/` to GitHub Pages on every push to `main`. The
 page reads `{prefix}/latest.txt` → `{prefix}/{version}/catalog.json` (plus the `coverage.json`,
 `coverage_stations.json`, `grid.geojson` and `spatial.geojson` sidecars) and every object by its catalog
-path — never a hand-built `releases/{v}/parquet/` path.
+path — never a hand-built `releases/{v}/parquet/` path. The build has two entries (`vite.config.ts`
+`rollupOptions.input`): `index.html`, the Explorer, and `builder.html`, the Query Builder, published side by
+side as `/explore/` and `/explore/builder.html`.
 
 ### The layers registry (where it lives)
 

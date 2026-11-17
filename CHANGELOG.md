@@ -8,6 +8,42 @@
   remembered now: a resize changes its width only (the top and bottom edges no longer resize it), and a height stored
   by an earlier resize is ignored. Classic and the phone are unchanged.
 
+- **the Table builder is the Query Builder, and its links pick for the reader** (review of PR #58, 2026-11-17).
+  `builder.html?pick=bio:<dataset>:<taxon>` (or `env:<dataset>:<measurement>`), repeated or comma-separated, ticks
+  those on load, and `&download=1` starts the CSV — what calcofi.io's dataset pages link to; the branch had read only
+  `?release=`. A pick the release does not hold shows a notice and nothing downloads. Crumb, heading and page title
+  say Query Builder. `src/builder/picks.ts`, `tests/builder.picks.test.ts`.
+- **fix (Query Builder): a column is no longer blank because the page's units or life stage do not fit its dataset.**
+  One "Species units" and "Life stage" choice (per 10 m², larva) held for the ichthyoplankton tows only: a seabird,
+  a CUFES egg count, a phytoplankton cell count, krill came out as an empty column with no word why. Each pick now
+  takes what its dataset holds — per 10 m², else per 1000 m³, else as counted; no stage filter where none is
+  recorded; its most-recorded stage where it has none of the default — and the column name and a note under Preview
+  say so. Once the reader sets the life stages, a pick with none of them stays blank and the note names the ones it has.
+- **fix (Query Builder): a depth range below 10 m no longer drops every net tow.** In the release a tow's `depth_bin`
+  is 0, not empty, so asking for temperature at 50–100 m emptied the species column beside it. A species sample is
+  kept when the depth it sampled reaches into the range.
+- **fix (Query Builder): a species added after a water-only table gets the per-net zero-fill.** The probe for
+  `sample_key` was remembered from the first build, so the species was zero-filled per station visit and its mean
+  differed from the Explorer's and from the same picks made in the other order.
+- **fix (Query Builder): the sample date reads as a date.** It reached the CSV as milliseconds (`1554163200000`)
+  and the preview as `1.5542e+12`; it is `2019-04-02` now.
+- **fix (Query Builder): the first Show preview shows the table.** Clicked before the datasets' names had arrived
+  (they name the columns), it built a table that was out of date the moment they did, and nothing appeared until a
+  second click. Preview, Download and Copy wait for the names.
+- **the Query Builder says how its rows are matched**, under the controls (*How rows are matched*) and in *About
+  this table*, a text file saved beside a download: each column with its units and dataset, the rows kept, the rule
+  in force, what changed for some columns, and how to cite. "Every sample, as measured" no longer says "Nothing is
+  combined": a station visit's nets and casts that share a row are averaged. The statistic *number of samples* is
+  *number of values*, which is what it counts. The rule itself is unchanged and still an open decision.
+- **fix (Query Builder): errors and limits are said.** No rows: a sentence, not an empty file. A failed build names
+  what failed and clears on the next success. More than 40 columns ("Select all" ticks 1,641 species) is refused
+  with the limit instead of exhausting the tab's memory; a build's working tables are dropped afterwards; a failed
+  fetch is retried on the next build.
+- **Query Builder, keyboard and screen reader**: every control has a name, the actions are buttons (they were
+  `href="#"` links), the groups say whether they are open, the row count and errors are announced, the three steps
+  are headings, and focus is always drawn (the search boxes and the lens cards hid it). Its header links follow
+  `VITE_SITE_URL` like the Explorer's dataset links. `scripts/builder_check.mjs` clicks all of it through.
+
 - **a Table builder** (`builder.html`, `src/builder/`; Rasmus Swalethorp: "a gui … that allows you to structure your query from
   the integrated database … think MS Access style … pull several environmental and biological parameters at the same time").
   One page: pick any species and water measurements from the release's coverage sidecar (select all, by group, or search),
