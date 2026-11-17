@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **fix: the Find data panel always runs the map's full height.** A resize from its corner stored a height in the
+  browser for that window size, and from then on the panel opened short (Ben 2026-11-16: 555 px of an 800 px map), with
+  nothing on screen saying why; only a double-click on its bar reset it. In the lean layout its height is never
+  remembered now: a resize changes its width only (the top and bottom edges no longer resize it), and a height stored
+  by an earlier resize is ignored. Classic and the phone are unchanged.
+
 - **a Table builder** (`builder.html`, `src/builder/`; Rasmus Swalethorp: "a gui … that allows you to structure your query from
   the integrated database … think MS Access style … pull several environmental and biological parameters at the same time").
   One page: pick any species and water measurements from the release's coverage sidecar (select all, by group, or search),
@@ -12,6 +18,7 @@
   measured, 0 only from the zero-fill. "Copy as SQL" hands over the statements against the release's object URLs. Water
   measurements are those with a per-bin `obs_env` object (a per-cast-only type is not listed yet). `src/builder/query.ts`,
   `tests/builder.sql.test.ts`.
+
 - **a dot of the Observations layer opens what was recorded there, and when** (Ben 2026-11-16, on the cetacean
   sightings preview: a sighting could not be clicked to see the species). A click on a site (`obs=`) opens a card pinned
   to it: each sample there — a sighting, a net, a cast — with its date and time on the Pacific clock (PST / PDT; UTC in

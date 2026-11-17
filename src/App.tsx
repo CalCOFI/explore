@@ -2720,7 +2720,7 @@ export function App() {
     const tourId = id === "select" ? "rail" : id === "years" ? "years" : id === "depth" ? "depth" : id === "station" ? "station" : id === "layers" ? "layers-card" : undefined;
     return <Panel key={id} id={id} title={inDock ? dockTitle : titles[id]} icon={icons[id]} boxRef={mapBox} defaults={panelBox[id]} dock={docks[id]} collapsed={false} onCollapse={() => (isRail(id) ? toggleFold(id) : minCard(id as CardId))}
       maximized={maxId === id} onMax={() => toggleMax(id)} onClose={isRail(id) ? undefined : closeCard[id as CardId]} actions={actions(id)} exportable={id === "select" || id === "layers" ? undefined : exportItems(id)}
-      raised={topCard === id} onTouch={() => setTopCard(id)} onRect={id === "select" ? setSelectRect : undefined} avoid={docks[id] === "bottom" ? selectBox : undefined} autoHeight={id === "select" || id === "station" || id === "timing" || id === "layers"} minWidth={id === "select" ? 260 : 180} minHeight={id === "select" ? 200 : 100} data-tour={tourId}>{body(id)}</Panel>;
+      raised={topCard === id} onTouch={() => setTopCard(id)} onRect={id === "select" ? setSelectRect : undefined} avoid={docks[id] === "bottom" ? selectBox : undefined} autoHeight={id === "select" || id === "station" || id === "timing" || id === "layers"} fullHeight={id === "select" && lean && !phone} minWidth={id === "select" ? 260 : 180} minHeight={id === "select" ? 200 : 100} data-tour={tourId}>{body(id)}</Panel>;
   };
   // a collapsed panel is a pill on the edge nearest its dock, labelled with its state
   const cardPill = (c: CardId): EdgePill => ({ id: c, icon: icons[c], label: c === "station" ? stationCard!.grid_key : c === "timing" ? "SQL & timing" : titleText[c], onRestore: () => openCard(c), onClose: closeCard[c] });

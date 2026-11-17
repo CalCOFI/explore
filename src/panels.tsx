@@ -66,6 +66,10 @@ export function Panel(p: {
   actions?: ReactNode; raised?: boolean; onTouch?: () => void; children: ReactNode; className?: string; "data-tour"?: string; exportable?: MenuItem[];
   /** a content-sized panel (the Select panel) keeps its height automatic until the user resizes it */
   autoHeight?: boolean; minWidth?: number; minHeight?: number;
+  /** the panel always runs from its top to the bottom of the map (the lean Find data panel): its height is never
+   *  remembered — a resize changes its width only, and a height stored by an earlier resize is ignored (Ben 2026-11-16:
+   *  one corner drag had pinned the panel at 555 px for that window size, with nothing on screen saying why) */
+  fullHeight?: boolean;
   /** reports the panel's rectangle in px of the map's box as it moves, resizes or reflows (null when it is not drawn):
    *  App.tsx lays the bottom docks out right of the Find data panel from it (dock.ts) */
   onRect?: (r: (Rect & { bw: number; bh: number }) | null) => void;
@@ -114,15 +118,15 @@ export function Panel(p: {
     e.preventDefault(); e.stopPropagation(); (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     p.onTouch?.();
     const x0 = e.clientX, y0 = e.clientY;
-    let cur: Geom = { left: r.left, top: r.top, width: r.width, height: r.height };
+    let cur: Geom = { left: r.left, top: r.top, width: r.width, height: p.fullHeight ? null : r.height };
     const move = (ev: PointerEvent) => {
-      const dx = ev.clientX - x0, dy = ev.clientY - y0;
+      const dx = ev.clientX - x0, dy = p.fullHeight ? 0 : ev.clientY - y0;
       let { left, top, width, height } = { left: r.left, top: r.top, width: r.width, height: r.height };
       if (edge === "e" || edge === "se") width = Math.max(minW, Math.min(r.b.width - r.left, r.width + dx));
       if (edge === "s" || edge === "se") height = Math.max(minH, Math.min(r.b.height - r.top, r.height + dy));
       if (edge === "w") { const w = Math.max(minW, Math.min(r.left + r.width, r.width - dx)); left = r.left + r.width - w; width = w; }
       if (edge === "n") { const h = Math.max(minH, Math.min(r.top + r.height, r.height - dy)); top = r.top + r.height - h; height = h; }
-      cur = { left: Math.round(left), top: Math.round(top), width: Math.round(width), height: Math.round(height!) };
+      cur = { left: Math.round(left), top: Math.round(top), width: Math.round(width), height: p.fullHeight ? null : Math.round(height!) };
       setGeom(cur);
     };
     const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); store(key, { vp: vpKey(), ...cur }); dispatchEvent(new Event("resize")); };
@@ -135,7 +139,7 @@ export function Panel(p: {
   // covers the open Find data panel: it steps clear of it, keeping its own right edge
   const clear = geom && p.avoid ? clearOf({ ...geom, height: geom.height ?? ref.current?.offsetHeight ?? 0 }, p.avoid, minW) : null;
   const style: React.CSSProperties = geom
-    ? { left: clear?.left ?? geom.left, top: geom.top, right: "auto", bottom: "auto", width: clear?.width ?? geom.width, height: geom.height ?? undefined, maxHeight: `calc(100% - ${geom.top}px - 10px)` }
+    ? { left: clear?.left ?? geom.left, top: geom.top, right: "auto", bottom: "auto", width: clear?.width ?? geom.width, height: p.fullHeight ? `calc(100% - ${geom.top}px - 10px)` : (geom.height ?? undefined), maxHeight: `calc(100% - ${geom.top}px - 10px)` }
     : { left: d.left, top: d.top, right: d.right, bottom: d.bottom, width: d.width, height: d.height, maxHeight: d.maxHeight };
   return (
     <section ref={ref} className={`card card-${p.id} dock-${p.dock}${p.raised ? " raised" : ""}${p.className ? ` ${p.className}` : ""}`} style={style} role="region" aria-label={typeof p.title === "string" ? p.title : p.id} onPointerDown={p.onTouch} data-tour={p["data-tour"]}>
@@ -146,9 +150,9 @@ export function Panel(p: {
         {p.onClose && <IconButton icon="ui-close" label="Close" className="sm" onClick={p.onClose} />}
       </header>
       <div className="card-body">{p.children}</div>
-      <div className="rz rz-n" onPointerDown={onResize("n")} /><div className="rz rz-s" onPointerDown={onResize("s")} />
+      {!p.fullHeight && <><div className="rz rz-n" onPointerDown={onResize("n")} /><div className="rz rz-s" onPointerDown={onResize("s")} /></>}
       <div className="rz rz-e" onPointerDown={onResize("e")} /><div className="rz rz-w" onPointerDown={onResize("w")} />
-      <div className="rz rz-se" onPointerDown={onResize("se")} role="separator" aria-label="Resize" title="drag to resize" />
+      <div className="rz rz-se" onPointerDown={onResize("se")} role="separator" aria-label="Resize" title={p.fullHeight ? "drag to change its width" : "drag to resize"} />
     </section>);
 }
 /** the old name, kept for the lens cards: a Panel with no dock (its pill lands at the bottom) */
