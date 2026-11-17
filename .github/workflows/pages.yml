@@ -24,6 +24,12 @@ jobs:
           VITE_DATA_URL: https://storage.googleapis.com/calcofi-db/
           VITE_RELEASE_PREFIX: ducklake/releases
           VITE_BASE: /explore/
+          # the brand the deployed app wears. The code's default is v3 (the brand's header: the same words on every
+          # product, the menu button, the wave), which loads calcofi.io/brand/v3/ — and that folder is published by
+          # CalCOFI.github.io, so it has to be LIVE there first. Until the repository variable VITE_BRAND says v3,
+          # the deploy stays on v2, which is what is live today. Order: merge and deploy the site, check that
+          # https://calcofi.io/brand/v3/nav.json answers, then set the variable to v3 and re-run this workflow.
+          VITE_BRAND: ${{ vars.VITE_BRAND || 'v2' }}
           # the feedback endpoint (calcofi4r::cc_feedback_script() deployed as a web app): a repository variable, so
           # setting it needs no code change; empty = the dialog offers the prefilled GitHub issue only
           VITE_FEEDBACK_URL: ${{ vars.VITE_FEEDBACK_URL }}

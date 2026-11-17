@@ -2789,7 +2789,7 @@ export function App() {
           {/* v2: the horizontal lockup at the app scale's 28 px, the bare mark under 480 px — four <img>s and a media query
               (style.css), not <picture>: html-to-image's clone loses the image inside a <picture>, and the feedback capture
               is set from this header; v1: the 32 px mark (src/brand.ts) */}
-          {BRAND === "v2" ? <>
+          {BRAND !== "v1" ? <>
             <img className="cc-logo-dark cc-logo-lockup" src={LOGO.dark} alt="CalCOFI.io" height={LOGO.height} />
             <img className="cc-logo-light cc-logo-lockup" src={LOGO.light} alt="CalCOFI.io" height={LOGO.height} />
             <img className="cc-logo-dark cc-logo-mark" src={LOGO.markDark} alt="CalCOFI.io" height={LOGO.height} loading="lazy" />
