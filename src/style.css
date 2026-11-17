@@ -5,6 +5,22 @@ html, body, #root { height: 100%; margin: 0; overflow: clip; } /* clip, not hidd
 body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: var(--fs, 13px); }
 a { color: var(--accent); }
 .app { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+/* ── brand v3 in this app's bar (2026-11-17) ─────────────────────────────────────────────────────────────────────────
+   The bar keeps the app's own controls and asks the brand for its menu button at every width (.cc-nav-menu); the words
+   the button opens are the brand's (<brand>/v3/nav.json, drawn by the brand's header.js). Under the bar, the wave: a
+   strip that is a row of its own, so the map still gets exactly what is left of the window. */
+.app.app-wave { grid-template-rows: auto auto 1fr; }
+.cc-header .cc-menu-button.hdr { width: 2rem; height: 2rem; }
+/* (on a .cc-nav-menu bar the open words drop as a panel and the bar never wraps: brand/v3/header.css does that since
+   2026-11-17; the stopgap that stood here for it is gone) */
+/* a phone's bar holds one more button now (⭘ Explorer [release] ? ☰ 💬 🌓): 4 px gaps and no caret on Help keep it on
+   one row at 375 px; under 375 px the mark alone says whose app it is */
+@media (max-width: 479px) {
+  .cc-header.cc-nav-menu { gap: 4px; }
+  .cc-header.cc-nav-menu .cc-help .menu-btn > .cc-icon:last-child { display: none; }
+  .cc-header.cc-nav-menu .cc-feedback { margin-left: 0; }
+}
+@media (max-width: 374px) { .cc-header.cc-nav-menu .cc-title { display: none; } }
 .cc-header .cc-title small { margin-left: 0.5rem; }
 /* brand v2's header logo: the lockup on a desktop, the bare mark under 480 px — two <img>s per theme and a media query
    (a <picture> does not survive html-to-image's clone, and the feedback capture is set from this header); the theme

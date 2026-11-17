@@ -1,0 +1,199 @@
+/* the Query Builder page (builder.html). Colours and type from the calcofi.io brand (theme.css, loaded by the brand head):
+   --bg --panel --panel-2 --border --fg --muted --accent --accent-bg --cta-bg --cta-fg, Source Sans 3 and Teko. */
+.tb, .tb *, .tb *::before, .tb *::after { box-sizing: border-box; }
+/* the page: the brand's bar and wave (brand v3, outside .tb so its resets never touch the brand's own markup), then
+   the builder, which takes the rest of the window */
+.tb-page { display: flex; flex-direction: column; min-height: 100vh; background: var(--bg); color: var(--fg);
+  font: 14px/1.35 "Source Sans 3", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+.tb-page > .cc-header, .tb-page > .cc-wave, .tb-page > .tb-hd { flex: none; }
+.tb { --tb-skel: color-mix(in srgb, var(--muted) 18%, transparent); flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg); color: var(--fg);
+  font: 14px/1.35 "Source Sans 3", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+@media (min-width: 1100px) and (min-height: 700px) { .tb-page { height: 100vh; } .tb main { min-height: 0; } }
+.tb a { color: inherit; text-decoration: none; }
+.tb button, .tb input, .tb select { font: inherit; color: inherit; }
+.tb input[type=checkbox], .tb input[type=radio] { accent-color: var(--accent); margin: 0; width: 15px; height: 15px; flex: none; }
+.tb .muted { color: var(--muted); } .tb .pad { padding: 10px 4px; }
+.tb-err { padding: 40px; font: 16px "Source Sans 3", sans-serif; }
+
+.tb-hd { background: var(--panel); border-bottom: 1px solid var(--border); flex: none; }
+.tb-hd .in { max-width: 1280px; margin: 0 auto; padding: 10px 32px; display: flex; align-items: center; gap: 20px; }
+.tb-hd img { height: 24px; display: block; }
+[data-theme="dark"] .tb-hd .logo-l, [data-theme="light"] .tb-hd .logo-d, :root:not([data-theme]) .tb-hd .logo-d { display: none; }
+.tb-hd .crumb { font-size: 13.5px; color: var(--muted); }
+.tb-hd .crumb b { color: var(--fg); font-weight: 600; }
+.tb-hd nav { margin-left: auto; display: flex; gap: 22px; font-size: 12px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+.tb-hd nav a:hover { color: var(--fg); }
+
+.tb main { flex: 1; width: 100%; max-width: 1280px; margin: 0 auto; padding: 14px 32px 12px; display: flex; flex-direction: column; gap: 12px; }
+
+/* ── brand v3: the page's head lives in the wave (the navy band under the bar), and the page lines up with the bar ──
+   The bar is the brand's (.cc-header: lockup, "Query Builder", the brand's words, the menu button, the toggle); nothing
+   here styles it. The band holds the crumb, the h1, the one line and the release. The column is the brand's container
+   (1170 px at the reading scale) with the site's 24 px inset, so the lockup, the heading and the cards share an edge
+   with every calcofi.io page. */
+.tb-wave .tb-title { box-sizing: border-box; flex-wrap: wrap; gap: 2px 16px; padding: 12px 24px 2px; color: #fff; }   /* border-box, as the brand's .cc-wave-in */
+.tb-wave .tb-title .crumb { flex-basis: 100%; margin: 0; font-size: 13px; color: #c3cfe2; }
+.tb-wave .tb-title .crumb b { color: #fff; font-weight: 600; }
+.tb-wave .tb-title h1 { color: #fff; font-size: 34px; }
+.tb-wave .tb-title p { color: #d3dcea; }
+.tb-wave .tb-title .rel { color: #c3cfe2; }
+.tb-page > .cc-wave ~ .tb main, .tb-page > .cc-wave ~ .tb .tb-bar .in { max-width: var(--container, 1170px); padding-left: 24px; padding-right: 24px; }
+.tb-page > .cc-wave ~ .tb main { padding-top: 12px; }
+.tb-title { display: flex; align-items: baseline; gap: 16px; flex: none; }
+.tb-title h1 { font-family: Teko, "Source Sans 3", sans-serif; font-weight: 500; font-size: 36px; line-height: .9; text-transform: uppercase; margin: 0; }
+.tb-title p { margin: 0; color: var(--muted); font-size: 14.5px; }
+.tb-title .rel { margin-left: auto; font-size: 12px; color: var(--muted); }
+
+.tb-top { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 12px; }
+@media (max-width: 1000px) { .tb-top { grid-template-columns: 1fr; } .tb .cols { height: 460px; } }
+.tb .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; min-height: 0; display: flex; flex-direction: column; }
+.tb .chead { display: flex; align-items: center; gap: 9px; padding: 10px 14px 8px; border-bottom: 1px solid var(--border); flex: none; }
+.tb .num { width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: var(--panel); display: grid; place-items: center; font-size: 11.5px; font-weight: 700; flex: none; }
+.tb .chead b { font-size: 15px; }
+.tb .chead .r { margin-left: auto; font-size: 13px; color: var(--muted); }
+.tb .chead .r a { color: var(--accent); font-weight: 600; margin-left: 14px; }
+
+/* 1 · columns */
+.tb .lists { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.tb .list { display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--border); }
+.tb .list:first-child { border-left: 0; }
+.tb .lh { display: flex; align-items: center; gap: 8px; padding: 9px 12px 7px; }
+.tb .lh .t { font-weight: 700; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.tb .lh label { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
+.tb .search { margin: 0 12px 4px; display: flex; align-items: center; gap: 7px; border: 1px solid var(--border); border-radius: 7px; padding: 5px 9px; color: var(--muted); background: var(--panel-2); }
+.tb .search input { border: 0; outline: 0; background: transparent; width: 100%; font-size: 13.5px; color: var(--fg); }
+.tb .scroll { flex: 1; min-height: 0; overflow: auto; padding: 0 6px 8px 12px; scrollbar-width: thin; }
+.tb .grp { border-bottom: 1px solid var(--border); }
+.tb .grp:last-child { border-bottom: 0; }
+.tb .gh { display: flex; align-items: center; gap: 0; }
+.tb .gh > input { margin-left: 4px; }
+.tb .gt { flex: 1; display: flex; align-items: center; gap: 8px; border: 0; background: none; padding: 7px 4px 7px 8px; font-weight: 600; font-size: 13.5px; cursor: pointer; text-align: left; border-radius: 6px; }
+.tb .gt:hover { background: var(--panel-2); }
+.tb .gt .cc-icon { font-size: 16px; color: var(--accent); flex: none; }
+.tb .gt .n { margin-left: auto; font-weight: 600; color: var(--muted); font-size: 12px; }
+.tb .chev { color: var(--muted) !important; transition: transform .15s; }
+.tb .grp.open .chev, .tb .adv[open] .chev { transform: rotate(180deg); }
+.tb .its { padding-bottom: 4px; }
+.tb label.it { display: flex; align-items: center; gap: 8px; padding: 3px 4px 3px 30px; border-radius: 5px; cursor: pointer; font-size: 13.5px; }
+.tb label.it:hover { background: var(--panel-2); }
+.tb label.it i { color: var(--muted); font-size: 12px; }
+.tb label.it em { font-style: normal; color: var(--muted); font-size: 12px; margin-left: auto; padding-right: 4px; }
+
+/* 2 · rows */
+.tb .fbody { flex: 1; min-height: 0; overflow: auto; scrollbar-width: thin; padding: 4px 14px 10px; display: flex; flex-direction: column; }
+.tb .lens { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+.tb .lens label { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: 9px; padding: 8px 12px; cursor: pointer; font-size: 14px; }
+.tb .lens label .cc-icon { font-size: 20px; color: var(--accent); }
+.tb .lens input { position: absolute; opacity: 0; width: 0; height: 0; }
+.tb .lens label.on { border: 2px solid var(--accent); background: var(--accent-bg); padding: 7px 11px; }
+.tb .lensdesc { font-size: 12.5px; color: var(--muted); margin: 5px 0 2px; }
+.tb .row { display: grid; grid-template-columns: 92px minmax(0, 1fr); align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--border); }
+.tb .row > span:first-child { font-size: 12.5px; font-weight: 700; color: var(--muted); }
+.tb .ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.tb .rowsel { flex-wrap: nowrap; gap: 6px; } .tb .rowsel select { min-width: 0; flex: 1; }
+.tb select, .tb .num-in { border: 1px solid var(--border); border-radius: 7px; padding: 4px 9px; background: var(--panel-2); font-size: 13.5px; max-width: 100%; }
+.tb .num-in { width: 72px; }
+.tb .ctl label { display: flex; align-items: center; gap: 5px; font-size: 13.5px; cursor: pointer; }
+.tb .sub { font-size: 12.5px; color: var(--muted); }
+.tb .lnk { font-size: 13.5px; font-weight: 600; color: var(--accent); display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.tb .dis { opacity: .45; pointer-events: none; }
+.tb .statline { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 7px 0 3px; font-size: 13.5px; }
+.tb .statline select { width: 160px; }
+.tb .explain { font-size: 13px; background: var(--accent-bg); border-radius: 7px; padding: 6px 10px; margin: 6px 0 2px; }
+.tb .adv { border-top: 1px solid var(--border); margin-top: 4px; }
+.tb .adv summary { list-style: none; display: flex; align-items: center; gap: 10px; padding: 9px 0 7px; cursor: pointer; font-size: 13.5px; font-weight: 700; color: var(--accent); }
+.tb .adv summary::-webkit-details-marker { display: none; }
+.tb .adv summary .sub { font-weight: 400; }
+.tb .adv summary .chev { margin-left: auto; }
+
+/* 3 · preview */
+.tb .prev { flex: none; }
+.tb .twrap { overflow: auto hidden; }
+.tb table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tb th { text-align: left; font-weight: 700; font-size: 12px; color: var(--muted); padding: 7px 10px; background: var(--panel-2); border-bottom: 1px solid var(--border); white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.tb td { padding: 7px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.tb tbody tr:last-child td { border-bottom: 0; }
+.tb .sk { display: block; height: 8px; width: 70%; border-radius: 4px; background: var(--tb-skel); }
+
+.tb-bar { flex: none; background: var(--panel); border-top: 1px solid var(--border); position: sticky; bottom: 0; }
+.tb-bar .in { max-width: 1280px; margin: 0 auto; padding: 10px 32px; display: flex; align-items: center; gap: 18px; }
+.tb-bar .sum { font-size: 14px; color: var(--muted); } .tb-bar .sum b { color: var(--fg); }
+.tb-bar .warn { color: var(--warn); font-size: 13px; font-weight: 600; }
+.tb-bar .sp { margin-left: auto; }
+.tb-bar .dl { background: var(--cta-bg, #ffcd00); color: var(--cta-fg, #182b49); border: 0; border-radius: 8px; padding: 9px 18px; font-weight: 700; font-size: 14.5px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.tb-bar .dl:disabled { opacity: .5; cursor: default; }
+.tb-bar .dl .cc-icon { font-size: 17px; }
+/* a wide preview scrolls inside its card; it never widens the page */
+.tb main > *, .tb .prev, .tb .twrap { min-width: 0; }
+.tb .prev { overflow: hidden; }
+.tb .num-in, .tb select { height: 30px; box-sizing: border-box; }
+
+html, body { margin: 0; }
+/* a group is a dataset: its short name, its category under it */
+.tb .gname { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+.tb .gname small { font-weight: 400; font-size: 11.5px; color: var(--muted); }
+/* Group by: Category (default; each row names its dataset) or Dataset */
+.tb .chead .gb { margin-left: 18px; display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.tb .chead .gb select { height: 26px; padding: 0 6px; font-size: 13px; }
+/* one line per row: the name whole, the scientific name and units give way first, the dataset stays readable */
+.tb label.it { white-space: nowrap; min-width: 0; }
+.tb label.it i { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tb label.it em { flex: 0 0 auto; max-width: 55%; overflow: hidden; text-overflow: ellipsis; padding-left: 8px; }
+/* a notice above the cards: a link's pick the release does not hold, a column that fell back to another unit */
+.tb-note { display: flex; align-items: flex-start; gap: 10px; background: var(--accent-bg); border: 1px solid var(--border); border-radius: 9px; padding: 8px 12px; font-size: 13.5px; flex: none; }
+.tb-note span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.tb-note button { border: 0; background: none; font-size: 18px; line-height: 1; cursor: pointer; padding: 0 4px; color: var(--muted); }
+/* under the Preview head: what a pick's dataset could not serve as chosen (query.ts resolvePick) */
+.tb .tb-notes { margin: 0; padding: 7px 14px 7px 32px; font-size: 13px; background: var(--accent-bg); border-bottom: 1px solid var(--border); }
+.tb .tb-notes li { padding: 1px 0; }
+/* the steps are headings; they keep the weight the bold labels had */
+.tb .chead h2 { font: inherit; font-size: 15px; font-weight: 700; margin: 0; }
+/* an action is a button that reads as the link it was */
+.tb .lnkbtn, .tb button.lnk { border: 0; background: none; padding: 2px 4px; cursor: pointer; color: var(--accent); font-weight: 600; }
+.tb .chead .r .lnkbtn { margin-left: 10px; font-size: 13px; }
+.tb button.lnk:disabled { opacity: .5; cursor: default; }
+/* keyboard focus is always drawn: the search box and the lens cards take it for the input they wrap */
+.tb :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.tb .search:focus-within, .tb .lens label:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tb .search input:focus-visible { outline: 0; }
+/* How rows are matched: the rule in force, said in full (query.ts ruleLines) */
+.tb .rule ul { margin: 0 0 6px; padding: 0 0 0 18px; font-size: 13px; }
+.tb .rule li { padding: 2px 0; }
+/* a control is at least 24 px tall (WCAG 2.5.8) */
+.tb .lnkbtn, .tb button.lnk, .tb-note button { min-height: 24px; }
+/* a phone (375 px): one column, 16 px gutters, nothing wider than the window. The page was laid out for a desk only: at
+   375 px it was 465 px wide, the header and the bar wrapped word by word and the two lists were cut off (2026-11-17) */
+@media (max-width: 640px) {
+  .tb-wave .tb-title { padding: 10px 16px 2px; }
+  .tb-wave .tb-title .crumb { display: none; }   /* the heading says the same */
+  .tb-page > .cc-wave ~ .tb main, .tb-page > .cc-wave ~ .tb .tb-bar .in { padding-left: 16px; padding-right: 16px; }
+  .tb-page > .cc-header .cc-title { display: none; }   /* a phone's bar holds the lockup and the buttons; the band names the page */
+  .tb-hd .in { padding: 8px 16px; gap: 12px; }
+  .tb-hd .crumb { display: none; }               /* the heading below says the same */
+  .tb-hd nav { gap: 14px; font-size: 11.5px; }
+  .tb main { padding: 12px 16px; }
+  .tb-title { flex-wrap: wrap; gap: 4px 12px; }
+  .tb-title h1 { font-size: 30px; }
+  .tb-title p { flex-basis: 100%; }
+  .tb-title .rel { margin-left: 0; }
+  .tb .chead { flex-wrap: wrap; row-gap: 6px; }
+  .tb .chead .gb { margin-left: 0; }
+  .tb .lists { grid-template-columns: minmax(0, 1fr); }
+  .tb .cols { height: auto; }
+  .tb .list { border-left: 0; border-top: 1px solid var(--border); }
+  .tb .list:first-child { border-top: 0; }
+  .tb .scroll { max-height: 300px; }
+  .tb .lens { gap: 6px; }
+  .tb .lens label { padding: 8px 6px; gap: 5px; font-size: 13px; justify-content: center; }
+  .tb .lens label.on { padding: 7px 5px; }
+  .tb .lens label .cc-icon { font-size: 17px; }
+  .tb .row { grid-template-columns: 70px minmax(0, 1fr); }
+  .tb .rowsel { flex-wrap: wrap; }
+  .tb .adv summary { flex-wrap: wrap; row-gap: 2px; }
+  .tb .adv summary .sub { order: 3; flex-basis: 100%; }
+  .tb-bar .in { padding: 8px 16px; flex-wrap: wrap; gap: 6px 14px; }
+  .tb-bar .sum { flex-basis: 100%; font-size: 13px; }
+  .tb-bar .warn { flex-basis: 100%; }
+  .tb-bar .sp { display: none; }
+  .tb-bar .dl { margin-left: auto; padding: 9px 14px; }
+}

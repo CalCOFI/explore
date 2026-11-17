@@ -2,11 +2,77 @@
 
 ## Unreleased
 
+- **brand v3: the Explorer and the Query Builder wear calcofi.io's header** (Ben, 2026-11-17: one look, the wave,
+  the same words everywhere). `VITE_BRAND` takes `v3` and defaults to it; `VITE_BRAND_URL` says where the brand is
+  loaded from (default `https://calcofi.io/brand/`; a preview with its own copy of the site sets `/brand/`).
+  `src/brandurl.ts`, `tests/brandurl.test.ts`, `brand/v3.head.html`.
+  - **Neither page types the header's words.** The brand's `header.js` draws them from `brand/v3/nav.json`, the one
+    list every product reads (on 2026-11-17: Data ▾ · Map ▾ · Query · Cite · Learn · Docs · FAQ · News · calcofi.org ↗),
+    sentence case. Nothing in this repo names a word or counts them.
+  - **The Query Builder** is a page at the reading scale: calcofi.io's bar (lockup, "Query Builder", the words from
+    1100 px, the menu button below), and its crumb, h1, one line and release in the navy wave band under it. Its own
+    DATA · EXPLORER · DOCS links are gone.
+  - **The Explorer** keeps its bar of controls and gains the brand's menu button at every width (the brand's words in
+    a panel that drops from the bar), the title in sentence case, and a 15 px wave strip under the bar. The map still
+    gets exactly what is left of the window, in the lean and the classic layout and on a phone; `--cc-header-h` is
+    the strip's bottom. On a phone the bar holds one more button and stays one row at 375 px.
+  - The lockup goes to the preview's own copy of the site when `VITE_SITE_URL` names one.
+  - `brand_header` in `scripts/builder_check.mjs` and `scripts/lean_check.mjs` checks all of it.
+  - **Deploy order:** the site's `brand/v3/` has to be live before a v3 build of this app is. `pages.yml` deploys
+    `v2` until the repository variable `VITE_BRAND` says `v3` (README § Brand).
+
 - **fix: the Find data panel always runs the map's full height.** A resize from its corner stored a height in the
   browser for that window size, and from then on the panel opened short (Ben 2026-11-16: 555 px of an 800 px map), with
   nothing on screen saying why; only a double-click on its bar reset it. In the lean layout its height is never
   remembered now: a resize changes its width only (the top and bottom edges no longer resize it), and a height stored
   by an earlier resize is ignored. Classic and the phone are unchanged.
+
+- **the Table builder is the Query Builder, and its links pick for the reader** (review of PR #58, 2026-11-17).
+  `builder.html?pick=bio:<dataset>:<taxon>` (or `env:<dataset>:<measurement>`), repeated or comma-separated, ticks
+  those on load, and `&download=1` starts the CSV — what calcofi.io's dataset pages link to; the branch had read only
+  `?release=`. A pick the release does not hold shows a notice and nothing downloads. Crumb, heading and page title
+  say Query Builder. `src/builder/picks.ts`, `tests/builder.picks.test.ts`.
+- **fix (Query Builder): a column is no longer blank because the page's units or life stage do not fit its dataset.**
+  One "Species units" and "Life stage" choice (per 10 m², larva) held for the ichthyoplankton tows only: a seabird,
+  a CUFES egg count, a phytoplankton cell count, krill came out as an empty column with no word why. Each pick now
+  takes what its dataset holds — per 10 m², else per 1000 m³, else as counted; no stage filter where none is
+  recorded; its most-recorded stage where it has none of the default — and the column name and a note under Preview
+  say so. Once the reader sets the life stages, a pick with none of them stays blank and the note names the ones it has.
+- **fix (Query Builder): a depth range below 10 m no longer drops every net tow.** In the release a tow's `depth_bin`
+  is 0, not empty, so asking for temperature at 50–100 m emptied the species column beside it. A species sample is
+  kept when the depth it sampled reaches into the range.
+- **fix (Query Builder): a species added after a water-only table gets the per-net zero-fill.** The probe for
+  `sample_key` was remembered from the first build, so the species was zero-filled per station visit and its mean
+  differed from the Explorer's and from the same picks made in the other order.
+- **fix (Query Builder): the sample date reads as a date.** It reached the CSV as milliseconds (`1554163200000`)
+  and the preview as `1.5542e+12`; it is `2019-04-02` now.
+- **fix (Query Builder): the first Show preview shows the table.** Clicked before the datasets' names had arrived
+  (they name the columns), it built a table that was out of date the moment they did, and nothing appeared until a
+  second click. Preview, Download and Copy wait for the names.
+- **the Query Builder says how its rows are matched**, under the controls (*How rows are matched*) and in *About
+  this table*, a text file saved beside a download: each column with its units and dataset, the rows kept, the rule
+  in force, what changed for some columns, and how to cite. "Every sample, as measured" no longer says "Nothing is
+  combined": a station visit's nets and casts that share a row are averaged. The statistic *number of samples* is
+  *number of values*, which is what it counts. The rule itself is unchanged and still an open decision.
+- **fix (Query Builder): errors and limits are said.** No rows: a sentence, not an empty file. A failed build names
+  what failed and clears on the next success. More than 40 columns ("Select all" ticks 1,641 species) is refused
+  with the limit instead of exhausting the tab's memory; a build's working tables are dropped afterwards; a failed
+  fetch is retried on the next build.
+- **Query Builder, keyboard and screen reader**: every control has a name, the actions are buttons (they were
+  `href="#"` links), the groups say whether they are open, the row count and errors are announced, the three steps
+  are headings, and focus is always drawn (the search boxes and the lens cards hid it). Its header links follow
+  `VITE_SITE_URL` like the Explorer's dataset links. `scripts/builder_check.mjs` clicks all of it through.
+
+- **a Table builder** (`builder.html`, `src/builder/`; Rasmus Swalethorp: "a gui … that allows you to structure your query from
+  the integrated database … think MS Access style … pull several environmental and biological parameters at the same time").
+  One page: pick any species and water measurements from the release's coverage sidecar (select all, by group, or search),
+  choose Stations / Hexagons / Regions, filter (stations, region, years, season, depth, life stage, units, no catch = 0,
+  quality), shape the rows (every sample, yearly / seasonal / monthly averages, or Custom: place × time × depth and the
+  statistic), preview, and download one CSV — one column per pick. Each pick is built by the Explorer's own slice templates
+  (`slice_bio.sql` with its per-net zero-fill, `slice_env.sql`), so a value matches the Explorer's; a cell is blank when not
+  measured, 0 only from the zero-fill. "Copy as SQL" hands over the statements against the release's object URLs. Water
+  measurements are those with a per-bin `obs_env` object (a per-cast-only type is not listed yet). `src/builder/query.ts`,
+  `tests/builder.sql.test.ts`.
 
 - **a dot of the Observations layer opens what was recorded there, and when** (Ben 2026-11-16, on the cetacean
   sightings preview: a sighting could not be clicked to see the species). A click on a site (`obs=`) opens a card pinned

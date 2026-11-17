@@ -216,6 +216,30 @@ shows the registry's default-visible reference layers (the names, above the data
   `?` replays the tour · `Esc` closes a dialog, the welcome or a chip's popover, or restores an
   expanded panel · `↑ ↓ Enter` in the lists · `A`–`Z` strip to jump in the flat list.
 
+## The Query Builder (`builder.html`)
+
+A second page of the same build (`src/builder/`, a second Vite entry): one CSV of any species and water
+measurements, by station, hexagon or region, with no code. It answers Rasmus Swalethorp's wish from the
+12 November 2026 database tour ("a gui … that allows you to structure your query … think MS Access style").
+
+- **Each column is one species or measurement from one dataset**, built by the Explorer's own slice templates
+  (`sql/slice_bio.sql` with its per-net zero-fill, `sql/slice_env.sql`), so a value here is the value the Explorer
+  shows. `src/builder/query.ts` shapes them into one table; `tests/builder.sql.test.ts` runs it on a fixture.
+- **Links can pick for the reader**: `builder.html?pick=bio:<dataset_key>:<taxon_key>` or
+  `env:<dataset_key>:<measurement>`, repeated or comma-separated; `&download=1` also starts the CSV. calcofi.io's
+  dataset pages link this way. A pick the release does not hold shows a notice and nothing downloads
+  (`src/builder/picks.ts`, `tests/builder.picks.test.ts`).
+- **Units and life stage are per column.** The page's one choice (larva, per 10 m²) fits the ichthyoplankton tows
+  only; a dataset that cannot serve it is given per 1000 m³ or as counted, at the stage it records, and the page and
+  the column name say so (`resolvePick()`).
+- **How rows are matched is said on the page** (the fold of that name) and in *About this table*, a text file with
+  each column and its units, the rows kept, the rule and how to cite (`ruleLines()`, `aboutText()`,
+  `tests/builder.rule.test.ts`). The rule in force: one row per place × time (× 10 m depth step) that any column has
+  a sample for; a species and a water value share a row when their samples share those keys; nets and casts are
+  not paired one to one. **Which rule a combined table should use is an open decision**; change the SQL and
+  `ruleLines()` together.
+- One table takes up to 40 columns (`MAX_PICKS`): each is a slice in the browser's memory.
+
 ## Attribution
 
 These are sixteen datasets that people collected, curated and depend on being cited for, and a view
@@ -316,6 +340,8 @@ node scripts/smoke_release.mjs https://calcofi.io/explore/ smoke.png       # aft
 node scripts/verify.mjs http://localhost:5178/ shots/dev --only=<regex>   # drive the app through its states
 node scripts/verify.mjs http://localhost:5179/ shots/prod --timing        # + cold/warm lens timings
 node scripts/bundle_check.mjs http://localhost:5178/ shots/bundle          # download two bundles and list them
+node scripts/builder_check.mjs http://localhost:4047/ shots/builder        # the Query Builder against the live release (npx vite preview --port 4047)
+node scripts/lean_check.mjs http://localhost:4047/ shots/lean              # the lean panel, every view and download, and the brand's header
 node scripts/card_shots.mjs ~/Github/CalCOFI/CalCOFI.github.io/images     # the two themed card screenshots
 node scripts/tour_shots.mjs http://localhost:5179/ shots/tour              # the docs/deck pictures: a lens each + the UI close-ups
 ```
@@ -342,13 +368,74 @@ Stations lens: every value placed and counted, no depth clause, the copied SQL c
 `sample_measurement` ⋈ `sample_root` join against content-addressed URLs). `SMOKE_CAST_VAR=<type>` picks the
 variable, `SMOKE_CAST=off` skips the pass for a release older than v2026.10.01.
 
+`builder_check.mjs` clicks the Query Builder through in headless Chrome against the live release and opens every CSV
+it saves: a link's picks and `&download=1`, a pick the release does not hold, the most-recorded species of every
+organism dataset (no blank column), the task "sardine larvae and temperature, line 93.3, spring", every *Rows*
+shape, the three lenses, a region chosen, every hexagon size, an empty result, the column limit, the same picks made
+in two orders, a 375 px window, both themes (contrast of the small text), and the keyboard (names, focus rings,
+Enter and Space).
+
+Both `builder_check.mjs` and `lean_check.mjs` have a `brand_header` case (brand v3): the words equal `nav.json`'s
+titles and link where it says (how many words, and which open a menu, are read from it), sentence case, a menu opens on a press and closes on Escape with focus back on
+its word, the menu button's column lists every line and each can be brought into a 375 × 667 window, a `.cc-wave`
+directly follows the bar, and the page still fits its window (for the Explorer: bar + strip + map fill it exactly,
+in the lean and the classic layout). **Until `calcofi.io/brand/v3/` is live**, run them against a build that loads
+the brand from a served copy: build the site (`CalCOFI.github.io`), build this app with `VITE_BASE=/explore/
+VITE_SITE_URL=/ VITE_BRAND_URL=/brand/`, serve the site's `_site` with this `dist` at `/explore/`, and pass that
+`…/explore/` as the base URL. A plain `vite preview` of a default build would ask the live site for a v3 it does
+not have yet.
+
+## Brand (the bar, the words, the wave)
+
+The app and the Query Builder wear calcofi.io's brand, loaded live from `calcofi.io/brand/` (`CalCOFI.github.io`
+publishes it; its contract is `brand/v3/README.md` there). Two build variables choose it, and `src/brandurl.ts`
+holds the rules (`tests/brandurl.test.ts`):
+
+| variable | values | default |
+|---|---|---|
+| `VITE_BRAND` | `v1` · `v2` · `v3` | `v3` since 2026-11-17 |
+| `VITE_BRAND_URL` | where the brand is served | `https://calcofi.io/brand/` |
+
+- **v3 is v2 with the brand's header.** Tokens, type, logos and favicons are v2's own files, still at `brand/v2/`.
+  v3 adds `header.css`, `header.js`, `theme.js` (version "3") and `nav.json`: the header's words are **one list for
+  every product** (on 2026-11-17: Data ▾ · Map ▾ · Query · Cite · Learn · Docs · FAQ · News · calcofi.org ↗, sentence
+  case; the list is calcofi.io's to change, and nothing here names a word or counts them), and under
+  the bar sits a navy band that ends in a wave. `brand/v3.head.html` is the head block.
+- **Neither page types the words.** Each renders an empty
+  `<nav class="cc-links cc-nav" id="cc-nav" data-cc-nav>` and the brand's menu button; the brand's `header.js`
+  draws the words into the nav from `nav.json` beside itself and runs the menus and the button. React renders no
+  children in that nav, so it never touches what the brand drew.
+- **The Query Builder is a page**, at the reading scale (its head block drops the app-scale meta): the bar is
+  calcofi.io's (lockup, "Query Builder", the brand's words from 1100 px, the menu button below, the toggle), and its
+  crumb, h1, one line and release are in the wave band. Its own DATA · EXPLORER · DOCS links are gone; the brand's
+  words carry them. The page's column is the brand's container with the site's 24 px inset.
+- **The Explorer is an app** whose bar is full of its own controls, so it keeps them and asks for the brand's menu
+  button at every width (`class="cc-header cc-nav-menu"`): the same words are one press away, in a panel that
+  drops from the bar's right end. Under the bar, the wave is a 15 px strip, a row of the app's grid, so the map
+  still gets exactly what is left of the window; `--cc-header-h` is measured to the strip's bottom.
+- **A preview that carries its own copy of the site** sets `VITE_BRAND_URL=/brand/` (with `VITE_BASE=/explore/
+  VITE_SITE_URL=/`), so the header it shows is the one under review and the words' links stay on the preview.
+- **v2 and v1 still build.** `VITE_BRAND=v2` is what was live until v3: the Explorer's bar without the menu button
+  or the strip, the Query Builder with its own small header. `brand_header` in both check scripts reports and skips.
+- **Three things first worked around here are the brand's own since 2026-11-17** (`brand/v3/header.css`): on a
+  `.cc-nav-menu` bar the open words drop as a panel from the bar's right end and the bar does not wrap;
+  `.cc-wave-in` is `border-box`; `.cc-wave` carries a colour under its gradient. The stopgaps are gone from
+  `src/style.css` and `src/builder/builder.css`.
+
+**Deploy order.** A v3 build loads `calcofi.io/brand/v3/`, so the site has to be live first: a v3 Explorer deployed
+before it would have no `theme.js`. `pages.yml` builds `VITE_BRAND: ${{ vars.VITE_BRAND || 'v2' }}`, so the deploy
+stays on v2 until the repository variable says `v3`. The order: merge and deploy `CalCOFI.github.io`; check that
+`https://calcofi.io/brand/v3/nav.json` answers; set the variable `VITE_BRAND` to `v3`; re-run `pages`.
+
 ## Deploy
 
 `.github/workflows/pages.yml` builds with `VITE_DATA_URL` + `VITE_RELEASE_PREFIX` + `VITE_BASE=/explore/`
 (and `VITE_FEEDBACK_URL`, see below) and publishes `dist/` to GitHub Pages on every push to `main`. The
 page reads `{prefix}/latest.txt` → `{prefix}/{version}/catalog.json` (plus the `coverage.json`,
 `coverage_stations.json`, `grid.geojson` and `spatial.geojson` sidecars) and every object by its catalog
-path — never a hand-built `releases/{v}/parquet/` path.
+path — never a hand-built `releases/{v}/parquet/` path. The build has two entries (`vite.config.ts`
+`rollupOptions.input`): `index.html`, the Explorer, and `builder.html`, the Query Builder, published side by
+side as `/explore/` and `/explore/builder.html`.
 
 ### The layers registry (where it lives)
 
@@ -379,9 +466,10 @@ screenshot in the mail). Usage analytics go through the fleet's GA4 snippet in `
   `cc:theme` event) · deck.gl `MapboxOverlay` (`ScatterplotLayer` carries the station dots between
   lenses, `H3HexagonLayer`, `GeoJsonLayer`, `TripsLayer`, `BitmapLayer` for the contoured surface) · DuckDB-WASM self-hosted in a Web Worker,
   no extensions, objects fetched whole and registered as buffers · Plotly for the depth strip, year
-  strip, section and cruise series · `h3-js` · the brand from `calcofi.io/brand/<VITE_BRAND>/` — v2, the SIO look
-  (light default, Source Sans 3, the lockup at 28 px, `data-cc-scale="app"`), since the flip on
-  2026-09-04; `VITE_BRAND=v1` still builds the superseded dark-default look. `vite.config.ts` injects
+  strip, section and cruise series · `h3-js` · the brand from `<VITE_BRAND_URL>/<VITE_BRAND>/` — v3 since 2026-11-17
+  (§ Brand above): v2, the SIO look (light default, Source Sans 3, the lockup at 28 px, `data-cc-scale="app"`, since
+  the flip on 2026-09-04), with the brand's header; `VITE_BRAND=v2` builds v2 alone and `v1` the superseded
+  dark-default look. `vite.config.ts` injects
   `brand/<v>.head.html`; `src/brand.ts` carries the same choice into the header and the capture (v2 embeds
   the woff2 files so the feedback PNG is set in Source Sans 3). `verify.mjs`'s `v2_*` states check the
   default build and skip on a v1 one.
