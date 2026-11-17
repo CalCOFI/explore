@@ -67,6 +67,12 @@ async function ready(qs, vp = DESK) {
   await page.goto(url, { waitUntil: "domcontentloaded" });
   await idle();
 }
+/** poll the page until fn() is truthy (not waitForFunction: its frame-driven polling stalls in a headless window) */
+async function until(fn, timeout = 60000) {
+  const t = Date.now();
+  while (Date.now() - t < timeout) { if (await page.evaluate(fn).catch(() => false)) return true; await sleep(150); }
+  return false;
+}
 const shot = async (name) => { const f = path.join(out, `${name}.png`); await page.screenshot({ path: f }); return f; };
 const url = () => page.evaluate(() => location.search);
 const qp = async () => Object.fromEntries(new URLSearchParams(await url()));
@@ -599,6 +605,57 @@ C("query_link", async () => {
   check(!!a && new URL(a.href).searchParams.getAll("pick").length === 1, `a phone: the link is in the panel's download area (${a ? (a.shown ? "drawn" : "in the folded panel") : "missing"})`);
   await page.setViewport(DESK);
   noErrors("query_link");
+});
+
+// "+ Add a variable" in every view (Ben, 2026-11-17; src/addvar.ts): it was drawn in the Hexagon view only
+C("add_variable", async () => {
+  const btn = () => page.evaluate(() => { const b = document.querySelector(".lean-what .v2-add, .v2-add"); if (!b) return null; b.scrollIntoView({ block: "nearest" }); const r = b.getBoundingClientRect();
+    return { text: b.textContent.replace(/\s+/g, " ").trim(), title: b.title, aria: b.getAttribute("aria-label"), shown: r.width > 0 && r.height > 0, inWhat: !!b.closest("[data-tour=data]") }; });
+  const picker = () => exists(".wp .wp-search input");
+  await ready(`${SARDINE}`); await closeWhat();
+  for (const [lab, id] of [["Stations", "station"], ["By region", "region"], ["Hexagon", "hex"]]) {
+    await lens(lab);
+    const b = await btn();
+    check(!!b && b.shown && b.inWhat && (id === "hex" ? b.text === "+ Add a variable" : b.text === "+ Add a variable (Hexagon view)"), `${lab}: step 1 has the button “${b?.text ?? "none"}”`);
+    if (id !== "hex") check(/switches the map to the Hexagon view/.test(b?.title ?? "") && /switches the map to the Hexagon view/.test(b?.aria ?? ""), `${lab}: its title and its name say it switches the map to hexagons`);
+  }
+  // a press in Stations: the map goes to hexagons and the picker opens; closing it without a choice puts Stations back
+  await lens("Stations");
+  await click(".v2-add"); await sleep(500);
+  check((await qp()).lens === "hex" && (await picker()), `a press in Stations lands on lens=hex with the picker open (${await url()})`);
+  await click(".wp .wp-cancel"); await sleep(400); await idle();
+  let v = await view();
+  check(v.sel.lens === "station" && !v.sel.var2 && !(await qp()).var2, `closing the picker without a choice puts the view back (lens ${v.sel.lens}, no var2)`);
+  // a press, then temperature: the second variable is drawn, by hexagon
+  await click(".v2-add"); await sleep(500);
+  await page.type(".wp-search input", "temperature"); await sleep(400);
+  await page.evaluate(() => document.querySelector(".wp .wp-item")?.click()); await sleep(500); await idle();
+  v = await view();
+  const u = await qp();
+  check(v.sel.lens === "hex" && /^temperature/.test(v.sel.var2 ?? "") && u.lens === "hex" && /^temperature/.test(u.var2 ?? ""), `picking temperature keeps the Hexagon view and adds it (lens=${u.lens}&var2=${u.var2})`);
+  check(await until(() => !!document.querySelector(".v2-switch.v2-map") && !!document.querySelector('.v2[data-v2="card"]'), 60000), "the second variable is drawn: its card in step 1 and the colour-by switch on the map");
+  const r = await checkCsv("species + temperature by hexagon, added from Stations");
+  if (r) check(r.cols.some((c) => /_hex_mean$/.test(c)), "the Hexagon view's CSV carries the second variable's hexagon mean");
+  // back in Stations with it added: the card stays and says where it is shown; the link keeps var2; the download does not claim it
+  await lens("Stations");
+  const card = await page.evaluate(() => { const c = document.querySelector('.v2[data-v2="elsewhere"]'); return c ? { said: c.querySelector(".v2-else")?.textContent ?? "", show: !!c.querySelector(".v2-else .linkish"), name: c.querySelector(".v2-t b")?.textContent ?? "" } : null; });
+  check(!!card && /Shown in the Hexagon view/.test(card.said) && card.show && /emperature/.test(card.name), `in Stations its card stays: “${card?.name}” — “${card?.said.slice(0, 60)}…” with a Show link`);
+  check(/^temperature/.test((await qp()).var2 ?? ""), "and var2 stays in the link");
+  const rs = await checkCsv("Stations with a variable added");
+  if (rs) check(!rs.cols.some((c) => /_hex_mean$/.test(c)), "the Stations CSV carries no second-variable column");
+  if (rs && r) check(/temperature/i.test(r.f.name) && !/temperature/i.test(rs.f.name), `and its file name does not claim one (${rs.f.name}; the Hexagon view's was ${r.f.name})`);
+  await click('.v2[data-v2="elsewhere"] .v2-else .linkish'); await sleep(400); await idle();
+  check((await view()).sel.lens === "hex" && (await exists('.v2[data-v2="card"]')), "Show goes to the Hexagon view");
+  noErrors("add_variable");
+  // a phone: the same step 1; classic has no picker for it, but a link with var2 still draws there
+  await ready(`${SARDINE}`, PHONE); await closeWhat();
+  const pb = await btn();
+  check(!!pb && pb.text === "+ Add a variable (Hexagon view)", `a phone: step 1 has the button (“${pb?.text ?? "none"}”${pb?.shown ? "" : ", in the folded panel"})`);
+  await page.setViewport(DESK);
+  await ready(`ui=classic&${SARDINE}&lens=hex&res=4&var2=temperature`);
+  check(!(await exists(".v2-add")) && (await until(() => !!document.querySelector(".v2-switch.v2-map"), 60000)), "classic: no button (its panel has no picker for a second variable); a link with var2 still draws it");
+  await ready("ui=lean");
+  noErrors("add_variable, phone and classic");
 });
 
 C("depth_band", async () => {

@@ -21,6 +21,7 @@ import { buildBundle, buildObservationsCsv, countZeroRows, saveBlob, copyAs } fr
 import { subsetName } from "./filename";
 import { StatPick, ViewAs, ViewMenu, WhereControl, LineStation, LayerSelect, DownloadBar, DepthPill, WhatPicker, QueryLinkRow, type QueryLink } from "./leanpanel";
 import { QUERY_URL } from "./links";
+import { addVarButton, addVarClose, addVarPress, var2Shows } from "./addvar";
 import { queryHref, viewLens, viewPicks } from "./queryurl";
 import { Icon } from "./icons";
 import { cellToLatLng } from "h3-js";
@@ -348,6 +349,7 @@ export function App() {
   // a species or a measurement is the first thing anyone does; the map behind already shows the current one
   const [whatOpen, setWhatOpen] = useState<boolean>(() => lean && !phoneQuery.matches);
   const [var2Open, setVar2Open] = useState(false); // the "Add a variable" picker (water measurements only)
+  const var2Back = useRef<Lens | null>(null);      // the view "+ Add a variable" was pressed in, to return to if the picker is closed without a choice (src/addvar.ts)
   useEffect(() => { if (pickerSignal) setWhatOpen(true); }, [pickerSignal]);
   const lensClickAt = useRef<number | null>(null);
   const opened = useRef(false);
@@ -2388,16 +2390,28 @@ export function App() {
   const var2Item = sel.var2 ? whatItems.find((i) => i.key === sel.var2 || i.alt?.includes(sel.var2!)) : undefined;
   const var2Label = var2Item?.label ?? sel.var2 ?? "";
   const var2Unit = var2Item?.sub ?? "";
-  const var2Block = sel.lens !== "hex" ? null : !sel.var2
-    ? <button type="button" className="v2-add" onClick={() => setVar2Open(true)} title="compare with a water measurement, hexagon by hexagon">+ Add a variable</button>
+  // "+ Add a variable" in EVERY view (Ben, 2026-11-17; src/addvar.ts): it was drawn in the Hexagon view only, and the
+  // default view is Stations. Outside Hexagons the button says the comparison is by hexagon and a press switches the map
+  // there before the picker opens; closing the picker without a choice puts the view back. A variable already added stays
+  // through a change of view (its card says where it is shown) — the downloads carry it in the Hexagon view only.
+  const addVar = addVarButton(sel.lens);
+  const openVar2 = () => { const p = addVarPress(sel.lens); var2Back.current = p.back; if (p.set) setSel(p.set); setVar2Open(true); };
+  const closeVar2 = (picked: boolean) => { const b = addVarClose(var2Back.current, picked); var2Back.current = null; setVar2Open(false); if (b) setSel(b); };
+  const var2State = var2Shows(sel.lens, sel.var2);
+  const var2Block = var2State === "add"
+    ? <button type="button" className="v2-add" onClick={openVar2} title={addVar.title} aria-label={addVar.aria} data-to-hex={addVar.toHex ? "" : undefined}>{addVar.text}{addVar.note && <small> {addVar.note}</small>}</button>
     : (() => {
-      return <div className="v2">
+      return <div className="v2" data-v2={var2State}>
         <div className="v2-card"><div className="v2-t"><b>{var2Label}</b>{var2Unit && var2Unit !== var2Label && <small>{var2Unit}</small>}</div>
-          <span className="v2-acts"><button type="button" className="linkish" onClick={() => setVar2Open(true)}>Change</button><button type="button" className="linkish" onClick={() => setSel({ var2: null, color2: false })}>Remove</button></span></div>
-        <div className="v2-how">Matched by hexagon ({RES_KM[sel.res]}), same years, seasons, area and depth ({sel.depth[0]}–{sel.depth[1]} m).</div>
-        {var2Err ? <div className="v2-err">{var2Err}</div>
-          : !var2Ready ? <div className="v2-how">loading {var2Label}…</div>
-          : null}
+          <span className="v2-acts"><button type="button" className="linkish" onClick={openVar2}>Change</button><button type="button" className="linkish" onClick={() => setSel({ var2: null, color2: false })}>Remove</button></span></div>
+        {var2State === "elsewhere"
+          ? <div className="v2-how v2-else">Shown in the Hexagon view: it is compared hexagon by hexagon, and is not in this view's map or downloads. <button type="button" className="linkish" onClick={() => setSel({ lens: "hex" })}>Show</button></div>
+          : <>
+            <div className="v2-how">Matched by hexagon ({RES_KM[sel.res]}), same years, seasons, area and depth ({sel.depth[0]}–{sel.depth[1]} m).</div>
+            {var2Err ? <div className="v2-err">{var2Err}</div>
+              : !var2Ready ? <div className="v2-how">loading {var2Label}…</div>
+              : null}
+          </>}
       </div>;
     })();
   const whatGroup = <Group title="What" icon="ui-data" data-tour="data" className="step">
@@ -2445,7 +2459,7 @@ export function App() {
     {lensOwns && whenNow && held("When", whenNow, sel.lens === "cruise" ? "Still in force: only cruises in it are listed, and the track shows what they sampled." : "Still in force: it narrows the cruises along the line and the samples drawn.", () => setSel({ years: [1949, YEAR_OPEN], months: null, q: null, cruises: null }))}
     {(lensOwns || sel.lens === "region") && areaNow && held("Where", areaNow, sel.lens === "region" ? "Still in force: each region counts only the samples inside this area." : "Still in force: only samples inside this area are drawn.", () => { clearArea(); setAreaLayerPick(null); })}
   </>;
-  const leanBody = var2Open ? <div className="lean-steps"><WhatPicker items={whatItems.filter((i) => !whatIsOrganism.has(i.key) && !(sel.realm === "env" && (i.key === sel.var || !!i.alt?.includes(sel.var))))} isOrganism={() => false} value={sel.var2 ?? ""} onPick={(k) => { setSel({ var2: k, color2: false }); setVar2Open(false); }} onClose={() => setVar2Open(false)} iconOf={(c) => (c === DERIVED_FAMILY ? "ui-line" : categoryIcon(c))} rank={categoryRank} dsShort={(dk) => (short(dk) !== dk ? short(dk) : dsCategory(dk))} dsName={(dk) => { const d = dsRow(dk); return d ? dsLongName(d) : short(dk); }} loading={whatItems.length ? null : plainStatus(status)} /></div> : whatOpen ? <div className="lean-steps"><WhatPicker items={whatItems} isOrganism={(k) => whatIsOrganism.has(k)} value={sel.realm === "bio" ? sel.taxon : sel.var} onPick={pickWhat} onClose={() => setWhatOpen(false)} iconOf={(c) => (c === DERIVED_FAMILY ? "ui-line" : categoryIcon(c))} rank={categoryRank} dsShort={(dk) => (short(dk) !== dk ? short(dk) : dsCategory(dk))} dsName={(dk) => { const d = dsRow(dk); return d ? dsLongName(d) : short(dk); }} loading={whatItems.length ? null : plainStatus(status)} /></div> : <div className="lean-steps">
+  const leanBody = var2Open ? <div className="lean-steps"><WhatPicker items={whatItems.filter((i) => !whatIsOrganism.has(i.key) && !(sel.realm === "env" && (i.key === sel.var || !!i.alt?.includes(sel.var))))} isOrganism={() => false} value={sel.var2 ?? ""} onPick={(k) => { setSel({ var2: k, color2: false }); closeVar2(true); }} onClose={() => closeVar2(false)} iconOf={(c) => (c === DERIVED_FAMILY ? "ui-line" : categoryIcon(c))} rank={categoryRank} dsShort={(dk) => (short(dk) !== dk ? short(dk) : dsCategory(dk))} dsName={(dk) => { const d = dsRow(dk); return d ? dsLongName(d) : short(dk); }} loading={whatItems.length ? null : plainStatus(status)} /></div> : whatOpen ? <div className="lean-steps"><WhatPicker items={whatItems} isOrganism={(k) => whatIsOrganism.has(k)} value={sel.realm === "bio" ? sel.taxon : sel.var} onPick={pickWhat} onClose={() => setWhatOpen(false)} iconOf={(c) => (c === DERIVED_FAMILY ? "ui-line" : categoryIcon(c))} rank={categoryRank} dsShort={(dk) => (short(dk) !== dk ? short(dk) : dsCategory(dk))} dsName={(dk) => { const d = dsRow(dk); return d ? dsLongName(d) : short(dk); }} loading={whatItems.length ? null : plainStatus(status)} /></div> : <div className="lean-steps">
     <div className="lean-what">
       {whatGroup}
       {lensAfter && viewBlock}

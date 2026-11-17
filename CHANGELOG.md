@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Explorer: "+ Add a variable" is in every view** (Ben, 2026-11-17: he could not find it; it was drawn in the
+  Hexagon view only, and the default view is Stations). Outside the Hexagon view the button reads *+ Add a variable
+  (Hexagon view)*, its title and name say it switches the map to hexagons, and a press does that and opens the
+  picker; closing the picker without a choice puts the view back. A variable already added no longer vanishes when
+  the view changes: its card stays with *Shown in the Hexagon view* and a *Show* link. The downloads carry the second
+  variable in the Hexagon view only, as before. On a phone the button is in the same step 1; the classic layout has
+  no picker for a second variable, so no button (a `var2` link still draws there). `src/addvar.ts`,
+  `tests/addvar.test.ts`, `add_variable` in `scripts/lean_check.mjs`.
+
 - **the Query Builder can live at its own address, calcofi.io/query/** (Ben, 2026-11-17: "can we move the Query
   Builder to its own dedicated 'query'? And then cross-link"). The code stays in this repo; the thin repo
   CalCOFI/query builds it from here.

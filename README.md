@@ -32,6 +32,13 @@ says what the app does and how to work on it without needing them.
   depth-integrated net tow), lights up the moment a pick sampled at depth arrives — the band in its label, a
   sparkline of the mean profile, one pulse — and carries the band with a reset once you brush one. The
   panel opens only when you click it, or when a shared link names a band (`depth=`).
+- **Adding a second variable** (*+ Add a variable*, in step 1 of the lean panel, in every view). The comparison is
+  by hexagon: the added water measurement is averaged into the same hexagons as the first pick
+  (`lens=hex&var2=…`). In the Hexagon view the button is plain; in any other view it reads *+ Add a variable
+  (Hexagon view)* and a press switches the map to hexagons before its picker opens; closing the picker without a
+  choice puts the view back. A variable already added stays through a change of view: its card says *Shown in the
+  Hexagon view*, with a *Show* link, and the downloads carry it in the Hexagon view only. The classic layout has
+  no picker for it; a link with `var2` still draws it there (`src/addvar.ts`, `tests/addvar.test.ts`).
 - **Picking an organism or variable.** The picker opens as a **tree folded by category** — each category
   one row with its icon, item count, year span and a log-scale bar of how much data it holds — with the
   current pick shown under its own category and a *"… N more"* row for the rest. Click a category to open
