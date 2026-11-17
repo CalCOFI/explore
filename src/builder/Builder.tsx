@@ -8,11 +8,15 @@ import { areaSql, type Area } from "../area";
 import { Icon, type IconName } from "../icons";
 import { CATEGORY_ICON } from "../categories";
 import { LOGO } from "../brand";
-import { boot, datasetInfo, ensure, envReg, envSrc, probe, regions, REG, urlOf, type Boot, type ListItem } from "./data";
-import { parsePicks, unknownNotice, withoutDownload } from "./picks";
-import { builderSql, pickColumns, sentence, STAT_WORD, type Den, type DepthBy, type Item, type Lens, type Place, type Spec, type Stat, type TimeBy } from "./query";
+import { SITE_URL } from "../preview";
+import { citationText, releaseCitation } from "../cite";
+import { boot, datasetInfo, ensure, envReg, envSrc, probe, regions, REG, urlOf, type Boot, type DatasetInfo, type ListItem } from "./data";
+import { offGridNotice, parsePicks, parseShape, startLens, unknownNotice, withoutDownload } from "./picks";
+import { aboutText, cleanupSql, pickColumns, probeSql, tooMany, resolveSpec, ruleLines, sentence, slicesSql, tableSql, STAT_WORD, type PickFacts, type Den, type DepthBy, type Item, type Lens, type Place, type Spec, type Stat, type TimeBy } from "./query";
 
 type Preset = "sample" | "year" | "season" | "month" | "custom";
+// a built table: its rows, the statements that made it, the spec with every pick resolved to what its dataset holds, and what that changed
+interface Built { key: string; rows: Row[]; sql: string[]; spec: Spec; notes: string[] }
 const LENS: { id: Lens; label: string; icon: IconName; desc: string }[] = [
   { id: "station", label: "Stations", icon: "lens-stations", desc: "Samples taken along CalCOFI’s line and station grid, current and historical." },
   { id: "hex", label: "Hexagons", icon: "lens-hexagons", desc: "Every sample, on or off CalCOFI’s line and station grid, grouped into hexagons. Pick the size." },
@@ -33,6 +37,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 export function Builder() {
   const params = new URLSearchParams(location.search);
+  const shape0 = useMemo(() => parseShape(location.search), []);   // ?rows= &stations= &lens=: the shape a link starts on
   const [b, setB] = useState<Boot | null>(null);
   const [err, setErr] = useState<string | null>(null);
   // 1 · columns
@@ -42,8 +47,8 @@ export function Builder() {
   // Betty 2026-11-13 (option A): grouped by category, each row naming its dataset; "Group by: Dataset" switches to one group per dataset
   const [groupBy, setGroupBy] = useState<"category" | "dataset">("category");
   // 2 · rows
-  const [lens, setLens] = useState<Lens>("station");
-  const [stations, setStations] = useState<"std" | "std,ext" | "all">("std");
+  const [lens, setLens] = useState<Lens>(shape0.lens ?? "station");
+  const [stations, setStations] = useState<"std" | "std,ext" | "all">(shape0.stations ?? "std");
   const [regionLayer, setRegionLayer] = useState<string>("");   // Region filter (Stations / Hexagons): "" = anywhere
   const [layer, setLayer] = useState<string>("");               // Regions: the layer
   const [regionNames, setRegionNames] = useState<string[] | null>(null);
@@ -52,21 +57,22 @@ export function Builder() {
   const [years, setYears] = useState<[number, number]>([1949, 2026]);
   const [season, setSeason] = useState<number | 0>(0);
   const [depth, setDepth] = useState<[number, number]>([0, 500]);
-  const [preset, setPreset] = useState<Preset>("year");
-  const [place, setPlace] = useState<Place>("station");
+  const [preset, setPreset] = useState<Preset>(shape0.rows ?? "year");
+  const [place, setPlace] = useState<Place>(PLACE_OPTS[shape0.lens ?? "station"][0].id);
   const [time, setTime] = useState<TimeBy>("year");
   const [depthBy, setDepthBy] = useState<DepthBy>("avg");
   const [stat, setStat] = useState<Stat>("avg");
   // more options
   const [stages, setStages] = useState<string[]>(["larva"]);
+  const [stagesSet, setStagesSet] = useState(false);   // the reader has set the life stages: a pick with none of them stays blank (query.ts resolvePick)
   const [den, setDen] = useState<Den>("density_per_10m2");
   const [zeros, setZeros] = useState(true);
   const [qualOnly, setQualOnly] = useState(true);
   // 3 · preview
   const [busy, setBusy] = useState<string | null>(null);
-  const [result, setResult] = useState<{ key: string; rows: Row[]; sql: string[] } | null>(null);
+  const [result, setResult] = useState<Built | null>(null);
   const [copied, setCopied] = useState(false);
-  const [ds, setDs] = useState<Map<string, { name: string; category: string | null }>>(new Map());
+  const [ds, setDs] = useState<Map<string, DatasetInfo>>(new Map());
   // a link can pick for the reader (?pick=…) and start the CSV (&download=1): src/builder/picks.ts
   const [notice, setNotice] = useState<string | null>(null);
   const [dsReady, setDsReady] = useState(false);   // the datasets' short names name the columns, so an automatic download waits for them
@@ -78,6 +84,9 @@ export function Builder() {
       const ids = new Set(x.groups.flatMap((g) => g.items.map((it) => it.id)));
       const link = parsePicks(location.search, (id) => ids.has(id));
       if (link.picked.length) setPicked(new Set(link.picked));
+      // picks that are all off the station grid start on Hexagons (picks.ts startLens); a lens the link names stands
+      const l0 = startLens(shape0.lens, link.picked.map((id) => id.split(":")[1]), (d) => !x.gridDatasets.size || x.gridDatasets.has(d));
+      if (l0 !== lens) { setLens(l0); setPlace(PLACE_OPTS[l0][0].id); }
       setNotice(unknownNotice(link.unknown));
       autoDl.current = link.download;
       datasetInfo(x.catalog).then(setDs).catch((e) => console.warn("dataset names:", e.message)) // names arrive after the list; keys until then
@@ -128,15 +137,21 @@ export function Builder() {
     lens, place: effPlace, hexRes, layer: lens === "region" ? layer : null, regionNames: lens === "region" ? regionNames : null,
     area: [areaPred, regionPred].filter((x) => x !== "TRUE").join(" AND ") || "TRUE",
     years, seasons: season ? [season] : null, depth, time: effTime, depthBy: effDepth, stat: effStat,
-    stages: nBio ? stages : null, den, zeros, qualOnly, datasets: null,
+    stages: nBio ? stages : null, stagesStrict: stagesSet, den, zeros, qualOnly, datasets: null,
   };
   const specKey = JSON.stringify(spec);
+  const over = tooMany(picks.length);
+  const offGrid = b && lens === "station" && b.gridDatasets.size ? offGridNotice(picks.filter((p) => !b.gridDatasets.has(p.dataset)).map((p) => dsName(p.dataset))) : null;
   const stale = result && result.key !== specKey;
 
-  async function build(): Promise<{ rows: Row[]; sql: string[] } | null> {
-    if (!b || !picks.length) return null;
+  async function build(): Promise<Built | null> {
+    // not before the datasets' names are in: they name the columns, so a table built a moment earlier would be stale the
+    // moment they arrive and the first click on Show preview showed nothing (the controls wait for dsReady too)
+    if (!b || !picks.length || !dsReady) return null;
     if (result && !stale) return result;
+    if (over) { setErr(over); return null; }
     try {
+      setErr(null);
       setBusy("Loading data…");
       const needBio = nBio > 0;
       const files = [...(needBio ? [REG.obs_bio] : []), ...picks.filter((p) => p.realm === "env").flatMap((p) => p.members.map(envReg)),
@@ -144,25 +159,57 @@ export function Builder() {
       await Promise.all(files.map((f) => ensure(b.catalog, f)));
       const pr = await probe(b.catalog, needBio);
       setBusy("Building your table…");
-      const sql = builderSql(spec, { bioSrc: `'${REG.obs_bio}'`, envSrc, spatialSrc: `'${REG.sample_spatial}'`, cruiseSrc: pr.cruiseSrc, netKey: pr.netKey });
-      for (const s of sql.slice(0, -1)) await engine.exec(s, "builder");
-      const rows = await engine.exec(sql[sql.length - 1], "builder:table");
-      const r = { key: specKey, rows, sql };
+      const ctx = { bioSrc: `'${REG.obs_bio}'`, envSrc, spatialSrc: `'${REG.sample_spatial}'`, cruiseSrc: pr.cruiseSrc, netKey: pr.netKey };
+      // each pick's slice, then what each holds (units, life stages), then the table from the spec that fits them (query.ts resolvePick)
+      const slices = slicesSql(spec, ctx);
+      for (const s of slices) await engine.exec(s, "builder");
+      const facts: PickFacts[][] = [];
+      for (let i = 0; i < spec.picks.length; i++) facts.push(await engine.exec(probeSql(spec.picks[i], i), "builder:probe") as PickFacts[]);
+      const res = resolveSpec(spec, facts);
+      const table = tableSql(res.spec, ctx);
+      await engine.exec(table[0], "builder");
+      const rows = await engine.exec(table[1], "builder:table");
+      for (const s of cleanupSql(spec.picks.length)) await engine.exec(s, "builder:cleanup");   // the slices are not kept between builds
+      const r: Built = { key: specKey, rows, sql: [...slices, ...table], spec: res.spec, notes: res.notes };
       setResult(r); setBusy(null);
       return r;
     } catch (e: any) {
-      console.error(e); setBusy(null); setErr("Something went wrong building this table. Try fewer columns, or reload the page."); return null;
+      console.error(e); setBusy(null);
+      // say what failed (the engine's own first line), not only that something did
+      setErr(`This table could not be built: ${String(e?.message ?? e).split("\n")[0].slice(0, 160)}. Try fewer columns, or reload the page.`);
+      return null;
     }
   }
   async function download() {
     const r = await build(); if (!r || !b) return;
+    // no rows: say so, rather than hand over an empty file (csv() of no rows is the empty string)
+    if (!r.rows.length) { setErr(`Nothing matches these choices, so there is no CSV to download. Widen the years, seasons, depth or area.${lens === "station" ? " Samples taken off CalCOFI's station grid are under Hexagons or Regions." : ""}`); return; }
     saveBlob(new Blob([csv(r.rows)], { type: "text/csv" }), `calcofi_table_${b.version}_${today()}.csv`);
+  }
+  // the notes that go with a download: each column and its units, the rows kept, how rows are matched, how to cite
+  async function about() {
+    const r = await build(); if (!r || !b) return;
+    const stationsWord = { std: "the standard grid (lines 76.7–93.3)", "std,ext": "the standard and extended lines", all: "every station, current and historical" }[stations];
+    const kept = [
+      lens === "station" ? `Stations: samples on CalCOFI's line and station grid, ${stationsWord}` : lens === "hex" ? `Hexagons ${HEX_SIZES.find((h) => h.res === hexRes)?.label ?? ""} across: every sample, on or off the station grid`
+        : `Regions of ${layer}${regionNames?.length ? `: ${regionNames.join(", ")}` : " (all of them)"}: every sample inside`,
+      ...(lens !== "region" && regionLayer ? [`Only samples inside any region of: ${regionLayer}`] : []),
+      `Years ${years[0]}–${years[1]}, ${season ? ["", "winter (Dec–Feb)", "spring (Mar–May)", "summer (Jun–Aug)", "fall (Sep–Nov)"][season] + " only" : "all seasons"}`,
+      `Depth ${depth[0]}–${depth[1]} m`,
+      qualOnly ? "Quality-checked values only" : "All values, flagged ones included",
+      ...(nBio ? [zeros ? "A net with no catch counts as 0" : "Nets with a catch only"] : []),
+    ];
+    const used = [...new Set(r.spec.picks.map((p) => p.dataset).filter((k): k is string => !!k))];
+    const cite = [releaseCitation(b.catalog, b.version), "", "The datasets in this table:", ...used.flatMap((k) => { const d = ds.get(k)?.row; return d ? citationText(d).split("\n") : [k]; })];
+    const txt = aboutText({ version: b.version, when: today(), url: location.href, spec: r.spec, kept, notes: r.notes, cite });
+    saveBlob(new Blob([txt], { type: "text/plain" }), `calcofi_table_${b.version}_${today()}_about.txt`);
   }
   async function copySql() {
     const r = await build(); if (!r || !b) return;
     // the registered names become the release's own object URLs, so the SQL runs in any DuckDB
     const txt = r.sql.join(";\n\n").replace(/'((?:obs_env_[^']+|obs_bio|sample_spatial|cruise)\.parquet)'/g, (m, n) => { const u = urlOf(b.catalog, n); return u ? `'${u}'` : m; }) + ";\n";
-    await navigator.clipboard.writeText(`-- CalCOFI Query Builder · release ${b.version} · ${today()}\n${txt}`);
+    try { await navigator.clipboard.writeText(`-- CalCOFI Query Builder · release ${b.version} · ${today()}\n${txt}`); }
+    catch { setErr("The browser did not allow copying. Click the page first, then try Copy as SQL again."); return; }
     setCopied(true); setTimeout(() => setCopied(false), 1800);
   }
 
@@ -180,13 +227,13 @@ export function Builder() {
   const cols = spec.picks.flatMap((p) => pickColumns(p, spec).map((c) => c.col));
   const stageChoices = useMemo(() => { const s = new Set<string>(); picks.forEach((p) => p.stages.forEach((x) => s.add(x))); const l = [...s]; return l.length ? l : STAGES; }, [picked, items]);
 
-  if (err && !b) return <div className="tb-err">{err}</div>;
+  if (err && !b) return <div className="tb-err" role="alert">{err}</div>;
   return (
     <div className="tb">
       <header className="tb-hd"><div className="in">
-        <a href="https://calcofi.io"><img className="logo-l" src={LOGO.light} alt="CalCOFI.io" /><img className="logo-d" src={LOGO.dark} alt="CalCOFI.io" /></a>
+        <a href={SITE_URL} aria-label="CalCOFI.io home"><img className="logo-l" src={LOGO.light} alt="" /><img className="logo-d" src={LOGO.dark} alt="" /></a>
         <span className="crumb">Pull exact data › <b>Query Builder</b></span>
-        <nav><a href="https://calcofi.io/#find">Data</a><a href="./">Explorer</a><a href="https://calcofi.io/docs/">Docs</a></nav>
+        <nav aria-label="CalCOFI.io"><a href={`${SITE_URL}datasets/`}>Data</a><a href="./">Explorer</a><a href={`${SITE_URL}docs/`}>Docs</a></nav>
         <button className="cc-theme-toggle" type="button" aria-label="Toggle dark / light theme">
           <svg className="cc-theme-icon cc-icon-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={ICON_SUN} /></svg>
           <svg className="cc-theme-icon cc-icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={ICON_MOON} /></svg>
@@ -199,9 +246,9 @@ export function Builder() {
         <div className="tb-top">
           {/* 1 · COLUMNS */}
           <section className="card cols">
-            <div className="chead"><span className="num">1</span><b>Choose what to include</b>
-              <label className="gb">Group by <select value={groupBy} onChange={(e) => setGroupBy(e.target.value as any)}><option value="category">Category</option><option value="dataset">Dataset</option></select></label>
-              <span className="r">{picks.length} selected{picks.length > 0 && <a href="#" onClick={(e) => { e.preventDefault(); setPicked(new Set()); }}>Clear</a>}</span></div>
+            <div className="chead"><span className="num" aria-hidden="true">1</span><h2>Choose what to include</h2>
+              <label className="gb">Group by <select aria-label="Group the lists by" value={groupBy} onChange={(e) => setGroupBy(e.target.value as any)}><option value="category">Category</option><option value="dataset">Dataset</option></select></label>
+              <span className="r"><span aria-live="polite">{picks.length} selected</span>{picks.length > 0 && <button type="button" className="lnkbtn" onClick={() => setPicked(new Set())}>Clear</button>}</span></div>
             <div className="lists">
               {(["bio", "env"] as const).map((realm) => {
                 const gs = views(realm);
@@ -211,8 +258,8 @@ export function Builder() {
                 return (
                   <div className="list" key={realm}>
                     <div className="lh"><span className="t">{realm === "bio" ? "Species" : "Water & weather"}</span>
-                      <label><input type="checkbox" checked={!!all.length && on === all.length} ref={(el) => { if (el) el.indeterminate = on > 0 && on < all.length; }} onChange={(e) => setMany(all, e.target.checked)} />Select all</label></div>
-                    <div className="search"><Icon name="ui-search" /><input placeholder={realm === "bio" ? "Search species" : "Search measurements"} value={search[realm]} onChange={(e) => setSearch({ ...search, [realm]: e.target.value })} /></div>
+                      <label><input type="checkbox" aria-label={`Select all ${realm === "bio" ? "species" : "water and weather measurements"}`} checked={!!all.length && on === all.length} ref={(el) => { if (el) el.indeterminate = on > 0 && on < all.length; }} onChange={(e) => setMany(all, e.target.checked)} />Select all</label></div>
+                    <div className="search"><Icon name="ui-search" /><input type="search" aria-label={realm === "bio" ? "Search species" : "Search measurements"} placeholder={realm === "bio" ? "Search species" : "Search measurements"} value={search[realm]} onChange={(e) => setSearch({ ...search, [realm]: e.target.value })} /></div>
                     <div className="scroll">
                       {!b && <div className="muted pad">Loading the list…</div>}
                       {gs.map((g) => {
@@ -224,7 +271,7 @@ export function Builder() {
                           <div className={`grp${isOpen ? " open" : ""}`} key={g.key}>
                             <div className="gh">
                               <input type="checkbox" aria-label={`Select all of ${g.name}`} checked={n === ks.length} ref={(el) => { if (el) el.indeterminate = n > 0 && n < ks.length; }} onChange={(e) => setMany(ks, e.target.checked)} />
-                              <button type="button" className="gt" onClick={() => setOpen((s) => { const x = new Set(s), k = `${realm}:${groupBy}:${g.key}`; x.has(k) ? x.delete(k) : x.add(k); return x; })}>
+                              <button type="button" className="gt" aria-expanded={isOpen} onClick={() => setOpen((s) => { const x = new Set(s), k = `${realm}:${groupBy}:${g.key}`; x.has(k) ? x.delete(k) : x.add(k); return x; })}>
                                 <Icon name={CATEGORY_ICON[g.icon] ?? "cat-other"} /><span className="gname">{g.name}{g.sub && <small>{g.sub}</small>}</span><span className="n">{n ? `${n} selected` : its.length}</span><Icon name="ui-down" className="chev" />
                               </button>
                             </div>
@@ -243,50 +290,56 @@ export function Builder() {
 
           {/* 2 · ROWS */}
           <section className="card filters">
-            <div className="chead"><span className="num">2</span><b>Filter and shape the rows</b></div>
+            <div className="chead"><span className="num" aria-hidden="true">2</span><h2>Filter and shape the rows</h2></div>
             <div className="fbody">
-              <div className="lens">{LENS.map((l) => (
+              <div className="lens" role="radiogroup" aria-label="Rows by">{LENS.map((l) => (
                 <label key={l.id} className={lens === l.id ? "on" : ""}><input type="radio" name="lens" checked={lens === l.id} onChange={() => { setLens(l.id); setPlace(PLACE_OPTS[l.id][0].id); }} /><Icon name={l.icon} /><b>{l.label}</b></label>))}</div>
               <div className="lensdesc">{LENS.find((l) => l.id === lens)!.desc}</div>
+              {offGrid && <div className="tb-note" role="status"><span>{offGrid}</span></div>}
 
               {lens === "station" && <div className="row"><span>Stations</span><div className="ctl">
-                <select value={stations} onChange={(e) => setStations(e.target.value as any)}><option value="std">Standard grid (lines 76.7–93.3)</option><option value="std,ext">Standard + extended lines</option><option value="all">Every station, current and historical</option></select></div></div>}
+                <select aria-label="Stations" value={stations} onChange={(e) => setStations(e.target.value as any)}><option value="std">Standard grid (lines 76.7–93.3)</option><option value="std,ext">Standard + extended lines</option><option value="all">Every station, current and historical</option></select></div></div>}
               {lens === "hex" && <div className="row"><span>Size</span><div className="ctl">
-                <select value={hexRes} onChange={(e) => setHexRes(Number(e.target.value))}>{HEX_SIZES.map((h) => <option key={h.res} value={h.res}>{h.label} across</option>)}</select><span className="sub">Bigger = fewer rows</span></div></div>}
+                <select aria-label="Hexagon size" value={hexRes} onChange={(e) => setHexRes(Number(e.target.value))}>{HEX_SIZES.map((h) => <option key={h.res} value={h.res}>{h.label} across</option>)}</select><span className="sub">Bigger = fewer rows</span></div></div>}
               {lens !== "region" && <div className="row"><span>Region</span><div className="ctl">
-                <select value={regionLayer} onFocus={() => { if (!regionList && b) regions(b.catalog).then(setRegionList).catch(console.error); }} onChange={(e) => setRegionLayer(e.target.value)}><option value="">Anywhere</option>
+                <select aria-label="Region" value={regionLayer} onFocus={() => { if (!regionList && b) regions(b.catalog).then(setRegionList).catch(console.error); }} onChange={(e) => setRegionLayer(e.target.value)}><option value="">Anywhere</option>
                   {regionLayer && !regionList && <option value={regionLayer}>{regionLayer}</option>}
                   {[...(regionList?.keys() ?? [])].sort().map((l) => <option key={l} value={l}>Inside any of: {l}</option>)}</select>
 </div></div>}
               {lens === "region" && <div className="row"><span>Layer</span><div className="ctl">
-                <select value={layer} onChange={(e) => { setLayer(e.target.value); setRegionNames(null); }}>{!regionList && <option>Loading regions…</option>}
+                <select aria-label="Boundary layer" value={layer} onChange={(e) => { setLayer(e.target.value); setRegionNames(null); }}>{!regionList && <option>Loading regions…</option>}
                   {[...(regionList?.keys() ?? [])].sort().map((l) => <option key={l}>{l}</option>)}</select>
-                <select value={regionNames?.[0] ?? ""} onChange={(e) => setRegionNames(e.target.value ? [e.target.value] : null)}><option value="">All regions in it</option>
+                <select aria-label="Region of the layer" value={regionNames?.[0] ?? ""} onChange={(e) => setRegionNames(e.target.value ? [e.target.value] : null)}><option value="">All regions in it</option>
                   {(regionList?.get(layer) ?? []).map((n) => <option key={n}>{n}</option>)}</select></div></div>}
 
               <div className="row"><span>When</span><div className="ctl">
-                <input className="num-in" type="number" value={years[0]} onChange={(e) => setYears([Number(e.target.value), years[1]])} /><span className="sub">to</span>
-                <input className="num-in" type="number" value={years[1]} onChange={(e) => setYears([years[0], Number(e.target.value)])} />
-                <select value={season} onChange={(e) => setSeason(Number(e.target.value))}><option value={0}>All seasons</option><option value={1}>Winter</option><option value={2}>Spring</option><option value={3}>Summer</option><option value={4}>Fall</option></select></div></div>
+                <input className="num-in" type="number" aria-label="First year" value={years[0]} onChange={(e) => setYears([Number(e.target.value), years[1]])} /><span className="sub">to</span>
+                <input className="num-in" type="number" aria-label="Last year" value={years[1]} onChange={(e) => setYears([years[0], Number(e.target.value)])} />
+                <select aria-label="Season" value={season} onChange={(e) => setSeason(Number(e.target.value))}><option value={0}>All seasons</option><option value={1}>Winter</option><option value={2}>Spring</option><option value={3}>Summer</option><option value={4}>Fall</option></select></div></div>
               <div className="row"><span>Depth</span><div className="ctl">
-                <input className="num-in" type="number" value={depth[0]} onChange={(e) => setDepth([Number(e.target.value), depth[1]])} /><span className="sub">to</span>
-                <input className="num-in" type="number" value={depth[1]} onChange={(e) => setDepth([depth[0], Number(e.target.value)])} /><span className="sub">m</span></div></div>
+                <input className="num-in" type="number" aria-label="Shallowest depth (m)" value={depth[0]} onChange={(e) => setDepth([Number(e.target.value), depth[1]])} /><span className="sub">to</span>
+                <input className="num-in" type="number" aria-label="Deepest depth (m)" value={depth[1]} onChange={(e) => setDepth([depth[0], Number(e.target.value)])} /><span className="sub">m</span></div></div>
               <div className="row"><span>Rows</span><div className="ctl">
-                <select value={preset} onChange={(e) => setPreset(e.target.value as Preset)}><option value="sample">Every sample, as measured</option><option value="year">Yearly averages</option><option value="season">Seasonal averages</option><option value="month">Monthly averages</option><option value="custom">Custom…</option></select></div></div>
+                <select aria-label="Rows" value={preset} onChange={(e) => setPreset(e.target.value as Preset)}><option value="sample">Every sample, as measured</option><option value="year">Yearly averages</option><option value="season">Seasonal averages</option><option value="month">Monthly averages</option><option value="custom">Custom…</option></select></div></div>
               {preset === "custom" && <>
                 <div className="row"><span>Group by</span><div className="ctl rowsel">
-                  <select value={place} onChange={(e) => setPlace(e.target.value as Place)}>{PLACE_OPTS[lens].map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</select>
-                  <select value={time} onChange={(e) => setTime(e.target.value as TimeBy)}><option value="sample">Per sample date</option><option value="month">Per month</option><option value="season">Per season</option><option value="year">Per year</option><option value="decade">Per decade</option><option value="all">All years together</option></select>
-                  <select value={depthBy} onChange={(e) => setDepthBy(e.target.value as DepthBy)}><option value="avg">Depths together</option><option value="10">Per 10 m</option></select></div></div>
+                  <select aria-label="Group by place" value={place} onChange={(e) => setPlace(e.target.value as Place)}>{PLACE_OPTS[lens].map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</select>
+                  <select aria-label="Group by time" value={time} onChange={(e) => setTime(e.target.value as TimeBy)}><option value="sample">Per sample date</option><option value="month">Per month</option><option value="season">Per season</option><option value="year">Per year</option><option value="decade">Per decade</option><option value="all">All years together</option></select>
+                  <select aria-label="Group by depth" value={depthBy} onChange={(e) => setDepthBy(e.target.value as DepthBy)}><option value="avg">Depths together</option><option value="10">Per 10 m</option></select></div></div>
                 <div className={`statline${raw ? " dis" : ""}`}>If a row covers several samples, show their
-                  <select value={stat} onChange={(e) => setStat(e.target.value as Stat)}>{(Object.keys(STAT_WORD) as Stat[]).map((s) => <option key={s} value={s}>{STAT_WORD[s][0].toUpperCase() + STAT_WORD[s].slice(1)}</option>)}</select></div>
+                  <select aria-label="Statistic" value={stat} onChange={(e) => setStat(e.target.value as Stat)}>{(Object.keys(STAT_WORD) as Stat[]).map((s) => <option key={s} value={s}>{STAT_WORD[s][0].toUpperCase() + STAT_WORD[s].slice(1)}</option>)}</select></div>
               </>}
               <div className="explain">{sentence({ lens, place: effPlace, time: effTime, depthBy: effDepth, stat: effStat }, raw)}</div>
+              {/* the matching rule in force, in words (query.ts ruleLines): a combined table has to say how its rows are matched */}
+              <details className="adv rule">
+                <summary><span>How rows are matched</span><span className="sub">what shares a row, what a blank and a 0 mean</span><Icon name="ui-down" className="chev" /></summary>
+                <ul>{ruleLines({ lens, place: effPlace, time: effTime, depthBy: effDepth, stat: effStat, depth, zeros }).map((l) => <li key={l}>{l}</li>)}</ul>
+              </details>
               <details className="adv">
                 <summary><span>More options</span><span className="sub">{nBio ? `${stages.join(", ") || "all stages"} · ${DEN_LABEL[den].toLowerCase()} · ${zeros ? "no catch = 0" : "catches only"} · ` : ""}{qualOnly ? "quality-checked" : "all values"}</span><Icon name="ui-down" className="chev" /></summary>
                 <div className={`row${nBio ? "" : " dis"}`}><span>Life stage</span><div className="ctl">{stageChoices.map((s) => (
-                  <label key={s}><input type="checkbox" checked={stages.includes(s)} onChange={(e) => setStages(e.target.checked ? [...stages, s] : stages.filter((x) => x !== s))} />{s[0].toUpperCase() + s.slice(1)}</label>))}</div></div>
-                <div className={`row${nBio ? "" : " dis"}`}><span>Species units</span><div className="ctl"><select value={den} onChange={(e) => setDen(e.target.value as Den)}>{(Object.keys(DEN_LABEL) as Den[]).map((d) => <option key={d} value={d}>{DEN_LABEL[d]}</option>)}</select></div></div>
+                  <label key={s}><input type="checkbox" checked={stages.includes(s)} onChange={(e) => { setStagesSet(true); setStages(e.target.checked ? [...stages, s] : stages.filter((x) => x !== s)); }} />{s[0].toUpperCase() + s.slice(1)}</label>))}</div></div>
+                <div className={`row${nBio ? "" : " dis"}`}><span>Species units</span><div className="ctl"><select aria-label="Species units" value={den} onChange={(e) => setDen(e.target.value as Den)}>{(Object.keys(DEN_LABEL) as Den[]).map((d) => <option key={d} value={d}>{DEN_LABEL[d]}</option>)}</select></div></div>
                 <div className={`row${nBio ? "" : " dis"}`}><span>No catch</span><div className="ctl"><label><input type="checkbox" checked={zeros} onChange={(e) => setZeros(e.target.checked)} />Show as 0 when a net was sampled and nothing was found</label></div></div>
                 <div className="row"><span>Quality</span><div className="ctl"><label><input type="checkbox" checked={qualOnly} onChange={(e) => setQualOnly(e.target.checked)} />Quality-checked values only</label></div></div>
               </details>
@@ -296,10 +349,11 @@ export function Builder() {
 
         {/* 3 · PREVIEW */}
         <section className="card prev">
-          <div className="chead"><span className="num">3</span><b>Preview</b>
-            <span className="r">{busy ?? (result && !stale ? `${result.rows.length.toLocaleString()} rows` : picks.length ? "" : "Choose at least one species or measurement")}
-              {picks.length > 0 && !busy && (!result || stale) && <a href="#" onClick={(e) => { e.preventDefault(); build(); }}>Show preview</a>}</span></div>
-          <div className="twrap"><table><thead><tr>{(result && !stale && result.rows[0] ? Object.keys(result.rows[0]) : cols).map((c) => <th key={c} title={c}>{c}</th>)}</tr></thead>
+          <div className="chead"><span className="num" aria-hidden="true">3</span><h2>Preview</h2>
+            <span className="r"><span aria-live="polite">{busy ?? (b && !dsReady ? "Getting ready…" : result && !stale ? `${result.rows.length.toLocaleString()} ${result.rows.length === 1 ? "row" : "rows"}` : picks.length ? "" : "Choose at least one species or measurement")}</span>
+              {picks.length > 0 && !busy && dsReady && (!result || stale) && <button type="button" className="lnkbtn" data-act="preview" onClick={() => { build(); }}>Show preview</button>}</span></div>
+          {result && !stale && result.notes.length > 0 && <ul className="tb-notes" aria-label="What changed for some columns">{result.notes.map((n) => <li key={n}>{n}</li>)}</ul>}
+          <div className="twrap" tabIndex={0} role="region" aria-label="Preview of the first rows"><table><thead><tr>{(result && !stale && result.rows[0] ? Object.keys(result.rows[0]) : cols).map((c) => <th key={c} scope="col" title={c}>{c}</th>)}</tr></thead>
             <tbody>{result && !stale ? result.rows.slice(0, 3).map((r, i) => <tr key={i}>{Object.values(r).map((v, j) => <td key={j}>{v == null ? "" : typeof v === "number" ? +v.toPrecision(5) : String(v instanceof Date ? v.toISOString().slice(0, 10) : v)}</td>)}</tr>)
               : [0, 1].map((i) => <tr key={i}>{cols.map((c) => <td key={c}><span className="sk" /></td>)}</tr>)}</tbody></table></div>
         </section>
@@ -307,10 +361,11 @@ export function Builder() {
 
       <div className="tb-bar"><div className="in">
         <span className="sum"><b>{nBio}</b> species · <b>{nEnv}</b> water &amp; weather · <b>{years[0]}–{years[1]}</b> · {LENS.find((l) => l.id === lens)!.label.toLowerCase()}</span>
-        {err && b && <span className="warn">{err}</span>}
+        {(over || (err && b)) && <span className="warn" role="alert">{over ?? err}</span>}
         <span className="sp" />
-        <a className="lnk" href="#" onClick={(e) => { e.preventDefault(); copySql(); }}><Icon name="ui-sql" />{copied ? "Copied" : "Copy as SQL"}</a>
-        <button className="dl" type="button" disabled={!picks.length || !!busy} onClick={download}><Icon name="ui-download" />Download CSV</button>
+        <button type="button" className="lnk" data-act="about" disabled={!picks.length || !!busy || !dsReady} title="Each column and its units, the rows kept, how rows are matched and how to cite, as a text file" onClick={about}><Icon name="ui-about" />About this table</button>
+        <button type="button" className="lnk" disabled={!picks.length || !!busy || !dsReady} onClick={copySql}><Icon name="ui-sql" />{copied ? "Copied" : "Copy as SQL"}</button>
+        <button className="dl" type="button" disabled={!picks.length || !!busy || !!over || !dsReady} onClick={download}><Icon name="ui-download" />Download CSV</button>
       </div></div>
     </div>
   );
