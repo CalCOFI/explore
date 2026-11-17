@@ -1,4 +1,4 @@
-/* the Table builder page (builder.html). Colours and type from the calcofi.io brand (theme.css, loaded by the brand head):
+/* the Query Builder page (builder.html). Colours and type from the calcofi.io brand (theme.css, loaded by the brand head):
    --bg --panel --panel-2 --border --fg --muted --accent --accent-bg --cta-bg --cta-fg, Source Sans 3 and Teko. */
 .tb, .tb *, .tb *::before, .tb *::after { box-sizing: border-box; }
 .tb { --tb-skel: color-mix(in srgb, var(--muted) 18%, transparent); display: flex; flex-direction: column; min-height: 100vh; background: var(--bg); color: var(--fg);
@@ -120,3 +120,7 @@ html, body { margin: 0; }
 .tb label.it { white-space: nowrap; min-width: 0; }
 .tb label.it i { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .tb label.it em { flex: 0 0 auto; max-width: 55%; overflow: hidden; text-overflow: ellipsis; padding-left: 8px; }
+/* a notice above the cards: a link's pick the release does not hold, a column that fell back to another unit */
+.tb-note { display: flex; align-items: flex-start; gap: 10px; background: var(--accent-bg); border: 1px solid var(--border); border-radius: 9px; padding: 8px 12px; font-size: 13.5px; flex: none; }
+.tb-note span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.tb-note button { border: 0; background: none; font-size: 18px; line-height: 1; cursor: pointer; padding: 0 4px; color: var(--muted); }

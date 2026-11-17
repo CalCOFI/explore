@@ -19,6 +19,6 @@ export default defineConfig({
   base: process.env.VITE_BASE ?? "./",
   optimizeDeps: { exclude: ["@duckdb/duckdb-wasm"] }, // ships its own worker + wasm; the optimizer breaks it (so did maplibre-gl 6's module worker — pinned to 5)
   server: { port: 5178, strictPort: true },
-  // two pages: the Explorer (index.html) and the Table builder (builder.html, src/builder/)
+  // two pages: the Explorer (index.html) and the Query Builder (builder.html, src/builder/)
   build: { target: "es2022", chunkSizeWarningLimit: 6000, rollupOptions: { input: { main: "index.html", builder: "builder.html" } } },
 });

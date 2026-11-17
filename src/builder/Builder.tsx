@@ -1,7 +1,7 @@
-// the Table builder page (builder.html): pick any species and water measurements, choose Stations / Hexagons / Regions,
+// the Query Builder page (builder.html; "Table builder" until 2026-11-15): pick any species and water measurements, choose Stations / Hexagons / Regions,
 // filter and shape the rows, preview, download one CSV. Design: Betty's mockups (Claude outputs/calcofi-table-builder.html,
 // 2026-11-13). The SQL is src/builder/query.ts; the lists come from the release's coverage sidecar (src/builder/data.ts).
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { engine, type Row } from "../engine";
 import { csv, saveBlob } from "../export";
 import { areaSql, type Area } from "../area";
@@ -9,6 +9,7 @@ import { Icon, type IconName } from "../icons";
 import { CATEGORY_ICON } from "../categories";
 import { LOGO } from "../brand";
 import { boot, datasetInfo, ensure, envReg, envSrc, probe, regions, REG, urlOf, type Boot, type ListItem } from "./data";
+import { parsePicks, unknownNotice, withoutDownload } from "./picks";
 import { builderSql, pickColumns, sentence, STAT_WORD, type Den, type DepthBy, type Item, type Lens, type Place, type Spec, type Stat, type TimeBy } from "./query";
 
 type Preset = "sample" | "year" | "season" | "month" | "custom";
@@ -66,11 +67,21 @@ export function Builder() {
   const [result, setResult] = useState<{ key: string; rows: Row[]; sql: string[] } | null>(null);
   const [copied, setCopied] = useState(false);
   const [ds, setDs] = useState<Map<string, { name: string; category: string | null }>>(new Map());
+  // a link can pick for the reader (?pick=…) and start the CSV (&download=1): src/builder/picks.ts
+  const [notice, setNotice] = useState<string | null>(null);
+  const [dsReady, setDsReady] = useState(false);   // the datasets' short names name the columns, so an automatic download waits for them
+  const autoDl = useRef(false);
 
   useEffect(() => {
     boot(params.get("release")).then((x) => {
       setB(x); setYears([Math.max(x.years[0], 1949), x.years[1]]);
-      datasetInfo(x.catalog).then(setDs).catch((e) => console.warn("dataset names:", e.message)); // names arrive after the list; keys until then
+      const ids = new Set(x.groups.flatMap((g) => g.items.map((it) => it.id)));
+      const link = parsePicks(location.search, (id) => ids.has(id));
+      if (link.picked.length) setPicked(new Set(link.picked));
+      setNotice(unknownNotice(link.unknown));
+      autoDl.current = link.download;
+      datasetInfo(x.catalog).then(setDs).catch((e) => console.warn("dataset names:", e.message)) // names arrive after the list; keys until then
+        .finally(() => setDsReady(true));
     })
       .catch((e) => { console.error(e); setErr("Could not load the CalCOFI release. Reload the page to try again."); });
   }, []);
@@ -151,9 +162,18 @@ export function Builder() {
     const r = await build(); if (!r || !b) return;
     // the registered names become the release's own object URLs, so the SQL runs in any DuckDB
     const txt = r.sql.join(";\n\n").replace(/'((?:obs_env_[^']+|obs_bio|sample_spatial|cruise)\.parquet)'/g, (m, n) => { const u = urlOf(b.catalog, n); return u ? `'${u}'` : m; }) + ";\n";
-    await navigator.clipboard.writeText(`-- CalCOFI table builder · release ${b.version} · ${today()}\n${txt}`);
+    await navigator.clipboard.writeText(`-- CalCOFI Query Builder · release ${b.version} · ${today()}\n${txt}`);
     setCopied(true); setTimeout(() => setCopied(false), 1800);
   }
+
+  // ?pick=…&download=1: once the lists, the picks and the datasets' names are in, start the CSV — once. The address then
+  // drops download=1, so a reload or a copied link opens the same picks without downloading again.
+  useEffect(() => {
+    if (!b || !dsReady || !autoDl.current || !picks.length) return;
+    autoDl.current = false;
+    history.replaceState(null, "", location.pathname + withoutDownload(location.search) + location.hash);
+    download();
+  }, [b, dsReady, picked]);
 
   const toggle = (k: string) => setPicked((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
   const setMany = (ks: string[], on: boolean) => setPicked((s) => { const n = new Set(s); ks.forEach((k) => on ? n.add(k) : n.delete(k)); return n; });
@@ -165,7 +185,7 @@ export function Builder() {
     <div className="tb">
       <header className="tb-hd"><div className="in">
         <a href="https://calcofi.io"><img className="logo-l" src={LOGO.light} alt="CalCOFI.io" /><img className="logo-d" src={LOGO.dark} alt="CalCOFI.io" /></a>
-        <span className="crumb">Pull exact data › <b>Table builder</b></span>
+        <span className="crumb">Pull exact data › <b>Query Builder</b></span>
         <nav><a href="https://calcofi.io/#find">Data</a><a href="./">Explorer</a><a href="https://calcofi.io/docs/">Docs</a></nav>
         <button className="cc-theme-toggle" type="button" aria-label="Toggle dark / light theme">
           <svg className="cc-theme-icon cc-icon-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={ICON_SUN} /></svg>
@@ -174,7 +194,8 @@ export function Builder() {
       </div></header>
 
       <main>
-        <div className="tb-title"><h1>Build your own table</h1><p>Any species and measurements, in one CSV.</p>{b && <span className="rel">Release {b.version}</span>}</div>
+        <div className="tb-title"><h1>Query Builder</h1><p>Build your own table: any species and measurements, in one CSV.</p>{b && <span className="rel">Release {b.version}</span>}</div>
+        {notice && <div className="tb-note" role="status"><span>{notice}</span><button type="button" aria-label="Dismiss this notice" onClick={() => setNotice(null)}>×</button></div>}
         <div className="tb-top">
           {/* 1 · COLUMNS */}
           <section className="card cols">

@@ -1,4 +1,4 @@
-// the Table builder's SQL (Betty 2026-11-13, after Rasmus Swalethorp: "a gui … that allows you to structure your query from
+// the Query Builder's SQL (Betty 2026-11-13, after Rasmus Swalethorp: "a gui … that allows you to structure your query from
 // the integrated database in a simple user friendly way (think MS Access style) … pull several environmental and biological
 // parameters at the same time"). Pure, like sqltpl.ts: the page renders it and engine.ts runs it; tests/builder.sql.test.ts
 // runs it in duckdb-wasm's node build against a fixture.

@@ -1,4 +1,4 @@
-// what the Table builder lists and loads: the release's coverage sidecar (every species and measurement, before any WASM),
+// what the Query Builder lists and loads: the release's coverage sidecar (every species and measurement, before any WASM),
 // the station grid (for the standard / extended patterns and the lines), and — only when a table is built — the
 // observation objects of the picks, registered in the Explorer's engine under the Explorer's names.
 import { engine } from "../engine";
