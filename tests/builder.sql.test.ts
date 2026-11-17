@@ -145,7 +145,9 @@ describe("the depth band is for water; a tow that fished through the band stays"
   });
   it("a depth-resolved organism sample passes only when its own depth is in the band", () => {
     const EDNA = { realm: "bio" as const, taxon: ANCHOVY, label: "Northern Anchovy", dataset: "edna", den: "value" as const, stages: null };
-    expect(run0({ ...BASE, picks: [EDNA], depth: [0, 30], place: "all", time: "all" })[0].northern_anchovy_count).toBe(1);
+    expect(run0({ ...BASE, picks: [EDNA], depth: [0, 40], place: "all", time: "all" })[0].northern_anchovy_count).toBe(1);
+    // a range ends BEFORE its deeper end (2026-11-17): the 30 m sample is in the 30–40 m step, so "0 to 30 m" does not hold it
+    expect(run0({ ...BASE, picks: [EDNA], depth: [0, 30], place: "all", time: "all" })[0].northern_anchovy_count).toBeNull();
     expect(run0({ ...BASE, picks: [EDNA], depth: [50, 100], place: "all", time: "all" })[0].northern_anchovy_count).toBeNull(); // one row (no keys), its cell blank
   });
 });

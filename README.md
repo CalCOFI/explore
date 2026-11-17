@@ -32,6 +32,13 @@ says what the app does and how to work on it without needing them.
   depth-integrated net tow), lights up the moment a pick sampled at depth arrives — the band in its label, a
   sparkline of the mean profile, one pulse — and carries the band with a reset once you brush one. The
   panel opens only when you click it, or when a shared link names a band (`depth=`).
+- **Adding a second variable** (*+ Add a variable*, in step 1 of the lean panel, in every view). The comparison is
+  by hexagon: the added water measurement is averaged into the same hexagons as the first pick
+  (`lens=hex&var2=…`). In the Hexagon view the button is plain; in any other view it reads *+ Add a variable
+  (Hexagon view)* and a press switches the map to hexagons before its picker opens; closing the picker without a
+  choice puts the view back. A variable already added stays through a change of view: its card says *Shown in the
+  Hexagon view*, with a *Show* link, and the downloads carry it in the Hexagon view only. The classic layout has
+  no picker for it; a link with `var2` still draws it there (`src/addvar.ts`, `tests/addvar.test.ts`).
 - **Picking an organism or variable.** The picker opens as a **tree folded by category** — each category
   one row with its icon, item count, year span and a log-scale bar of how much data it holds — with the
   current pick shown under its own category and a *"… N more"* row for the rest. Click a category to open
@@ -234,11 +241,126 @@ measurements, by station, hexagon or region, with no code. It answers Rasmus Swa
   the column name say so (`resolvePick()`).
 - **How rows are matched is said on the page** (the fold of that name) and in *About this table*, a text file with
   each column and its units, the rows kept, the rule and how to cite (`ruleLines()`, `aboutText()`,
-  `tests/builder.rule.test.ts`). The rule in force: one row per place × time (× 10 m depth step) that any column has
-  a sample for; a species and a water value share a row when their samples share those keys; nets and casts are
-  not paired one to one. **Which rule a combined table should use is an open decision**; change the SQL and
-  `ruleLines()` together.
+  `tests/builder.rule.test.ts`). The words are generated from the parameters the SQL is made from; change the SQL and
+  `ruleLines()` together. Two rules are in force:
+  - **Stations › Every sample, with a species picked: one row per net, each water dataset's one nearest cast beside
+    it** (below).
+  - **Every other shape** (yearly, seasonal, monthly, Custom groupings, the Hexagons and Regions lenses, and Every
+    sample with water alone): one row per place × time (× 10 m depth step) that any column has a sample for; a cell
+    is the statistic of that column's values in the row. Nets are not paired with casts, and the page says so.
+- **A depth range ends before its deeper end**: "0 to 10 m" is the first 10 m step only, "0 to 500 m" the fifty
+  steps above 500 m (`depthTo()`, `binWhere()`). Until 2026-11-17 the last step was included, so "0 to 10 m" pooled
+  0 to 20 m. The Explorer's own depth filter (`sql/_filters.sql`) still includes it.
 - One table takes up to 40 columns (`MAX_PICKS`): each is a slice in the browser's memory.
+
+### The Query Builder's own address (`/query/`)
+
+The code stays here (`src/builder/` imports the Explorer's engine, SQL templates, export, citation and area modules);
+the page gets its own address, **https://calcofi.io/query/**, served by the thin repo
+[CalCOFI/query](https://github.com/CalCOFI/query), whose Pages workflow checks this repo out and builds only the
+Query Builder. `src/queryurl.ts` holds the rules, `tests/queryurl.test.ts` pins them.
+
+| build | what it makes |
+|---|---|
+| `npm run build` | `dist/`: the Explorer (`index.html`) and the Query Builder beside it (`builder.html`), as before |
+| `npm run build:query` (`VITE_APP=query`) | `dist-query/`: the Query Builder alone, as `index.html`, with `rel=canonical` to its live address. Its own script is 700 kB (208 kB gzipped) and 12 kB of CSS, against the Explorer's 7,130 kB (2,127 kB) and 237 kB; both ship the same DuckDB-WASM. Set `VITE_BASE=/query/` |
+| `VITE_QUERY_URL=https://calcofi.io/query/ npm run build` | `dist/` with `builder.html` as a small **redirect page** (`redirectHtml()`): it goes to that address carrying `location.search` and `location.hash` unchanged, so the dataset pages' `?pick=…&rows=sample&stations=all&download=1` links and anything already shared still land and still download; `noindex`, canonical to the new address, a plain link without JavaScript. The Query Builder is not built into `dist/` at all |
+
+- **Links between the two, one place each** (`src/links.ts`): the Explorer's link to the Query Builder is `QUERY_URL`
+  (`VITE_QUERY_URL`, else `./builder.html`); the Query Builder's link to the Explorer is `EXPLORE_URL` (`./` beside
+  it; from its own build `<VITE_SITE_URL>explore/`, or `VITE_EXPLORE_URL`).
+- **The Explorer links to the Query Builder** under its downloads (*Build a table across datasets · Query Builder*; the
+  lean panel's download area, the classic *Share* tab, and the same line on a phone). The link carries the view's
+  species or measurement, once per dataset in view, and the lens when it is Stations, Hexagons or Regions
+  (`viewPicks()`, `viewLens()`). It does not carry the years, seasons, depth, area, life stage, units or an added
+  variable: the builder's links take picks and a shape only, and the link's title says so. A measurement the builder
+  does not list (one value per cast) opens it with nothing picked.
+- **The SQL console had `/query/` first**: from 2026-08-10 calcofi.io/query/ sent readers on to `/db-query/`. The
+  Query Builder's head therefore says *Prefer to write SQL? db-query* (`SQL_CONSOLE`).
+- **Going live, in order**: (1) create CalCOFI/query with Pages and let it deploy, then delete the site repo's
+  `query/index.html` (the old redirect to `/db-query/`); (2) check https://calcofi.io/query/ answers with the Query
+  Builder; (3) deploy the site with its links to `/query/`; (4) set the repository variable `VITE_QUERY_URL` to
+  `https://calcofi.io/query/` here and re-run `pages`, which turns `/explore/builder.html` into the redirect. Until
+  (4) both addresses serve the app. Setting the variable before (2) would redirect the old address to the SQL console.
+- A push here does not start CalCOFI/query's workflow by itself: it runs on a daily schedule, on demand, and on a
+  `repository_dispatch` of type `explore-updated` (its README has the one step this repo's `pages.yml` would need).
+
+### How a net is matched to a cast
+
+Ben, 2026-11-17: "We need a time, xy distance, z depth filter for matching, and preference for matching by time vs
+distance, and the calculation included in each row." `netSql()` in `src/builder/query.ts`;
+`tests/builder.match.test.ts` has one fixture assertion per rule.
+
+**The rule.** Under Stations › Every sample a table that holds a species is one row per net: every net of the
+species' datasets that passes the filters, whether or not a cast is found for it. Each water dataset is matched to
+the net on its own: of its casts within ± 12 hours and 5 km of the net that have a value in the depth range, the row
+takes one, the nearest in time (the nearest in distance breaks a tie). Hours and kilometres are measured between the
+samples' own recorded times (UTC) and positions (great circle); station numbers, calendar dates and cruise names
+play no part. A water value is the average of that one cast's values in the depth range (0 to 10 m), never of
+several casts, and every measurement of a dataset comes from the same cast. A net with no cast inside both windows
+keeps its row with that dataset's columns blank; two nets of one visit are two rows and may share a cast.
+
+**The controls** are a group in step 2, *Match water to each net*, shown only when it applies (one row per net, and
+water picked): time ± hours, distance km, the water's depth range, and *prefer* nearest in time or in distance. While
+it shows it replaces the plain Depth row: the depth range is the water's and does not filter the nets. With a
+species alone (the dataset pages' `&rows=sample` links) the table is still one row per net and nothing is matched.
+
+**The calculation in each row.** After the net's own columns (`date`, `cruise`, `line`, `station`, `net_id`,
+`net_time`, `latitude`, `longitude`, `tow_type`) and each water dataset's measurements comes one set of columns per
+water dataset, ending like its measurements (`_hydrographic_bottle`):
+
+| column | what |
+|---|---|
+| `cast_id` | the matched cast's id in the release; blank = no cast inside the windows |
+| `cast_time` | its time, UTC (of its first value in the depth range) |
+| `cast_station` | its own line and station |
+| `cast_hours` | cast time minus net time: negative = the cast was taken first |
+| `cast_km` | great-circle distance between net and cast |
+| `cast_depth_min_m`, `cast_depth_max_m` | the depths of the cast's values used |
+| `cast_n_depths` | how many depths those are |
+
+**Why ± 12 hours and 5 km** (release v2026.11.14; nets of `swfsc_ichthyo`, the nearest cast in time on the same
+cruise):
+
+| net → cast | nets with a cast on the cruise | hours apart, 50 / 75 / 90 / 95% | km to that cast, 50 / 75 / 90% |
+|---|---|---|---|
+| ichthyoplankton → bottle | 53,487 | 1.0 / 2.1 / 19 / 117 | 0.4 / 22 / 153 |
+| ichthyoplankton → CTD cast | 16,793 | 1.4 / 1.9 / 3.0 / 4.9 | 0.7 / 74 / 111 |
+| krill (`cce-lter_euphausiids`) → bottle | 6,417 | 0.8 / 1.7 / 7.3 / 32 | 0.9 / 20 / 164 |
+| CUFES → bottle | 23,288 | 2.2 / 3.4 / 38 / 124 | 21 / 39 / 227 |
+
+A net either has its station visit's cast (under an hour or two, under a kilometre) or the nearest cast is another
+station's, tens of kilometres off. The windows only have to sit in the gap. Ichthyoplankton nets (69,263) that find
+a cast, bottle | CTD:
+
+| | 2 km | 5 km | 10 km | 20 km |
+|---|---|---|---|---|
+| ± 3 h | 37,512 \| 9,188 | 38,099 \| 9,288 | 38,956 \| 9,330 | 39,833 \| 9,420 |
+| ± 6 h | 37,726 \| 9,386 | 38,317 \| 9,495 | 39,180 \| 9,561 | 40,138 \| 9,935 |
+| ± 12 h | 37,870 \| 15,525 | **38,466 \| 15,711** | 39,337 \| 15,768 | 40,310 \| 15,849 |
+| ± 24 h | 38,134 \| 15,587 | 38,727 \| 15,779 | 39,620 \| 15,843 | 40,633 \| 15,935 |
+
+- **5 km**: 98% of the bottle pairs are within 2 km; 5 km adds some 600 nets whose cast was logged a few
+  kilometres away. No station has another within 2 km and 15 of 262 have one within 5 km (the closest pair is
+  2.4 km), so a neighbouring station's cast can be taken only at those; at 10 km the casts taken from another
+  station label double (1,950 against 1,012).
+- **12 hours**: a 6 hour window loses 6,216 of the 15,711 CTD pairs. On the cruises of 1993 to 1999, 2005 and 2006
+  (and parts of 2000, 2004 and 2007) the release's CTD cast times sit a median 9 hours before the net at the same
+  position, against 1 to 1.5 hours in every other year: local time stored as UTC, by the look of it. That is the
+  release's to fix (`calcofi_ctd-cast`); until then `cast_hours` shows it, and 12 hours keeps those visits paired.
+  Dropping the cruise from the rule changes 34 bottle pairs of 38,498 and no CTD pair.
+- **Nearest in time** is the default; under it 478 nets (1.2%) take a different bottle cast than nearest in distance
+  would. Krill nets pair like the ichthyoplankton nets (4,694 of 7,477 with a bottle cast). CUFES samples are taken
+  under way, not on station: 2,868 of 47,989 have a bottle cast inside the windows.
+
+**What it changed** (sardine larvae beside bottle temperature, standard grid, every sample): 25,719 nets, 16,479
+(64%) with a cast; 391 of those pairs are farther than 2 km, 201 farther than 3 hours, 86 farther than 6 hours, and
+808 take a cast of another UTC date. In the unit of the earlier rule (cruise × grid station × UTC date) 13,642 of
+18,926 rows (72%) now hold a net with its temperature, against 12,378 (65%). Of the 9,240 nets without one, 8,189
+have no bottle cast within 24 hours and 20 km at all (among them most CalVET egg tows, of which 61 of 2,119 are
+matched, and the 144 nets after the bottle data ends in May 2021), 659 have one within 12 hours but 5 to 20 km away, 162 one 12 to 24 hours away, and
+230 have a cast inside the windows with no quality-checked temperature above 10 m. The table builds in about 2.3 s
+in headless Chrome on the Mac mini (`match_nets` prints it).
 
 ## Attribution
 
@@ -341,6 +463,7 @@ node scripts/verify.mjs http://localhost:5178/ shots/dev --only=<regex>   # driv
 node scripts/verify.mjs http://localhost:5179/ shots/prod --timing        # + cold/warm lens timings
 node scripts/bundle_check.mjs http://localhost:5178/ shots/bundle          # download two bundles and list them
 node scripts/builder_check.mjs http://localhost:4047/ shots/builder        # the Query Builder against the live release (npx vite preview --port 4047)
+node scripts/builder_check.mjs http://localhost:4047/explore/ shots/builder --builder=/query/   # the same, at its own address; old_address follows the redirect
 node scripts/lean_check.mjs http://localhost:4047/ shots/lean              # the lean panel, every view and download, and the brand's header
 node scripts/card_shots.mjs ~/Github/CalCOFI/CalCOFI.github.io/images     # the two themed card screenshots
 node scripts/tour_shots.mjs http://localhost:5179/ shots/tour              # the docs/deck pictures: a lens each + the UI close-ups
@@ -370,7 +493,9 @@ variable, `SMOKE_CAST=off` skips the pass for a release older than v2026.10.01.
 
 `builder_check.mjs` clicks the Query Builder through in headless Chrome against the live release and opens every CSV
 it saves: a link's picks and `&download=1`, a pick the release does not hold, the most-recorded species of every
-organism dataset (no blank column), the task "sardine larvae and temperature, line 93.3, spring", every *Rows*
+organism dataset (no blank column), the task "sardine larvae and temperature, line 93.3, spring 2019" (every net
+paired with its bottle and its CTD cast), how a net is matched (`match_nets`: the group and its defaults, the pairs
+the README reports, a window changing the count, the match columns in the CSV and in *About this table*), every *Rows*
 shape, the three lenses, a region chosen, every hexagon size, an empty result, the column limit, the same picks made
 in two orders, a 375 px window, both themes (contrast of the small text), and the keyboard (names, focus rings,
 Enter and Space).
@@ -411,8 +536,15 @@ holds the rules (`tests/brandurl.test.ts`):
   words carry them. The page's column is the brand's container with the site's 24 px inset.
 - **The Explorer is an app** whose bar is full of its own controls, so it keeps them and asks for the brand's menu
   button at every width (`class="cc-header cc-nav-menu"`): the same words are one press away, in a panel that
-  drops from the bar's right end. Under the bar, the wave is a 15 px strip, a row of the app's grid, so the map
-  still gets exactly what is left of the window; `--cc-header-h` is measured to the strip's bottom.
+  drops from the bar's right end. Under the bar, the wave is a 15 px strip that lies **over the map**
+  (`cc-wave cc-wave-slim cc-wave-over`): the brand's variant takes no room and is cut to the wave, so the map shows
+  under its edge with no sliver of page ground between. The controls do not move for it: `App.tsx` reads how far
+  the strip overlaps from the strip itself (`--wave-over`, `waveOver()` in `src/brandurl.ts`; 0 when the brand
+  served has no such variant, and then the strip is in the flow as before), `.main` takes that height back as a
+  top margin, so the box every panel, card, button row and the phone's sheet is placed in stays where it was, and
+  only the map's canvas runs up under the wave. `--cc-header-h` is still the strip's bottom, where a dialog may
+  start. `wave_over` in `scripts/lean_check.mjs` checks it in both layouts, both themes and on a phone, and that
+  the same statements fail with the class taken off.
 - **A preview that carries its own copy of the site** sets `VITE_BRAND_URL=/brand/` (with `VITE_BASE=/explore/
   VITE_SITE_URL=/`), so the header it shows is the one under review and the words' links stay on the preview.
 - **v2 and v1 still build.** `VITE_BRAND=v2` is what was live until v3: the Explorer's bar without the menu button
@@ -435,7 +567,8 @@ page reads `{prefix}/latest.txt` → `{prefix}/{version}/catalog.json` (plus the
 `coverage_stations.json`, `grid.geojson` and `spatial.geojson` sidecars) and every object by its catalog
 path — never a hand-built `releases/{v}/parquet/` path. The build has two entries (`vite.config.ts`
 `rollupOptions.input`): `index.html`, the Explorer, and `builder.html`, the Query Builder, published side by
-side as `/explore/` and `/explore/builder.html`.
+side as `/explore/` and `/explore/builder.html`. Once the repository variable `VITE_QUERY_URL` is set,
+`builder.html` is a redirect to the Query Builder's own address (§ The Query Builder's own address).
 
 ### The layers registry (where it lives)
 

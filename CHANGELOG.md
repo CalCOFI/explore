@@ -2,6 +2,70 @@
 
 ## Unreleased
 
+- **Explorer: the wave lies over the map, and the controls stay clear of it** (Ben, 2026-11-17: the dark blue wave
+  "looks weird … because of the plain white sliver underneath and before the map"; then, of a preview that moved
+  everything up: "controls are now too high up so bleed into top nav"). The strip under the bar is the brand's
+  `cc-wave-over` variant: it takes no room and is cut to the wave, so the map shows under its edge. The map's canvas
+  starts at the bar's bottom (15 px higher); every floating control (the Find data panel, the title and legend
+  card, the zoom, layers and download buttons, the Time panel, the phone's cards and sheet) is exactly where it was,
+  10 px under the wave's bottom: 72 positions measured before and after at 1470 and 375 px, both themes, lean and
+  classic, none changed. With a brand copy that has no such variant, or `VITE_BRAND=v2`, nothing changes.
+  `waveOver()` in `src/brandurl.ts`, `wave_over` in `scripts/lean_check.mjs`.
+
+- **Explorer: "+ Add a variable" is in every view** (Ben, 2026-11-17: he could not find it; it was drawn in the
+  Hexagon view only, and the default view is Stations). Outside the Hexagon view the button reads *+ Add a variable
+  (Hexagon view)*, its title and name say it switches the map to hexagons, and a press does that and opens the
+  picker; closing the picker without a choice puts the view back. A variable already added no longer vanishes when
+  the view changes: its card stays with *Shown in the Hexagon view* and a *Show* link. The downloads carry the second
+  variable in the Hexagon view only, as before. On a phone the button is in the same step 1; the classic layout has
+  no picker for a second variable, so no button (a `var2` link still draws there). `src/addvar.ts`,
+  `tests/addvar.test.ts`, `add_variable` in `scripts/lean_check.mjs`.
+
+- **the Query Builder can live at its own address, calcofi.io/query/** (Ben, 2026-11-17: "can we move the Query
+  Builder to its own dedicated 'query'? And then cross-link"). The code stays in this repo; the thin repo
+  CalCOFI/query builds it from here.
+  - `npm run build:query` (`VITE_APP=query`) builds the Query Builder alone into `dist-query/` as `index.html`: 700 kB
+    of script (208 kB gzipped) against the Explorer's 7,130 kB (2,127 kB), plus the DuckDB-WASM both ship.
+  - With `VITE_QUERY_URL` set on the Explorer's build, `builder.html` is a redirect page to that address that
+    carries the link's query string and fragment, so every `?pick=…&download=1` link still lands and downloads.
+    Unset (the default, and the deploy until the repository variable says otherwise), nothing changes.
+  - **The Explorer links to the Query Builder** for the first time: *Build a table across datasets · Query Builder*
+    under the downloads, carrying the view's species or measurement (one pick per dataset in view) and its lens.
+  - The Query Builder's head says *Prefer to write SQL? db-query*: `/query/` was the SQL console's address first.
+  - `src/queryurl.ts`, `src/links.ts`, `tests/queryurl.test.ts`; `old_address` in `scripts/builder_check.mjs`
+    (`--builder=<path>` runs every case at the new address), `query_link` in `scripts/lean_check.mjs`.
+  - **Deploy order** in README § The Query Builder's own address.
+
+- **Query Builder: every sample is one row per net, with each water dataset's nearest cast beside it** (Ben,
+  2026-11-17: "a time, xy distance, z depth filter for matching, and preference for matching by time vs distance,
+  and the calculation included in each row"). Under Stations › Every sample with a species picked:
+  - **The rule.** One row per net. Each water dataset gives the row one cast: of its casts within ± 12 hours and
+    5 km of the net with a value in the depth range, the nearest in time (or in distance; the other breaks a tie).
+    Time and distance are the samples' own (UTC, great circle), not station numbers, calendar dates or cruise names.
+    A water value is the average of that one cast's values from 0 to 10 m. A net with no cast keeps its row, blank.
+  - **The controls**: a group *Match water to each net* in step 2 (time, distance, the water's depth range,
+    prefer), shown only when it applies; it replaces the plain Depth row while it shows.
+  - **The calculation in each row**: after each water dataset's measurements, `cast_id`, `cast_time`,
+    `cast_station`, `cast_hours` (cast minus net), `cast_km`, `cast_depth_min_m`, `cast_depth_max_m`,
+    `cast_n_depths`, each ending like that dataset's measurements. The net's own `net_id`, `net_time`, `latitude`,
+    `longitude` and `tow_type` open the row. The preview says how many nets found a cast.
+  - **What it pairs** (release v2026.11.14, sardine larvae and bottle temperature, standard grid): 16,479 of 25,719
+    nets. In the earlier rule's unit, 13,642 of 18,926 rows (72%) against 12,378 (65%): a cast on the other side of
+    00:00 UTC, or filed under another station number than the net's grid cell, pairs now. README § How a net is
+    matched to a cast has the measurements behind the defaults.
+  - **Changed for existing links and downloads**: `&rows=sample` gives one row per net (it was one row per station ×
+    date × 10 m step, where a visit's nets were averaged) and its columns are `date, cruise, line, station, net_id,
+    net_time, latitude, longitude, tow_type, …` (no `depth_m`). Every sample with water alone is unchanged.
+  - The other shapes (yearly, seasonal, monthly, Custom, Hexagons, Regions) keep their rule, and *How rows are
+    matched* now says in each that nets are not paired with casts.
+  - `netSql()`, `matchOf()`, `ruleLines()`, `matchLine()` in `src/builder/query.ts`; `tests/builder.match.test.ts`
+    (29 fixture assertions), `tests/builder.rule.test.ts`; `match_nets` and `task_line_933_spring` in
+    `scripts/builder_check.mjs`.
+- **fix (Query Builder): a depth range ends before its deeper end.** "0 to 10 m" pooled 0 to 20 m, because the 10 m
+  step that starts at the deeper end was included; the page said "so down to 20 m". Now "0 to 10 m" is the first
+  step and the default "0 to 500 m" is the fifty steps above 500 m, in every shape. The Explorer's depth filter is
+  unchanged.
+
 - **brand v3: the Explorer and the Query Builder wear calcofi.io's header** (Ben, 2026-11-17: one look, the wave,
   the same words everywhere). `VITE_BRAND` takes `v3` and defaults to it; `VITE_BRAND_URL` says where the brand is
   loaded from (default `https://calcofi.io/brand/`; a preview with its own copy of the site sets `/brand/`).

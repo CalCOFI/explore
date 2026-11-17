@@ -243,7 +243,14 @@ export function LineStation(p: { lines: number[]; stationsOf: (line: number) => 
  *  citation as text or BibTeX, the code, and the SQL & timing card. It stays pinned to the panel's bottom (style.css), so
  *  it is reachable without scrolling whatever the steps above it hold. */
 export interface DownloadMore { picture: (how: "copy" | "download") => void; numbers: () => void; numbersLabel: string; cite: (kind: "text" | "bibtex") => void; timing: () => void; timingOn: boolean }
-export function DownloadBar(p: { count: ReactNode; sub?: ReactNode; busy: string | null; disabled: boolean; onCsv: () => void; onZip: () => void; onCopy: (k: "sql" | "r" | "py") => void; onCite: () => void; onLink: () => void; onReset?: () => void; zerosOpt?: { checked: boolean; onChange: (b: boolean) => void } | null; more?: DownloadMore }) {
+/** the way from this view to the Query Builder (src/queryurl.ts queryHref): its address with the view's species or
+ *  measurement picked, and what the link carries, said in its title */
+export interface QueryLink { href: string; title: string }
+/** "this, as a table, with other datasets": the Explorer's one link to the Query Builder, under the downloads */
+export function QueryLinkRow(p: { query: QueryLink }) {
+  return <a className="dl-query" href={p.query.href} title={p.query.title} data-query-link><Icon name="ui-data" size="0.95rem" /><span>Build a table across datasets</span><b>Query Builder<Icon name="ui-right" size="0.8rem" /></b></a>;
+}
+export function DownloadBar(p: { count: ReactNode; sub?: ReactNode; busy: string | null; disabled: boolean; onCsv: () => void; onZip: () => void; onCopy: (k: "sql" | "r" | "py") => void; onCite: () => void; onLink: () => void; onReset?: () => void; zerosOpt?: { checked: boolean; onChange: (b: boolean) => void } | null; more?: DownloadMore; query?: QueryLink | null }) {
   const m = p.more;
   const moreItems: MenuItem[] = [
     ...(m ? [
@@ -274,6 +281,7 @@ export function DownloadBar(p: { count: ReactNode; sub?: ReactNode; busy: string
         <Menu className="dl-tool-menu dl-more" icon="ui-more" label="More" align="right" title="the picture of the view, the numbers shown, the citation as text or BibTeX, the code, and the SQL & timing" items={moreItems} />
         {p.onReset && <button type="button" className="dl-tool" onClick={p.onReset} title="back to the defaults: Stations, all years, all seasons, all depths, everywhere — keeps your pick">Reset all</button>}
       </div>
+      {p.query && <QueryLinkRow query={p.query} />}
     </div>);
 }
 

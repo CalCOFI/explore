@@ -380,8 +380,10 @@ function homeOffset(m: maplibregl.Map): [number, number] {
 /** padding that keeps a fitted extent inside the free map, clear of the panels */
 function fitPadding(m: maplibregl.Map) {
   const c = m.getContainer(), W = c.clientWidth, H = c.clientHeight;
-  if (W < 900) return { left: 30, right: 30, top: 80, bottom: Math.round(H * 0.3) };
-  return { left: Math.min(540, W * 0.4) + 24, right: 150, top: 150, bottom: Math.round(H * 0.34) + 10 };
+  // the canvas starts under the brand's wave (style.css "the wave over the map"): the panels are that much lower in it
+  const over = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--wave-over")) || 0;
+  if (W < 900) return { left: 30, right: 30, top: 80 + over, bottom: Math.round(H * 0.3) };
+  return { left: Math.min(540, W * 0.4) + 24, right: 150, top: 150 + over, bottom: Math.round(H * 0.34) + 10 };
 }
 
 // ── the map component ─────────────────────────────────────────────────────────

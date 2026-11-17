@@ -3,7 +3,10 @@
 // a region chosen, every hexagon size, an empty result, a phone-width window, both themes, and the keyboard — and every CSV
 // opened and checked against what the page said. Re-runnable; prints ok / FAIL per check and exits 1 on any FAIL.
 //   npm run build && npx vite preview --port 4047 &
-//   node scripts/builder_check.mjs [baseUrl] [outDir] [--only=regex] [--headed]
+//   node scripts/builder_check.mjs [baseUrl] [outDir] [--only=regex] [--headed] [--builder=<path or URL>]
+// THE ADDRESS: baseUrl is the Explorer's folder and the Query Builder is builder.html in it — unless --builder names its
+// own address, a path on the same host (--builder=/query/) or a full URL. Every case then runs against that address, and
+// old_address checks that builder.html under baseUrl redirects there with a link's picks (a build with VITE_QUERY_URL).
 // Brand v3 (the default build since 2026-11-17) loads its header from VITE_BRAND_URL: until calcofi.io/brand/v3/ is live,
 // check a build made with VITE_BRAND_URL pointing at a served copy of the site's brand/ folder (README § Brand), or a
 // VITE_BRAND=v2 build, on which brand_header reports and skips.
@@ -35,7 +38,12 @@ const check = (ok, m) => (ok ? pass(m) : fail(m));
 const IGNORE = /favicon|plausible|ERR_BLOCKED|net::ERR_ABORTED|Failed to load resource|\[vite\]|WebSocket|Download the React DevTools/;
 
 const SARDINE = "bio:swfsc_ichthyo:worms:217452", TEMP = "env:calcofi_bottle:temperature", TEMP_CTD = "env:calcofi_ctd-cast:temperature";
-const link = (picks, extra = "") => `${base}builder.html${picks.length ? "?" + picks.map((p) => "pick=" + encodeURIComponent(p)).join("&") : ""}${extra}`;
+/** the ending a water dataset's match columns carry in a CSV (the same its measurements carry): "_hydrographic_bottle" */
+const castSfx = (head, re) => (head.find((h) => /^cast_id_/.test(h) && re.test(h)) ?? "cast_id_none").slice("cast_id".length);
+// the Query Builder's address: its own (--builder) or builder.html beside the Explorer; OLD is always the latter
+const OLD = `${base}builder.html`, BUILDER = opt.builder && opt.builder !== true ? new URL(opt.builder, base).href : OLD;
+const linkAt = (at, picks, extra = "") => `${at}${picks.length ? "?" + picks.map((p) => "pick=" + encodeURIComponent(p)).join("&") : ""}${picks.length ? extra : extra.replace(/^&/, "?")}`;
+const link = (picks, extra = "") => linkAt(BUILDER, picks, extra);
 
 async function open(url, viewport = DESK) {
   if (page) await page.close().catch(() => {});
@@ -128,6 +136,9 @@ const cases = {
     // brand v3 (2026-11-17): the crumb and the h1 are in the wave band (.tb-title in both layouts); a v2 build keeps the crumb in .tb-hd
     check(/Query Builder/.test((await text(".tb-title .crumb")) ?? (await text(".tb-hd .crumb"))) && (await text(".tb-title h1")) === "Query Builder", "crumb and heading say Query Builder");
     check((await selected()) === 2, "the link's two picks are ticked (2 selected)");
+    // the SQL console had the address /query/ before this page did: one plain link for a reader who came for it
+    const sqlc = await page.evaluate(() => { const a = document.querySelector("a[data-sql-console]"); if (!a) return null; const r = a.getBoundingClientRect(); return { href: a.href, said: a.closest("p, nav")?.textContent ?? "", shown: r.width > 0 && r.height > 0 }; });
+    check(!!sqlc && sqlc.shown && sqlc.href === "https://calcofi.io/db-query/" && /SQL/.test(sqlc.said), `a plain link to the SQL console: “${(/Prefer[^.]*/.exec(sqlc?.said ?? "") ?? [sqlc?.said])[0]}” → ${sqlc?.href}`);
     // REGRESSION (2026-11-17): the first Show preview, clicked before the datasets' names had arrived, built a table that was
     // stale the moment they did, so nothing appeared until a second click
     const p = await preview(120000);
@@ -163,8 +174,34 @@ const cases = {
   async link_shape() {
     await open(link([SARDINE], "&rows=sample&stations=all&download=1"));
     const c = await download(120000, false);
-    check(!!c && c.head.slice(0, 5).join() === "date,cruise,line,station,depth_m", `&rows=sample&stations=all: the CSV is per sample (${c?.head.slice(0, 5).join(", ")}; ${c?.n} rows)`);
+    // one row per NET (2026-11-17): the dataset pages' "just this species" link needs no water pick, and carries no cast columns
+    check(!!c && c.head.slice(0, 5).join() === "date,cruise,line,station,net_id", `&rows=sample&stations=all: the CSV is per sample (${c?.head.slice(0, 5).join(", ")}; ${c?.n} rows)`);
+    check(!!c && new Set(c.rows.map((r) => r.net_id)).size === c.n && c.rows.every((r) => r.net_id !== ""), `one row per net: ${c?.n.toLocaleString()} rows, ${c ? new Set(c.rows.map((r) => r.net_id)).size.toLocaleString() : "?"} different net_id`);
+    check(!!c && !c.head.some((h) => /^cast_/.test(h)), "a species alone carries no cast columns");
+    check(!(await page.$(".tb .match")), "and the page shows no “Match water to each net” group (there is no water to match)");
     check((await page.evaluate(() => document.querySelector('.tb select[aria-label="Stations"]').value)) === "all", "and Stations reads Every station");
+    noErrors();
+  },
+  // ── the Query Builder's own address: the old one (builder.html beside the Explorer) redirects with the link's picks ──
+  async old_address() {
+    const html = await (await fetch(OLD)).text();
+    if (!/location\.replace\(/.test(html) || /id="root"/.test(html)) { pass(`${OLD.replace(/^https?:\/\/[^/]+/, "")} is the app itself in this build (no VITE_QUERY_URL): nothing to redirect (old_address skipped)`); return; }
+    check(/<meta name="robots" content="noindex">/.test(html) && /<link rel="canonical" href="https:\/\/calcofi\.io\/query\/">/.test(html) && /<a href="[^"]+">/.test(html), "the old address is a redirect page: noindex, canonical https://calcofi.io/query/, and a plain link");
+    const extra = "&rows=sample&stations=all&download=1";
+    await open(linkAt(OLD, [SARDINE], extra));
+    const a = await download(120000, false), at = await page.evaluate(() => location.href);
+    const moved = new URL(at), old = new URL(OLD);
+    check(moved.pathname !== old.pathname && /\/$/.test(moved.pathname), `a pick link opened at ${old.pathname} lands on ${moved.pathname}`);
+    check(moved.searchParams.get("pick") === SARDINE && moved.searchParams.get("rows") === "sample" && moved.searchParams.get("stations") === "all", `with its picks and shape (${moved.search})`);
+    check((await selected()) === 1 && (await page.evaluate(() => document.querySelector('.tb select[aria-label="Stations"]').value)) === "all", "the pick is ticked and Stations reads Every station");
+    check(!!a && a.n > 1000, `and its CSV downloads there (${a?.n.toLocaleString()} rows)`);
+    // the same link opened at the new address directly: the same file
+    await open(`${moved.origin}${moved.pathname}?pick=${encodeURIComponent(SARDINE)}${extra}`);
+    const b = await download(120000, false);
+    check(!!a && !!b && a.n === b.n && a.bytes === b.bytes && a.head.join() === b.head.join(), `the same CSV as from the new address itself (${b?.n.toLocaleString()} rows, ${b?.bytes.toLocaleString()} bytes both)`);
+    // a fragment and no query: both carried as they came
+    await page.goto(`${OLD}#x`, { waitUntil: "domcontentloaded" }); await page.waitForSelector(".tb .grp", { timeout: 60000 });
+    check((await page.evaluate(() => location.pathname + location.search + location.hash)) === `${moved.pathname}#x`, "a bare address with a fragment goes to the bare new address with it");
     noErrors();
   },
   async link_offgrid() {
@@ -201,30 +238,101 @@ const cases = {
   },
   // ── the acceptance task: sardine larvae and temperature, line 93.3, spring ─────────────────────────────────────────
   async task_line_933_spring() {
-    await open(link([SARDINE, TEMP, TEMP_CTD]));
+    // "every sample" with a species and water is one row per net, each water dataset's nearest cast beside it (2026-11-17)
+    await open(link([SARDINE, TEMP, TEMP_CTD], "&rows=sample"));
     await type("First year", 2019); await type("Last year", 2019); await choose("Season", /Spring/);
-    await type("Shallowest depth (m)", 0); await type("Deepest depth (m)", 10);
-    await choose("Rows", /Custom/); await choose("Group by place", /Per station/); await choose("Group by time", /Per sample date/); await choose("Group by depth", /Depths together/);
     const p = await preview();
-    check(p.rows > 0 && !p.err, `spring 2019, 0–10 m, per station and sample date: ${p.rows} rows${p.err ? ` — ${p.err}` : ""}`);
+    check(p.rows > 0 && !p.err, `spring 2019, every sample, water from 0 to 10 m: ${p.rows} nets${p.err ? ` — ${p.err}` : ""}`);
     const c = await download();
     if (c) {
       const l933 = c.rows.filter((r) => r.line === "93.3");
       const sard = c.head.find((h) => /sardine/.test(h)), tb = c.head.find((h) => /temperature.*bottle/.test(h)), tc = c.head.find((h) => /temperature.*ctd/.test(h));
-      check(l933.length > 0, `line 93.3 is in the table (${l933.length} rows of ${c.n}); the reader filters the line column, the page has no line filter`);
-      const paired = l933.filter((r) => r[sard] !== "" && (r[tb] !== "" || r[tc] !== "")).length, nets = l933.filter((r) => r[sard] !== "").length;
-      check(paired > 0, `on line 93.3, ${paired} of ${nets} rows with a net also carry a temperature`);
-      check(l933.every((r) => /^\d{4}-\d\d-\d\d$/.test(r.date)), `the date column reads as a date (${l933[0]?.date})`);
-      console.log(`       line 93.3 rows: ${l933.slice(0, 4).map((r) => `${r.date} st ${r.station}: larvae ${r[sard] || "·"} / bottle ${r[tb] || "·"} / ctd ${r[tc] || "·"}`).join(" ; ")}`);
+      check(l933.length > 0, `line 93.3 is in the table (${l933.length} nets of ${c.n}); the reader filters the line column, the page has no line filter`);
+      check(l933.every((r) => r[sard] !== ""), "every row is a net: the sardine column is a number on each (0 where the net held none)");
+      // every net paired, or the row says why not: a blank cast_id is "no cast inside the windows", and then its water is blank too
+      for (const [name, t, sfx] of [["bottle", tb, castSfx(c.head, /bottle/)], ["CTD", tc, castSfx(c.head, /ctd/)]]) {
+        const hit = l933.filter((r) => r[`cast_id${sfx}`] !== ""), miss = l933.filter((r) => r[`cast_id${sfx}`] === "");
+        check(hit.length === l933.length, `on line 93.3, ${hit.length} of ${l933.length} nets have a ${name} cast${miss.length ? `; without: ${miss.map((r) => `${r.date} st ${r.station}`).join(", ")}` : ""}`);
+        check(hit.every((r) => r[t] !== "" && Math.abs(Number(r[`cast_hours${sfx}`])) <= 12 && Number(r[`cast_km${sfx}`]) <= 5 && Number(r[`cast_depth_max_m${sfx}`]) < 10 && Number(r[`cast_n_depths${sfx}`]) >= 1),
+          `each carries its ${name} temperature and the calculation: within 12 h and 5 km, depths under 10 m (farthest ${Math.max(...hit.map((r) => Math.abs(Number(r[`cast_hours${sfx}`]))))} h, ${Math.max(...hit.map((r) => Number(r[`cast_km${sfx}`])))} km)`);
+        check(miss.every((r) => r[t] === ""), `a net with no ${name} cast has no ${name} temperature`);
+      }
+      check(l933.every((r) => /^\d{4}-\d\d-\d\d$/.test(r.date) && /^\d{4}-\d\d-\d\d \d\d:\d\d$/.test(r.net_time)), `the date and the net's time read as such (${l933[0]?.date}, ${l933[0]?.net_time})`);
+      const r0 = l933.find((r) => Number(r[sard]) > 0) ?? l933[0];
+      console.log(`       a row: ${c.head.map((h) => `${h}=${r0[h]}`).join(" · ")}`);
     } else fail("no CSV");
     await page.screenshot({ path: path.join(out, "task_line_933_spring.png") });
+    noErrors();
+  },
+  // ── how a net is matched to a cast: the windows, the preference, the calculation in each row ───────────────────────
+  async match_nets() {
+    await open(link([SARDINE, TEMP], "&rows=sample"));
+    const ctl = () => page.evaluate(() => {
+      const v = (n) => document.querySelector(`.tb .match [aria-label="${n}"]`)?.value ?? null;
+      return { legend: document.querySelector(".tb .match legend")?.textContent ?? null, hours: v("Hours either side of the net"), km: v("Kilometres from the net"), d0: v("Shallowest water depth (m)"), d1: v("Deepest water depth (m)"), prefer: v("Prefer"),
+        depthRow: !!document.querySelector('.tb input[aria-label="Shallowest depth (m)"]'), explain: document.querySelector(".tb .explain")?.textContent ?? "" };
+    });
+    const c0 = await ctl();
+    check(c0.legend === "Match water to each net", `step 2 shows the group “${c0.legend}”`);
+    check(c0.hours === "12" && c0.km === "5" && c0.d0 === "0" && c0.d1 === "10" && c0.prefer === "time", `its defaults: ± ${c0.hours} h, ${c0.km} km, water ${c0.d0} to ${c0.d1} m, prefer ${c0.prefer}`);
+    check(!c0.depthRow, "the plain Depth row gives way to the group's water depth");
+    check(/Each row is one net\./.test(c0.explain) && /nearest in time within ± 12 hours and 5 km/.test(c0.explain), `the sentence: “${c0.explain}”`);
+    const matched = () => page.evaluate(() => [...document.querySelectorAll(".tb-matched li")].map((l) => ({ n: Number(l.dataset.matched), of: Number(l.dataset.nets), text: l.textContent })));
+    const p = await preview(), m = (await matched())[0];
+    const version = (/Release (v[\d.]+)/.exec((await text(".tb-title .rel")) ?? (await text(".tb-hd .rel")) ?? "") ?? [])[1];
+    check(!p.err && !!m && m.of === p.rows, `the default table: ${p.rows.toLocaleString()} nets in ${p.ms} ms; “${m?.text}”`);
+    // the numbers the change was reported with (README § Query Builder › How a net is matched), on the release they were measured on
+    if (version === "v2026.11.14") check(m?.of === 25719 && m?.n === 16479, `on ${version}: 16,479 of 25,719 nets on the standard grid have a bottle cast with a 0 to 10 m temperature (got ${m?.n} of ${m?.of})`);
+    else check(!!m && m.n / m.of > 0.5 && m.n / m.of < 0.9, `on ${version}: ${m?.n} of ${m?.of} nets paired (the reported numbers are v2026.11.14's)`);
+    const rule = await page.evaluate(() => [...document.querySelectorAll(".tb .rule li")].map((x) => x.textContent));
+    check(rule.some((l) => /within ± 12 hours and 5 km of the net, the row takes ONE, the nearest in time/.test(l)) && rule.some((l) => /10 m depth step from 0 to 10 m/.test(l)), "“How rows are matched” states the windows, the preference and the depth in force");
+    const c = await download(120000);
+    if (c) {
+      const sfx = castSfx(c.head, /bottle/), tcol = c.head.find((h) => /temperature.*bottle/.test(h));
+      const need = ["net_id", "net_time", "latitude", "longitude", ...["cast_id", "cast_time", "cast_station", "cast_hours", "cast_km", "cast_depth_min_m", "cast_depth_max_m", "cast_n_depths"].map((h) => h + sfx)];
+      check(need.every((h) => c.head.includes(h)) && tcol.endsWith(sfx), `the CSV carries the calculation, named like its measurement (${tcol}): ${c.head.filter((h) => /^cast_/.test(h)).join(", ")}`);
+      for (const r of c.rows) for (const k of ["cast_id", "cast_time", "cast_hours", "cast_km", "cast_depth_max_m"]) r[`${k}_bottle`] = r[k + sfx];   // short names for the checks below
+      const hit = c.rows.filter((r) => r.cast_id_bottle !== "");
+      check(hit.length === m.n && new Set(c.rows.map((r) => r.net_id)).size === c.n, `${hit.length.toLocaleString()} rows name a cast, as the page said; every row is a different net`);
+      check(hit.every((r) => Math.abs(Number(r.cast_hours_bottle)) <= 12 && Number(r.cast_km_bottle) <= 5 && r[tcol] !== "" && Number(r.cast_depth_max_m_bottle) < 10), "every matched row is inside both windows, has its temperature, and takes it above 10 m");
+      check(c.rows.filter((r) => r.cast_id_bottle === "").every((r) => r[tcol] === "" && r.cast_hours_bottle === "" && r.cast_km_bottle === ""), "an unmatched net keeps its row with the water and the calculation blank");
+      const neg = hit.filter((r) => Number(r.cast_hours_bottle) < 0).length, far = hit.filter((r) => Number(r.cast_km_bottle) > 2).length, late = hit.filter((r) => Math.abs(Number(r.cast_hours_bottle)) > 6).length;
+      check(neg > 0 && neg < hit.length, `cast_hours is signed: the cast came first on ${neg.toLocaleString()} rows, after the net on ${(hit.length - neg).toLocaleString()}`);
+      console.log(`       of the pairs: ${far.toLocaleString()} are farther than 2 km, ${late.toLocaleString()} farther than 6 h`);
+      // a cast keyed by the old rule would have to share the net's UTC date: these pair across it
+      const across = hit.filter((r) => r.cast_time_bottle.slice(0, 10) !== r.date).length;
+      check(across > 0, `${across.toLocaleString()} nets take a cast of another UTC date (the old rule lost them)`);
+    } else fail("no CSV");
+    await page.click(".tb-bar [data-act=about]");
+    let f = null; for (let i = 0; i < 300 && !f; i++) { f = fs.readdirSync(page.__dl).find((x) => x.endsWith(".txt")); await sleep(200); }
+    const txt = f ? fs.readFileSync(path.join(page.__dl, f), "utf8") : "";
+    check(/Each net is given one cast per water dataset: the nearest in time within ± 12 hours and 5 km of the net; water values from 0 to 10 m/.test(txt), "“About this table › Rows kept” carries the windows, the preference and the water's depth");
+    check(/cast_hours_\w*bottle\s+cast time minus net time, hours/.test(txt) && /cast_km_\w*bottle\s+great-circle distance/.test(txt) && /the row takes ONE, the nearest in time/.test(txt), "and names the match columns and the rule");
+    // a window changes the count; the preference changes which cast, not how many
+    await type("Hours either side of the net", 6);
+    const p6 = await preview(), m6 = (await matched())[0];
+    check(!p6.err && m6.of === m.of && m6.n < m.n, `± 6 h: ${m6?.n.toLocaleString()} of ${m6?.of.toLocaleString()} nets (fewer than at ± 12 h: ${m.n.toLocaleString()})`);
+    await type("Hours either side of the net", 12); await type("Kilometres from the net", 20);
+    const p20 = await preview(), m20 = (await matched())[0];
+    check(!p20.err && m20.n > m.n, `20 km: ${m20?.n.toLocaleString()} nets (more than at 5 km)`);
+    await type("Kilometres from the net", 5); await choose("Prefer", /distance/);
+    const pd = await preview(), md = (await matched())[0];
+    check(!pd.err && md.n === m.n && /nearest in distance within/.test((await ctl()).explain), `prefer distance: the same ${md?.n.toLocaleString()} nets are matched, and the sentence says nearest in distance`);
+    // the group is there only when it applies
+    await choose("Rows", /Yearly/);
+    const cy = await ctl(), ry = await page.evaluate(() => [...document.querySelectorAll(".tb .rule li")].map((x) => x.textContent).join(" "));
+    check(cy.legend === null && cy.depthRow, "yearly averages: no match group, the plain Depth row is back");
+    check(/Nets are not paired with casts in this shape/.test(ry), "and “How rows are matched” says nets are not paired with casts");
+    await choose("Rows", /Every sample/); await lens("Hexagons");
+    const rh = await page.evaluate(() => [...document.querySelectorAll(".tb .rule li")].map((x) => x.textContent).join(" "));
+    check((await ctl()).legend === null && /Nets are not paired with casts in this shape/.test(rh), "Hexagons, every sample: no match group, and the rule says it does not pair");
     noErrors();
   },
   // ── every Rows shape, the three lenses, a region chosen, every hexagon size ────────────────────────────────────────
   async rows_shapes() {
     await open(link([SARDINE, TEMP]));
     await type("First year", 2015); await type("Last year", 2019);
-    for (const [name, re, keys] of [["every sample", /Every sample/, ["date", "cruise", "line", "station", "depth_m"]], ["yearly", /Yearly/, ["year", "line", "station"]], ["seasonal", /Seasonal/, ["year", "season", "line", "station"]], ["monthly", /Monthly/, ["year", "month", "line", "station"]]]) {
+    for (const [name, re, keys] of [["every sample", /Every sample/, ["date", "cruise", "line", "station", "net_id"]], ["yearly", /Yearly/, ["year", "line", "station"]], ["seasonal", /Seasonal/, ["year", "season", "line", "station"]], ["monthly", /Monthly/, ["year", "month", "line", "station"]]]) {
       await choose("Rows", re);
       const p = await preview(), c = p.err ? null : await download();
       check(!!c && c.n === p.rows && keys.every((k, i) => c.head[i] === k), `${name}: ${p.rows.toLocaleString()} rows, keys ${c?.head.slice(0, keys.length).join(", ")}${p.err ? ` — ${p.err}` : ""}`);

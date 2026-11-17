@@ -33,6 +33,11 @@ jobs:
           # the feedback endpoint (calcofi4r::cc_feedback_script() deployed as a web app): a repository variable, so
           # setting it needs no code change; empty = the dialog offers the prefilled GitHub issue only
           VITE_FEEDBACK_URL: ${{ vars.VITE_FEEDBACK_URL }}
+          # the Query Builder's own address, once it has one (https://calcofi.io/query/, deployed by CalCOFI/query from this
+          # repo's src/builder). Set, every Explorer link to the Query Builder goes there and builder.html becomes a
+          # redirect to it that carries the link's picks; empty = builder.html is the app, as before. Set it only AFTER
+          # https://calcofi.io/query/ answers with the Query Builder (README § The Query Builder's own address).
+          VITE_QUERY_URL: ${{ vars.VITE_QUERY_URL }}
       - uses: actions/upload-pages-artifact@v3
         with: { path: dist }
   deploy:

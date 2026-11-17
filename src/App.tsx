@@ -19,7 +19,11 @@ import { DepthStrip, YearStrip, SectionPlot, DepthTimePlot, CruiseSeries, Statio
 import { resolveVersion, fetchCatalog, fetchVersions, sources, sidecarUrl, earlySidecar, type Catalog } from "./release";
 import { buildBundle, buildObservationsCsv, countZeroRows, saveBlob, copyAs } from "./bundle";
 import { subsetName } from "./filename";
-import { StatPick, ViewAs, ViewMenu, WhereControl, LineStation, LayerSelect, DownloadBar, DepthPill, WhatPicker } from "./leanpanel";
+import { StatPick, ViewAs, ViewMenu, WhereControl, LineStation, LayerSelect, DownloadBar, DepthPill, WhatPicker, QueryLinkRow, type QueryLink } from "./leanpanel";
+import { QUERY_URL } from "./links";
+import { addVarButton, addVarClose, addVarPress, var2Shows } from "./addvar";
+import { waveOver } from "./brandurl";
+import { queryHref, viewLens, viewPicks } from "./queryurl";
 import { Icon } from "./icons";
 import { cellToLatLng } from "h3-js";
 import { Picker, type PickerItem, type GroupOpt } from "./picker";
@@ -346,6 +350,7 @@ export function App() {
   // a species or a measurement is the first thing anyone does; the map behind already shows the current one
   const [whatOpen, setWhatOpen] = useState<boolean>(() => lean && !phoneQuery.matches);
   const [var2Open, setVar2Open] = useState(false); // the "Add a variable" picker (water measurements only)
+  const var2Back = useRef<Lens | null>(null);      // the view "+ Add a variable" was pressed in, to return to if the picker is closed without a choice (src/addvar.ts)
   useEffect(() => { if (pickerSignal) setWhatOpen(true); }, [pickerSignal]);
   const lensClickAt = useRef<number | null>(null);
   const opened = useRef(false);
@@ -485,9 +490,20 @@ export function App() {
   useEffect(() => {
     // brand v3: the wave strip under the bar belongs to the header, so the height is measured to ITS bottom
     const h = document.querySelector(".cc-header + .cc-wave") ?? document.querySelector(".cc-header"); if (!h) return;
-    const set = () => document.documentElement.style.setProperty("--cc-header-h", `${Math.ceil(h.getBoundingClientRect().bottom)}px`);
-    set(); const ro = new ResizeObserver(set); ro.observe(h); window.addEventListener("resize", set);
-    return () => { ro.disconnect(); window.removeEventListener("resize", set); };
+    // THE WAVE OVER THE MAP (brand v3 .cc-wave-over; Ben, 2026-11-17: "move the map up to fully sit underneath it but not
+    // overcrowd the controls"): the brand's variant takes no room (a negative bottom margin of its own height) and is cut
+    // to the wave, so what follows shows through under its edge. --wave-over is that height AS THE BRAND APPLIED IT, read
+    // from the strip (0 when the brand served has no such variant yet, or on v1 / v2): style.css gives it back to .main,
+    // so every panel, card, button row and the phone's sheet stays exactly where it was, and runs only the map's canvas
+    // up under the wave. --cc-header-h stays the strip's bottom: where a dialog may start.
+    const set = () => {
+      const root = document.documentElement, over = h.classList.contains("cc-wave-over") ? waveOver(getComputedStyle(h).marginBottom) : 0;
+      root.style.setProperty("--cc-header-h", `${Math.ceil(h.getBoundingClientRect().bottom)}px`);
+      root.style.setProperty("--wave-over", `${over}px`);
+      root.classList.toggle("wave-over", over > 0);
+    };
+    set(); const ro = new ResizeObserver(set); ro.observe(h); window.addEventListener("resize", set); window.addEventListener("load", set);
+    return () => { ro.disconnect(); window.removeEventListener("resize", set); window.removeEventListener("load", set); };
   }, []);
 
   // the per-station card's detail is its own sidecar, fetched on the first station selection
@@ -2228,11 +2244,20 @@ export function App() {
         : <>one dataset — click another to add it · <button type="button" className="linkish" onClick={poolAll}>all datasets</button></>}</div>
     </Group>
   </>;
+  // THE WAY TO THE QUERY BUILDER (2026-11-17; the Explorer had no link to it): "this, as a table, with other datasets".
+  // The link carries the view's species or measurement, once per dataset in view, and the lens where the builder has it
+  // (src/queryurl.ts viewPicks, viewLens). It does not carry the years, seasons, depth, area, life stage, units or an added
+  // variable: the builder's links take picks and a shape only (src/builder/picks.ts), and it says so in its title.
+  const queryPicks = viewPicks({ realm: sel.realm, taxon: sel.taxon, variable: sel.var, datasets: sliceKey === wantKey ? viewDatasetKeys : [], listed: sel.realm === "bio" || hasBinObject(catalog, sel.var) });
+  const queryLink: QueryLink = { href: queryHref(QUERY_URL, queryPicks, { lens: viewLens(sel.lens) }),
+    title: queryPicks.length ? `Open the Query Builder with this ${sel.realm === "bio" ? "species" : "measurement"} picked (${queryPicks.length === 1 ? "one column" : `${queryPicks.length} columns, one per dataset in view`}), to add other species and measurements and download one table. Your years, seasons, depth and area are not carried over.`
+      : "Open the Query Builder: any species and measurements from any dataset, in one table" };
   // Share: the data, the code, the citations, the link or the image, a product, feedback, the SQL
   const shareTab = <div className="share-col" data-tour="share">
     <button className="pill act" disabled={!sliceKey || !!bundling} onClick={download} title="README · CITATION · summary (+GeoJSON) · observations (parquet/CSV) · the exact SQL against the release's object URLs · reproduce.R / .py">
       <Icon name="ui-download" />{bundling ? `bundle: ${bundling}` : "Download data (zip)"}</button>
     <div className="hint">README · CITATION · the summary and the observations · the exact SQL · reproduce.R / .py</div>
+    <QueryLinkRow query={queryLink} />
     <Menu label="Copy code" icon="ui-code" title="the SQL this view ran, or R / Python that runs it" items={[
       { label: "SQL", hint: "against the release's object URLs", onSelect: () => copy("sql") },
       { label: "R", hint: "DBI + duckdb; calcofi4r noted", onSelect: () => copy("r") },
@@ -2377,16 +2402,28 @@ export function App() {
   const var2Item = sel.var2 ? whatItems.find((i) => i.key === sel.var2 || i.alt?.includes(sel.var2!)) : undefined;
   const var2Label = var2Item?.label ?? sel.var2 ?? "";
   const var2Unit = var2Item?.sub ?? "";
-  const var2Block = sel.lens !== "hex" ? null : !sel.var2
-    ? <button type="button" className="v2-add" onClick={() => setVar2Open(true)} title="compare with a water measurement, hexagon by hexagon">+ Add a variable</button>
+  // "+ Add a variable" in EVERY view (Ben, 2026-11-17; src/addvar.ts): it was drawn in the Hexagon view only, and the
+  // default view is Stations. Outside Hexagons the button says the comparison is by hexagon and a press switches the map
+  // there before the picker opens; closing the picker without a choice puts the view back. A variable already added stays
+  // through a change of view (its card says where it is shown) — the downloads carry it in the Hexagon view only.
+  const addVar = addVarButton(sel.lens);
+  const openVar2 = () => { const p = addVarPress(sel.lens); var2Back.current = p.back; if (p.set) setSel(p.set); setVar2Open(true); };
+  const closeVar2 = (picked: boolean) => { const b = addVarClose(var2Back.current, picked); var2Back.current = null; setVar2Open(false); if (b) setSel(b); };
+  const var2State = var2Shows(sel.lens, sel.var2);
+  const var2Block = var2State === "add"
+    ? <button type="button" className="v2-add" onClick={openVar2} title={addVar.title} aria-label={addVar.aria} data-to-hex={addVar.toHex ? "" : undefined}>{addVar.text}{addVar.note && <small> {addVar.note}</small>}</button>
     : (() => {
-      return <div className="v2">
+      return <div className="v2" data-v2={var2State}>
         <div className="v2-card"><div className="v2-t"><b>{var2Label}</b>{var2Unit && var2Unit !== var2Label && <small>{var2Unit}</small>}</div>
-          <span className="v2-acts"><button type="button" className="linkish" onClick={() => setVar2Open(true)}>Change</button><button type="button" className="linkish" onClick={() => setSel({ var2: null, color2: false })}>Remove</button></span></div>
-        <div className="v2-how">Matched by hexagon ({RES_KM[sel.res]}), same years, seasons, area and depth ({sel.depth[0]}–{sel.depth[1]} m).</div>
-        {var2Err ? <div className="v2-err">{var2Err}</div>
-          : !var2Ready ? <div className="v2-how">loading {var2Label}…</div>
-          : null}
+          <span className="v2-acts"><button type="button" className="linkish" onClick={openVar2}>Change</button><button type="button" className="linkish" onClick={() => setSel({ var2: null, color2: false })}>Remove</button></span></div>
+        {var2State === "elsewhere"
+          ? <div className="v2-how v2-else">Shown in the Hexagon view: it is compared hexagon by hexagon, and is not in this view's map or downloads. <button type="button" className="linkish" onClick={() => setSel({ lens: "hex" })}>Show</button></div>
+          : <>
+            <div className="v2-how">Matched by hexagon ({RES_KM[sel.res]}), same years, seasons, area and depth ({sel.depth[0]}–{sel.depth[1]} m).</div>
+            {var2Err ? <div className="v2-err">{var2Err}</div>
+              : !var2Ready ? <div className="v2-how">loading {var2Label}…</div>
+              : null}
+          </>}
       </div>;
     })();
   const whatGroup = <Group title="What" icon="ui-data" data-tour="data" className="step">
@@ -2434,7 +2471,7 @@ export function App() {
     {lensOwns && whenNow && held("When", whenNow, sel.lens === "cruise" ? "Still in force: only cruises in it are listed, and the track shows what they sampled." : "Still in force: it narrows the cruises along the line and the samples drawn.", () => setSel({ years: [1949, YEAR_OPEN], months: null, q: null, cruises: null }))}
     {(lensOwns || sel.lens === "region") && areaNow && held("Where", areaNow, sel.lens === "region" ? "Still in force: each region counts only the samples inside this area." : "Still in force: only samples inside this area are drawn.", () => { clearArea(); setAreaLayerPick(null); })}
   </>;
-  const leanBody = var2Open ? <div className="lean-steps"><WhatPicker items={whatItems.filter((i) => !whatIsOrganism.has(i.key) && !(sel.realm === "env" && (i.key === sel.var || !!i.alt?.includes(sel.var))))} isOrganism={() => false} value={sel.var2 ?? ""} onPick={(k) => { setSel({ var2: k, color2: false }); setVar2Open(false); }} onClose={() => setVar2Open(false)} iconOf={(c) => (c === DERIVED_FAMILY ? "ui-line" : categoryIcon(c))} rank={categoryRank} dsShort={(dk) => (short(dk) !== dk ? short(dk) : dsCategory(dk))} dsName={(dk) => { const d = dsRow(dk); return d ? dsLongName(d) : short(dk); }} loading={whatItems.length ? null : plainStatus(status)} /></div> : whatOpen ? <div className="lean-steps"><WhatPicker items={whatItems} isOrganism={(k) => whatIsOrganism.has(k)} value={sel.realm === "bio" ? sel.taxon : sel.var} onPick={pickWhat} onClose={() => setWhatOpen(false)} iconOf={(c) => (c === DERIVED_FAMILY ? "ui-line" : categoryIcon(c))} rank={categoryRank} dsShort={(dk) => (short(dk) !== dk ? short(dk) : dsCategory(dk))} dsName={(dk) => { const d = dsRow(dk); return d ? dsLongName(d) : short(dk); }} loading={whatItems.length ? null : plainStatus(status)} /></div> : <div className="lean-steps">
+  const leanBody = var2Open ? <div className="lean-steps"><WhatPicker items={whatItems.filter((i) => !whatIsOrganism.has(i.key) && !(sel.realm === "env" && (i.key === sel.var || !!i.alt?.includes(sel.var))))} isOrganism={() => false} value={sel.var2 ?? ""} onPick={(k) => { setSel({ var2: k, color2: false }); closeVar2(true); }} onClose={() => closeVar2(false)} iconOf={(c) => (c === DERIVED_FAMILY ? "ui-line" : categoryIcon(c))} rank={categoryRank} dsShort={(dk) => (short(dk) !== dk ? short(dk) : dsCategory(dk))} dsName={(dk) => { const d = dsRow(dk); return d ? dsLongName(d) : short(dk); }} loading={whatItems.length ? null : plainStatus(status)} /></div> : whatOpen ? <div className="lean-steps"><WhatPicker items={whatItems} isOrganism={(k) => whatIsOrganism.has(k)} value={sel.realm === "bio" ? sel.taxon : sel.var} onPick={pickWhat} onClose={() => setWhatOpen(false)} iconOf={(c) => (c === DERIVED_FAMILY ? "ui-line" : categoryIcon(c))} rank={categoryRank} dsShort={(dk) => (short(dk) !== dk ? short(dk) : dsCategory(dk))} dsName={(dk) => { const d = dsRow(dk); return d ? dsLongName(d) : short(dk); }} loading={whatItems.length ? null : plainStatus(status)} /></div> : <div className="lean-steps">
     <div className="lean-what">
       {whatGroup}
       {lensAfter && viewBlock}
@@ -2521,7 +2558,7 @@ export function App() {
             return <>{w}<span style={{ fontWeight: 400 }}>{rest}</span></>; })()
         : countLabel ?? `${fmtN(inView)} ${countWord}`) : isErrStatus(status) ? plainStatus(status) : ""}
       zerosOpt={sel.realm === "bio" && sel.zeros && nFilled > 0 ? { checked: csvZeros, onChange: setCsvZeros } : null} busy={bundling} disabled={!sliceKey || areaPending} onCsv={downloadCsv} onCite={openSources} onLink={() => { copyLink(); trackEvent("share", { kind: "link" }); }}
-      onZip={download} onCopy={(k) => copy(k)}
+      onZip={download} onCopy={(k) => copy(k)} query={queryLink}
       more={{ picture: (how) => shareImage(how), numbers: () => saveFigure("map", "csv")(), numbersLabel: `CSV, one row per ${sel.lens === "hex" ? "hexagon" : sel.lens === "region" ? "region" : sel.lens === "cruise" ? "sample on the track" : sel.lens === "section" ? "section cell" : "station"} as the map draws it`,
         cite: (k) => { copyCite(k); trackEvent("share", { kind: k === "bibtex" ? "bibtex" : "cite" }); }, timingOn: advanced && !minCards.timing,
         timing: () => { if (advanced && !minCards.timing) setAdvanced(false); else { setAdvanced(true); openCard("timing"); } } }} />
@@ -2842,8 +2879,10 @@ export function App() {
           <svg className="cc-theme-icon cc-icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={ICON_MOON} /></svg>
         </button>
       </header>
-      {/* brand v3: the wave, a 15 px strip at the app scale — the same edge every calcofi.io page has under its bar */}
-      {BRAND_HEADER && <div className="cc-wave cc-wave-slim" aria-hidden="true" />}
+      {/* brand v3: the wave, a 15 px strip at the app scale — the same edge every calcofi.io page has under its bar.
+          cc-wave-over: it lies OVER the map (the map runs up under it; no strip of page ground between), and the
+          controls keep clear of it (the --wave-over effect above, and "the wave over the map" in style.css) */}
+      {BRAND_HEADER && <div className="cc-wave cc-wave-slim cc-wave-over" aria-hidden="true" />}
       <div className="main">
         <div className="panel mapwrap" ref={mapBox} data-tour="map">
           {view3dOn

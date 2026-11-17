@@ -2,7 +2,7 @@
 // URLs src/brand.ts hands the header and the capture follow the same two variables
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
-import { BRAND_BASE, brandBase, brandOf, brandUrls, headFor } from "../src/brandurl";
+import { BRAND_BASE, brandBase, brandOf, brandUrls, headFor, waveOver } from "../src/brandurl";
 
 describe("VITE_BRAND", () => {
   it("is v3 unless v1 or v2 is asked for", () => {
@@ -67,5 +67,16 @@ describe("the head block", () => {
   it("v2's block is unchanged by the default base", () => {
     const v2 = fs.readFileSync("brand/v2.head.html", "utf8");
     expect(headFor(v2)).toBe(v2.trim());
+  });
+});
+
+describe("the wave over the map: how far the brand's strip lies over what follows", () => {
+  it("is the strip's own negative bottom margin (brand v3 .cc-wave-over: 15 px in an app, 34 px on a page)", () => {
+    expect(waveOver("-15px")).toBe(15);
+    expect(waveOver("-34px")).toBe(34);
+    expect(waveOver("-14.5px")).toBe(14.5);
+  });
+  it("is 0 when the strip is in the flow: a brand copy without the variant, v1 or v2, or no value", () => {
+    for (const v of ["0px", "", "auto", "12px", null, undefined]) expect(waveOver(v)).toBe(0);
   });
 });

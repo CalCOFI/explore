@@ -39,3 +39,11 @@ export function headFor(html: string, opts: { base?: string | null; scale?: "app
   if (opts.scale === "page") h = h.replace(/^[ \t]*<meta name="cc-scale" content="app">[ \t]*\r?\n/m, "");
   return h;
 }
+
+/** how far the brand's wave lies over what follows it, in px: the strip's own bottom margin when it is negative
+ *  (brand v3 .cc-wave-slim.cc-wave-over: margin-bottom −15px in an app), else 0 — a brand copy without the variant, a
+ *  v1 or v2 build, or a value that is not a length all mean the strip is in the flow and nothing moves */
+export function waveOver(marginBottom: string | null | undefined): number {
+  const v = parseFloat(marginBottom ?? "");
+  return Number.isFinite(v) && v < 0 ? Math.round(-v * 100) / 100 : 0;
+}

@@ -10,6 +10,18 @@ a { color: var(--accent); }
    the button opens are the brand's (<brand>/v3/nav.json, drawn by the brand's header.js). Under the bar, the wave: a
    strip that is a row of its own, so the map still gets exactly what is left of the window. */
 .app.app-wave { grid-template-rows: auto auto 1fr; }
+/* THE WAVE OVER THE MAP (brand v3 .cc-wave-over, 2026-11-17). The brand's strip takes no room and is cut to the wave, so
+   the map shows through under its edge instead of a sliver of page ground. --wave-over is the strip's height as the brand
+   applied it (App.tsx reads it off the strip; 0px without the variant, and then none of this does anything):
+     · .main gets that height back as a top margin, so the map's box — the frame every floating panel, card, button row
+       and the phone's sheet is placed in — is exactly where it was, and nothing of the app sits in the wave's band
+     · only the map's own canvas runs up under the wave: it starts that much above its box, and the box lets it show
+   MapLibre's own corners at the top keep clear of the band too (none is used today; the attribution is at the bottom). */
+.app.app-wave .main { margin-top: var(--wave-over, 0px); }
+:root.wave-over .mapwrap { overflow: visible; }
+:root.wave-over .mapwrap .map { top: calc(-1 * var(--wave-over)); height: calc(100% + var(--wave-over)) !important; }
+:root.wave-over .mapwrap .curtain-scene { top: calc(-1 * var(--wave-over)); }   /* the 3-D view's scene, in the map's place */
+:root.wave-over .mapwrap .map .maplibregl-ctrl-top-left, :root.wave-over .mapwrap .map .maplibregl-ctrl-top-right, :root.wave-over .mapwrap .map .draw-hint { margin-top: var(--wave-over); }
 .cc-header .cc-menu-button.hdr { width: 2rem; height: 2rem; }
 /* (on a .cc-nav-menu bar the open words drop as a panel and the bar never wraps: brand/v3/header.css does that since
    2026-11-17; the stopgap that stood here for it is gone) */
@@ -1777,6 +1789,14 @@ body.driver-active .sum-row:has(.sp-list) { padding-bottom: 116px; }
 
 /* v193: the three small actions under Download — an even, quiet row: icon + label, no underlines, no boxes */
 .dl-tools { display: flex; align-items: center; justify-content: space-between; gap: 4px; padding-top: 2px; }
+/* the way to the Query Builder: one quiet line under the downloads (lean) and under Download data (classic Share tab) */
+.dl-query { display: flex; align-items: center; gap: 6px; margin-top: 4px; padding: 6px 6px; border-top: 1px solid var(--border); font-size: 12.5px; color: color-mix(in srgb, var(--fg) 72%, var(--panel)); text-decoration: none; border-radius: 0 0 5px 5px; }
+.dl-query > .cc-icon { color: var(--accent); flex: none; }
+.dl-query span { min-width: 0; }
+.dl-query b { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; font-weight: 700; color: var(--accent); white-space: nowrap; }
+.dl-query:hover { color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.dl-query:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.share-col .dl-query { border-top: 0; margin-top: 0; padding: 4px 6px; }
 .dl-tool, .dl-tool-menu .menu-btn { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; gap: 5px; padding: 5px 6px; border-radius: 5px; font-size: 12.5px; color: color-mix(in srgb, var(--fg) 72%, var(--panel)); cursor: pointer; white-space: nowrap; }
 .dl-tool .cc-icon, .dl-tool-menu .menu-btn .cc-icon { color: var(--accent); }
 .dl-tool-menu .menu-btn .cc-icon:last-child { font-size: .7rem; opacity: .6; }
@@ -2330,6 +2350,8 @@ body .den.mo-sec .den-shf { margin: 6px 0 0 0; font-size: 12.5px; color: var(--m
 .v2-card .v2-t b { font-size: 16px; font-weight: 600; } .v2-card .v2-t small { font-size: 13px; }
 .v2-acts { display: flex; gap: 12px; } .v2-acts .linkish { font-weight: 600; text-decoration: none; }
 .v2-how { font-size: 12px; }
+/* the button outside the Hexagon view: a quiet parenthetical saying where the comparison is drawn */
+.v2-add small { font-weight: 400; font-size: .92em; color: var(--muted); }
 .v2-plot { padding: 5px 7px; }
 .v2-ph { font-size: 12px; } .v2-ph span { font-weight: 400; color: var(--muted); }
 .v2-ax, .v2-ay { font-size: 11px; }
