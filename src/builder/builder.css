@@ -31,8 +31,7 @@
    here styles it. The band holds the crumb, the h1, the one line and the release. The column is the brand's container
    (1170 px at the reading scale) with the site's 24 px inset, so the lockup, the heading and the cards share an edge
    with every calcofi.io page. */
-.tb-wave { background-color: #172f52; }   /* under the brand's gradient: a real colour for contrast tools and forced colours (see README: asked of the brand) */
-.tb-wave .tb-title { box-sizing: border-box; flex-wrap: wrap; gap: 2px 16px; padding: 12px 24px 2px; color: #fff; }   /* border-box: asked of the brand's .cc-wave-in too */
+.tb-wave .tb-title { box-sizing: border-box; flex-wrap: wrap; gap: 2px 16px; padding: 12px 24px 2px; color: #fff; }   /* border-box, as the brand's .cc-wave-in */
 .tb-wave .tb-title .crumb { flex-basis: 100%; margin: 0; font-size: 13px; color: #c3cfe2; }
 .tb-wave .tb-title .crumb b { color: #fff; font-weight: 600; }
 .tb-wave .tb-title h1 { color: #fff; font-size: 34px; }

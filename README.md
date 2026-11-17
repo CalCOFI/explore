@@ -417,10 +417,10 @@ holds the rules (`tests/brandurl.test.ts`):
   VITE_SITE_URL=/`), so the header it shows is the one under review and the words' links stay on the preview.
 - **v2 and v1 still build.** `VITE_BRAND=v2` is what was live until v3: the Explorer's bar without the menu button
   or the strip, the Query Builder with its own small header. `brand_header` in both check scripts reports and skips.
-- **Asked of the brand, with a stopgap here until it has them** (each marked STOPGAP or "asked of the brand" in
-  `src/style.css` / `src/builder/builder.css`): on a `.cc-nav-menu` bar the open words should be a panel that drops
-  from the bar, not a full-width row of it, and the bar should not wrap; `.cc-wave-in` should be `border-box`;
-  `.cc-wave` should carry a background colour under its gradient.
+- **Three things first worked around here are the brand's own since 2026-11-17** (`brand/v3/header.css`): on a
+  `.cc-nav-menu` bar the open words drop as a panel from the bar's right end and the bar does not wrap;
+  `.cc-wave-in` is `border-box`; `.cc-wave` carries a colour under its gradient. The stopgaps are gone from
+  `src/style.css` and `src/builder/builder.css`.
 
 **Deploy order.** A v3 build loads `calcofi.io/brand/v3/`, so the site has to be live first: a v3 Explorer deployed
 before it would have no `theme.js`. `pages.yml` builds `VITE_BRAND: ${{ vars.VITE_BRAND || 'v2' }}`, so the deploy

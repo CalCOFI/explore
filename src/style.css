@@ -11,17 +11,8 @@ a { color: var(--accent); }
    strip that is a row of its own, so the map still gets exactly what is left of the window. */
 .app.app-wave { grid-template-rows: auto auto 1fr; }
 .cc-header .cc-menu-button.hdr { width: 2rem; height: 2rem; }
-/* STOPGAP for brand/v3/header.css, asked of the brand (README § Brand): on a .cc-nav-menu bar the open words should be a
-   panel that drops from the bar's right end, and the bar should not wrap. As the brand has it (the phone's column: a
-   full-width row of the bar, flex-wrap: wrap) the bar grew by 640 px and pushed the map off a 900 px window, and on a
-   phone the toggle wrapped to a second row. Remove this block when brand/v3 does it. */
-.cc-header.cc-nav-menu { flex-wrap: nowrap; }
-.cc-header.cc-nav-menu.cc-nav-open .cc-links.cc-nav {
-  position: absolute; top: calc(100% + 4px); right: 6px; left: auto; width: min(300px, calc(100vw - 12px)); box-sizing: border-box;
-  flex-basis: auto; order: 0; margin: 0; padding: 6px 10px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
-  box-shadow: 0 2px 6px rgb(0 0 0 / 0.08), 0 18px 44px rgb(10 20 36 / 0.28);
-  max-height: calc(100vh - var(--cc-header-h, 60px) - 12px); max-height: calc(100dvh - var(--cc-header-h, 60px) - 12px);
-}
+/* (on a .cc-nav-menu bar the open words drop as a panel and the bar never wraps: brand/v3/header.css does that since
+   2026-11-17; the stopgap that stood here for it is gone) */
 /* a phone's bar holds one more button now (⭘ Explorer [release] ? ☰ 💬 🌓): 4 px gaps and no caret on Help keep it on
    one row at 375 px; under 375 px the mark alone says whose app it is */
 @media (max-width: 479px) {
