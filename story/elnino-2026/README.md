@@ -11,6 +11,30 @@ cut (email "hot off the press", 2026-11-13):
 | "slowing down the frame rate when the text changes and/or maybe reduce text to just … '1993-2013 baseline' and maybe 'Change from baseline'" | one short line per beat, held at least 4 s; each year since 2014 holds 1.4 s (0.55 s before); the words are "1993–2013 baseline" and "Change from baseline" |
 | "a headline at the top saying something like 'Fall ocean temperatures at 0-50m'" | that headline, on every frame of the maps; "… at 0–200 m" once the section comes up |
 
+### The 28 s cut (`?cut=short`, 2026-11-18)
+
+Rasmus's notes on this minute (same thread, 2026-11-17) make a second cut of the same page, beside it rather than in
+place of it: `?cut=short` in the browser, `CUT=short` for `render.sh`. Without the parameter the page is the minute,
+frame for frame.
+
+| his note | what the short cut does |
+|---|---|
+| "20-30 seconds is probably the maximum it should be" | 28 s |
+| "only draw the lawnmower pattern in the beginning, without the redrawing of the crisscrossing between stations" | 1993 is sailed station by station (3.5 s); the other 22 baseline cruises draw no tracks, and 2014 goes straight from the baseline map to its change from it, with no track and no temperature map; the coarse grid is dropped too |
+| "move quicker through the years, only pausing a bit longer in 2015 - last big el nino, and 2026" | each year 0.55 s; 2015 holds 2.2 s, 2026 2.5 s before the section. The pause years are read from the data: the previous high (`facts.json` `fp_prev_cruise`) and the last cruise |
+| "only write out the average anomalies in those years at the bottom" | the value over the bar ("+2.7 °C · +4.8 °F", "+4.5 °C · +8.0 °F") shows on 2015 and 2026 only; every year keeps its bar |
+
+| t (s) | beat |
+|---|---|
+| 0 – 4.4 | 1993 sailed; "Each fall, a ship samples the same stations" |
+| 4.4 – 7.8 | the 1993 colours give way to the baseline at each station, then the baseline map; "1993–2013 baseline" |
+| 7.8 – 9.4 | 2014 as its change from the baseline; the baseline years' bars and 2014's come up |
+| 9.4 – 19.6 | 2015 (2.2 s), 2016–2025 (0.55 s each), 2026 (2.5 s) |
+| 19.6 – 28 | the section, as in the minute: the tilt, the tag, at 23.6 s the record |
+
+It writes `out/calcofi_elnino_2026_short.mp4` (and `_short_F`, `_short_CF`), their posters and `out/frames_short*/`;
+the minute's files are never touched.
+
 The earlier cut, 1920 × 1080 and 30 s against the November normal at the surface, is the page at commit `ec730cc`
 (rendered from releases v2026.11.09 and v2026.11.12; <https://www.youtube.com/watch?v=5ReTP7iafkc>). It is linked
 under the summary of <https://calcofi.io/workflows/2026-11_temperature-anomaly.html>.
@@ -146,7 +170,9 @@ story/elnino-2026/render.sh try_v3 --from 47 --to 60     # a rough cut of part o
 - `out/frames/`: a frame per beat pulled from the MP4 (two for beats 6 and 7), five of them also at 390 px wide.
 
 `UNITS=F story/elnino-2026/render.sh` and `UNITS=CF …` write the other two cuts beside it, suffixed `_F` and `_CF`
-(`calcofi_elnino_2026_square_F.mp4`, `…_F_poster.png`, `out/frames_F/`).
+(`calcofi_elnino_2026_square_F.mp4`, `…_F_poster.png`, `out/frames_F/`). `CUT=short` renders the 28 s cut instead, to its own files
+(`CUT=short UNITS=CF story/elnino-2026/render.sh` → `calcofi_elnino_2026_short_CF.mp4`, `…_short_CF_poster.png`,
+`out/frames_short_CF/`), about 2 minutes each.
 
 The same, step by step:
 

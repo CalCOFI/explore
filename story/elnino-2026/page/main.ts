@@ -16,6 +16,11 @@
 //   · more years: a longer clip, or a summary of the track   → one cruise is sailed; the other 22 baseline cruises draw at once
 //   · slower when the text changes; less text                → 60 s; each line holds ≥ 4 s; "1993–2013 baseline", "Change from baseline"
 //   · a headline at the top                                  → "Fall ocean temperatures at 0–50 m"
+// and his notes on that minute (2026-11-17), which make a second cut, `?cut=short` (28 s), beside it:
+//   · 20–30 s at most                                        → 28 s
+//   · only the first cruise's lawnmower, no redrawn tracks   → 1993 is sailed; the other baseline cruises and 2014 draw no track
+//   · quicker through the years, pausing on 2015 and 2026    → 0.55 s a year; 2015 (the previous high) 2.2 s, 2026 2.5 s
+//   · the average change written out only in those years     → the value over the bar shows on 2015 and 2026 only
 import { Deck, MapView, COORDINATE_SYSTEM, WebMercatorViewport, SimpleMeshLayer, ScatterplotLayer, PathLayer, TextLayer, BitmapLayer, GeoJsonLayer } from "deck.gl";
 import { rampColors, rampCss } from "../../../src/ramps";
 import { computeSurface, landMask, isolines, joinSegments, labelPoints, thinLabels, surfaceImage, cellToLonLat, type SurfaceGrid } from "../../../src/contour";
@@ -51,13 +56,30 @@ const first = cruises.find((c) => c.role === "first")!, series = cruises.filter(
 const last = series[series.length - 1];
 
 // ── the frame, the clock, the beats ──────────────────────────────────────────────────────────────────────────────
-const W = 1080, H = 1080, DURATION = 60, FPS = 30;
+// two cuts of one film (`?cut=`): "long" (the default), the minute; "short", 28 s after Rasmus's notes of 2026-11-17.
+// Beat 4 (the next year's own track and temperature map) has no length in the short cut, and beat 2 draws no tracks.
+const CUT: "long" | "short" = new URLSearchParams(location.search).get("cut") === "short" ? "short" : "long";
+const SHORT = CUT === "short";
+const W = 1080, H = 1080, FPS = 30;
 //    1 one cruise · 2 all of them · 3 the baseline mapped · 4 the next year · 5 its change · 6 each fall since · 7 below
-const B1 = 0, B2 = 7.0, B3 = 12.0, B4 = 17.0, B5 = 23.0, B6 = 27.5, B7 = 47.5;
-const B6_STEP = 1.4;                                   // each fall since holds 1.4 s; the last then holds to B7
-const beat6Start = (i: number) => B6 + i * B6_STEP;
-const beat6 = (t: number) => Math.min(series.length - 1, Math.max(0, Math.floor((t - B6) / B6_STEP)));
-const TRACK_STAGGER = 0.12, TRACK_DRAW = 0.6;          // beat 2: each further baseline cruise's track, one after another
+const { B1, B2, B3, B4, B5, B6, B7, DURATION } = SHORT
+  ? { B1: 0, B2: 4.4, B3: 5.4, B4: 7.8, B5: 7.8, B6: 9.4, B7: 19.6, DURATION: 28 }
+  : { B1: 0, B2: 7.0, B3: 12.0, B4: 17.0, B5: 23.0, B6: 27.5, B7: 47.5, DURATION: 60 };
+/** the years that pause in the short cut, and carry their value over their bar: the previous high (facts.json) and the last */
+const PAUSE = new Set([facts.fp_prev_cruise, last.cruise_key]);
+/** beat 6: how long each fall since holds (the last then holds to B7). Long: 1.4 s each. Short: 0.55 s, the previous high 2.2 s */
+const HOLD = series.map((c) => (!SHORT ? 1.4 : c.cruise_key === facts.fp_prev_cruise ? 2.2 : 0.55));
+const START = HOLD.map((_, i) => B6 + HOLD.slice(0, i).reduce((a, h) => a + h, 0));
+// the long cut keeps its own arithmetic (B6 + i × 1.4), so its frames stay exactly those rendered before the short cut
+const beat6Start = (i: number) => (SHORT ? START[i] : B6 + i * 1.4);
+const beat6 = (t: number) => {
+  if (!SHORT) return Math.min(series.length - 1, Math.max(0, Math.floor((t - B6) / 1.4)));
+  let i = 0; while (i < series.length - 1 && t >= START[i + 1]) i++; return i;
+};
+const FADE6 = SHORT ? 0.22 : 0.3;                      // beat 6: one year's map giving way to the next
+const SAIL: [number, number] = SHORT ? [0.3, 3.8] : [0.6, 5.6];   // beat 1: the ship's passage through the stations
+const X5: [number, number] = SHORT ? [0.2, 1.0] : [0.4, 1.4];     // beat 5: temperature giving way to the change
+const TRACK_STAGGER = 0.12, TRACK_DRAW = 0.6;          // beat 2 (long): each further baseline cruise's track, one after another
 const HERO_AT = 4.0;                                   // beat 7: the year gives way to the record, this long after B7
 
 /** the two scales of the whole film: never rescaled, so a redder frame is a warmer ocean */
@@ -295,7 +317,7 @@ interface Shown { key: string; opacity: number; coarse?: number; lines?: number;
 interface Track { path: [number, number][]; opacity: number; width: number }
 /** beat 2: when the k-th further baseline cruise (k = 0 … 21) starts drawing its track */
 const trackStart = (k: number) => B2 + 0.3 + k * TRACK_STAGGER;
-const TRACKS_DONE = trackStart(baseline.length - 2) + TRACK_DRAW;
+const TRACKS_DONE = SHORT ? B2 : trackStart(baseline.length - 2) + TRACK_DRAW;   // short: no further tracks, the baseline comes at once
 
 function layersAt(t: number) {
   const L: any[] = [];
@@ -341,13 +363,13 @@ function layersAt(t: number) {
 
   // ── which surface, which dots, which tracks: the beats ──
   if (t < B2) {                                                        // 1 · one fall cruise, sailed station by station
-    const st = stationsOf(base0), tr = trackTo(st, ramp(t, 0.6, 5.6));
-    tracks.push({ path: tr.path, opacity: 1, width: 3 }); if (t < 5.7) ship = tr.path[tr.path.length - 1];
+    const st = stationsOf(base0), tr = trackTo(st, ramp(t, SAIL[0], SAIL[1]));
+    tracks.push({ path: tr.path, opacity: 1, width: 3 }); if (t < SAIL[1] + 0.1) ship = tr.path[tr.path.length - 1];
     st.forEach((s, i) => { if (s.temp == null) return; const a = ramp(tr.reached, i - 0.4, i + 0.1); if (a > 0) dots.push({ lon: s.lon, lat: s.lat, r: R_BIG * (0.6 + 0.4 * a), fill: rgba(tempColor(s.temp), a), line: rgba(NAVY, 0.9 * a) }); });
   } else if (t < B3) {                                                 // 2 · every other fall cruise of the baseline, at once: the full track
     const u = t - B2;
     tracks.push({ path: full(base0), opacity: lerp(1, 0.42, ramp(u, 0, 0.6)), width: 2.2 });
-    baseline.slice(1).forEach((c, k) => {
+    if (!SHORT) baseline.slice(1).forEach((c, k) => {
       const s0 = trackStart(k), p = ramp(t, s0, s0 + TRACK_DRAW); if (p <= 0) return;
       tracks.push({ path: trackTo(stationsOf(c), p).path, opacity: lerp(0.95, 0.42, ramp(t, s0 + TRACK_DRAW, s0 + TRACK_DRAW + 0.5)), width: 2.2 });
     });
@@ -356,10 +378,11 @@ function layersAt(t: number) {
     if (x < 1) for (const s of stationsOf(base0)) if (s.temp != null) dots.push({ lon: s.lon, lat: s.lat, r: R_BIG, fill: rgba(tempColor(s.temp), 1 - x), line: rgba(NAVY, 0.9 * (1 - x)) });
     if (x > 0) normalDots(R_BIG, x);
   } else if (t < B4) {                                                 // 3 · the baseline, interpolated to the regular grid
-    const u = t - B3, fine = ease(ramp(u, 1.6, 2.3));
-    if (u < 0.7) for (const c of baseline) tracks.push({ path: full(c), opacity: 0.42 * (1 - ramp(u, 0, 0.6)), width: 2.2 });
-    shown.push({ key: "normal", opacity: fine, coarse: ease(ramp(u, 0.3, 1.1)) * (1 - fine), lines: ramp(u, 2.0, 2.6) });
-    normalDots(lerp(R_BIG, R_SMALL, ease(ramp(u, 0.3, 1.2))), 1);
+    const u = t - B3, fine = SHORT ? ease(ramp(u, 0, 0.6)) : ease(ramp(u, 1.6, 2.3));
+    if (u < 0.7) for (const c of SHORT ? [base0] : baseline) tracks.push({ path: full(c), opacity: 0.42 * (1 - ramp(u, 0, 0.6)), width: 2.2 });
+    // short: straight to the map, without the coarse grid
+    shown.push({ key: "normal", opacity: fine, coarse: SHORT ? 0 : ease(ramp(u, 0.3, 1.1)) * (1 - fine), lines: SHORT ? ramp(u, 0.4, 1.0) : ramp(u, 2.0, 2.6) });
+    normalDots(lerp(R_BIG, R_SMALL, SHORT ? ease(ramp(u, 0.2, 0.8)) : ease(ramp(u, 0.3, 1.2))), 1);
   } else if (t < B5) {                                                 // 4 · the next year: its track, its samples, its map
     const u = t - B4, out = 1 - ramp(u, 0, 0.45), st = stationsOf(first);
     if (out > 0) { shown.push({ key: "normal", opacity: out, lines: out }); normalDots(R_SMALL, out); }
@@ -369,15 +392,21 @@ function layersAt(t: number) {
     const r = lerp(R_BIG, R_SMALL, ease(ramp(u, 3.0, 3.8)));
     st.forEach((s, i) => { if (s.temp == null) return; const a = u < 0.5 ? 0 : ramp(tr.reached, i - 0.4, i + 0.1); if (a > 0) dots.push({ lon: s.lon, lat: s.lat, r: r * (0.6 + 0.4 * a), fill: rgba(tempColor(s.temp), a), line: rgba(NAVY, 0.9 * a) }); });
   } else if (t < B6) {                                                 // 5 · that year as its change from the baseline
-    const u = t - B5, x = ease(ramp(u, 0.4, 1.4));
-    shown.push({ key: "first-temp", opacity: 1 - x, lines: 1 - x }, { key: "first-anom", opacity: x, lines: x });
-    for (const s of stationsOf(first)) {
-      if (s.temp == null) continue;
-      if (s.anom == null) { dots.push({ lon: s.lon, lat: s.lat, r: R_SMALL, fill: rgba(tempColor(s.temp), 1 - x), line: x < 0.5 ? rgba(NAVY, 0.9) : rgba(MUTED, 0.9) }); continue; }
-      dots.push({ lon: s.lon, lat: s.lat, r: R_SMALL, fill: rgba(mix(tempColor(s.temp), anomColor(s.anom), x), 1), line: rgba(NAVY, 0.9) });
+    const u = t - B5, x = ease(ramp(u, X5[0], X5[1]));
+    if (SHORT) {   // straight from the baseline's map to 2014's change from it: 2014's temperatures are never shown
+      shown.push({ key: "normal", opacity: 1 - x, lines: 1 - x }, { key: "first-anom", opacity: x, lines: x });
+      if (x < 1) normalDots(R_SMALL, 1 - x);
+      for (const s of stationsOf(first)) if (s.temp != null) dots.push({ lon: s.lon, lat: s.lat, r: R_SMALL, ...(s.anom == null ? noValue(x) : { fill: rgba(anomColor(s.anom), x), line: rgba(NAVY, 0.9 * x) }) });
+    } else {
+      shown.push({ key: "first-temp", opacity: 1 - x, lines: 1 - x }, { key: "first-anom", opacity: x, lines: x });
+      for (const s of stationsOf(first)) {
+        if (s.temp == null) continue;
+        if (s.anom == null) { dots.push({ lon: s.lon, lat: s.lat, r: R_SMALL, fill: rgba(tempColor(s.temp), 1 - x), line: x < 0.5 ? rgba(NAVY, 0.9) : rgba(MUTED, 0.9) }); continue; }
+        dots.push({ lon: s.lon, lat: s.lat, r: R_SMALL, fill: rgba(mix(tempColor(s.temp), anomColor(s.anom), x), 1), line: rgba(NAVY, 0.9) });
+      }
     }
   } else {                                                             // 6 · each fall since; 7 · the last one, under the surface
-    const i = beat6(t), x = ramp(t - beat6Start(i), 0, 0.3);
+    const i = beat6(t), x = ramp(t - beat6Start(i), 0, FADE6);
     const cur = series[i], prev = i ? `anom-${series[i - 1].cruise_key}` : "first-anom";
     if (x < 1) shown.push({ key: prev, opacity: 1 - x, lines: 1 - x });
     shown.push(in7 ? { key: `anom-${cur.cruise_key}`, opacity: 1, lines: flat, split: 1 - flat } : { key: `anom-${cur.cruise_key}`, opacity: x, lines: x });
@@ -482,25 +511,25 @@ function stripSvg(t: number): string {
   if (t >= B6) cur = series[beat6(t)];
   const bars: { c: Cruise; grow: number }[] = [];
   if (t >= B5) {
-    const g = ease(ramp(t - B5, 1.0, 1.8));
+    const g = SHORT ? ease(ramp(t - B5, 0.3, 1.0)) : ease(ramp(t - B5, 1.0, 1.8));
     for (const c of cruises) if (c.primary && c.mean_fp != null && (c.role === "baseline" || c === first)) bars.push({ c, grow: g });
   }
-  if (t >= B6) { const i = beat6(t); series.slice(0, i + 1).forEach((c, k) => { if (c.mean_fp != null) bars.push({ c, grow: ease(ramp(t - beat6Start(k), 0, 0.3)) }); }); }
+  if (t >= B6) { const i = beat6(t); series.slice(0, i + 1).forEach((c, k) => { if (c.mean_fp != null) bars.push({ c, grow: ease(ramp(t - beat6Start(k), 0, FADE6)) }); }); }
   for (const { c, grow } of bars) {
     const x = stripX.get(c.cruise_key)!, h = c.mean_fp! * BAR * grow, on = c === cur;
     s.push(`<rect x="${x - BAR_W / 2}" y="${h >= 0 ? SY - h : SY}" width="${BAR_W}" height="${Math.max(2, Math.abs(h))}" fill="${css(anomColor(c.mean_fp!))}" stroke="${on ? "#ffcd00" : "rgba(233,237,243,0.8)"}" stroke-width="${on ? 3.5 : 1.2}"/>`);
   }
-  if (t >= B5) s.push(`<text x="${BASE_X0 + 6}" y="${SY - 104}" font-size="24" opacity="${ramp(t - B5, 1.0, 1.8)}">bars: the change, at 2026's stations</text>`);
+  if (t >= B5) s.push(`<text x="${BASE_X0 + 6}" y="${SY - 104}" font-size="24" opacity="${SHORT ? ramp(t - B5, 0.3, 1.0) : ramp(t - B5, 1.0, 1.8)}">bars: the change, at 2026's stations</text>`);
   for (const c of FALL) {
     const x = stripX.get(c.cruise_key)!, on = c.cruise_key === cur?.cruise_key;
     const k = baseline.findIndex((b) => b.cruise_key === c.cruise_key);
-    const lit = k >= 0 && (t >= B3 && t < B4 || (t >= B2 && t < B3 && (k === 0 || t >= trackStart(k - 1))));
+    const lit = k >= 0 && (SHORT ? t >= B2 && t < B4 : t >= B3 && t < B4 || (t >= B2 && t < B3 && (k === 0 || t >= trackStart(k - 1))));
     s.push(`<circle cx="${x}" cy="${SY}" r="${on ? 11 : 6}" fill="${on ? "#ffcd00" : lit ? "#ffffff" : "rgba(233,237,243,0.75)"}" stroke="#0f1a2e" stroke-width="2"/>`);
     if (on) s.push(`<path d="M${x - 13} ${SY + 30} L${x + 13} ${SY + 30} L${x} ${SY + 14} Z" fill="#ffcd00"/>`);
   }
-  // the value over the bar on screen
+  // the value over the bar on screen (short: only on the years that pause)
   const cb = cur && bars.find((b) => b.c === cur);
-  if (cb && cb.grow > 0.5) {
+  if (cb && cb.grow > 0.5 && (!SHORT || PAUSE.has(cur!.cruise_key))) {
     const text = change(cur!.mean_fp!), wide = WITH_F, bx = stripX.get(cur!.cruise_key)!, h = cur!.mean_fp! * BAR * cb.grow;
     // the two-unit label is wide: near the right edge it ends there rather than centring on its bar
     const half = wide ? 140 : 70, atEnd = bx + half > SX1 + 40, x = atEnd ? SX1 + 40 : Math.max(bx, SX0 + half - 30);
@@ -543,7 +572,7 @@ function hudAt(t: number, cam: Cam) {
   $("head-a").textContent = HEAD_MAP; $("head-b").textContent = HEAD_SECTION;
   $("head-a").style.opacity = String(1 - hx); $("head-b").style.opacity = String(hx);
   $("pill").style.opacity = w.pill ? "1" : "0";
-  const anomLegend = t < B5 ? 0 : ease(ramp(t - B5, 0.4, 1.4));
+  const anomLegend = t < B5 ? 0 : ease(ramp(t - B5, X5[0], X5[1]));
   $("legend-temp").style.opacity = String(1 - anomLegend); $("legend-anom").style.opacity = String(anomLegend);
   $("strip").innerHTML = stripSvg(t);
   // beat 7: the tag on the warm layer; the ring on the record's own cell, in the colour of the record's number above
@@ -583,7 +612,7 @@ function selfCheck() {
   }
   const box = [x0, y0, x1, y1].map(Math.round), inFrame = x0 >= 16 && x1 <= W - 16 && y0 >= 236 && y1 <= 812;
   const recordDrawn = section.some((c) => c.station === facts.max_anom_station && c.depth_bin === facts.max_anom_bin && c.anom != null && Math.abs(c.anom - facts.max_anom) < 0.051);
-  return { units: UNITS, sectionBox: box, sectionInFrame: inFrame && recordDrawn, recordDrawn, hero: HERO, heroText: HERO_TEXT, tag: TAG,
+  return { cut: CUT, duration: DURATION, units: UNITS, sectionBox: box, sectionInFrame: inFrame && recordDrawn, recordDrawn, hero: HERO, heroText: HERO_TEXT, tag: TAG,
     cruises: { baseline: baseline.length, series: series.map((c) => c.year) } };
 }
 
@@ -612,7 +641,7 @@ async function boot() {
 }
 
 const story: any = ((window as any).__story = {
-  duration: DURATION, fps: FPS, width: W, height: H, units: UNITS, beats: { B1, B2, B3, B4, B5, B6, B7 },
+  duration: DURATION, fps: FPS, width: W, height: H, units: UNITS, cut: CUT, beats: { B1, B2, B3, B4, B5, B6, B7 },
   ready: null as Promise<void> | null,
   /** set the clock and resolve once that frame is on screen (capture.mjs steps this) */
   setT: async (t: number) => { setFrame(t); await settle(); },
