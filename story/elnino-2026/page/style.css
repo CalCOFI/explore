@@ -52,9 +52,12 @@ html, body { margin: 0; height: 100%; background: #060b14; overflow: hidden; }
 .cut-35s #partners { display: block; position: absolute; left: 80px; top: 290px; width: 920px; box-sizing: border-box; padding: 34px 30px 30px;
   border-radius: 22px; background: var(--bg, #0f1a2e); box-shadow: 0 0 0 2px rgba(233, 237, 243, 0.28); text-align: center; }
 #partners .calcofi { height: 92px; display: block; margin: 0 auto; }
-#partners .seals { display: flex; justify-content: center; gap: 40px; margin-top: 34px; }
+#partners .seals { display: flex; justify-content: center; align-items: center; gap: 40px; margin-top: 34px; }
 #partners figure { margin: 0; width: 400px; display: flex; flex-direction: column; align-items: center; }
 #partners figure img { width: 156px; height: 156px; object-fit: contain; background: #fff; border-radius: 50%; padding: 6px; box-sizing: border-box; }
+/* Scripps: the UC San Diego Scripps Institution of Oceanography lockup itself (vertical, full-color globe with the
+   logotype reversed to white, as the brand guidelines ask over a dark ground), no seal and no caption: it carries its name */
+#partners figure.sio img { width: 380px; height: auto; background: none; border-radius: 0; padding: 0; }
 #partners figcaption { margin-top: 16px; font-size: 30px; line-height: 1.18; font-weight: 600; }
 
 /* the legends: one fixed scale each, for the whole film; in the open ocean north-west of the pattern, on a backdrop of

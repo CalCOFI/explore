@@ -45,7 +45,7 @@ unchanged: their frames, captured before and after this change at 11 times, matc
 | the note | what the 35 s cut does |
 |---|---|
 | "Can we get away with 35 seconds. Same content with slower pace? Especially from Blob to present?"; "it moved realllly fast since there are numbers / data on top of it" | 35 s. 2014 holds 2.2 s (1.6), 2015 2.8 s (2.2), 2016 1.4 s (0.55), each later year 0.85 s (0.55), 2026 2.75 s (2.5); a year's map fades in 0.3 s (0.22); the section 8.5 s, the record held 4.5 s |
-| "putting SWFSC and SIO-UCSD in there, maybe flashing the logos on the first page of the video" | the first 2 s are a card over the still empty map: the CalCOFI lockup, the Scripps Institution of Oceanography (UC San Diego) and NOAA seals, and their names (NOAA Fisheries, Southwest Fisheries Science Center); it leaves as the ship sets out |
+| "putting SWFSC and SIO-UCSD in there, maybe flashing the logos on the first page of the video" | the first 2 s are a card over the still empty map: the CalCOFI lockup, the UC San Diego Scripps Institution of Oceanography lockup, and the NOAA seal with its names (NOAA Fisheries, Southwest Fisheries Science Center); it leaves as the ship sets out |
 | "UCSD, SIO needs to be acknowledged on all. NOAA too" | the credit on every frame: "CalCOFI · Scripps Institution of Oceanography, UC San Diego · NOAA Fisheries · calcofi.io · v2026.11.12" |
 | "say the 2014-2016 period was the Blob plus El Nino"; "briefly show the Blob + El Nino in big text on 15-16" | a second line beside the year, in the display face, "THE BLOB + EL NIÑO", on 2014, 2015 and 2016; and a bracket "Blob + El Niño" over those three bars on the strip, which stays to the last frame, so 2026's bar is read against them |
 | "emphasize that this is El Nino plus MHW driven" | the same line on 2026: "EL NIÑO + MARINE HEATWAVE" (the posts' wording: NOAA reports a strong El Niño on top of a marine heatwave) |
@@ -80,8 +80,11 @@ for the wider view. It writes `out/calcofi_elnino_2026_35s_wide.mp4` (and `_35s_
 posters and `out/frames_35s_wide*/` (no phone-width frames).
 
 It writes `out/calcofi_elnino_2026_35s.mp4` (and `_35s_F`, `_35s_CF`), their posters and `out/frames_35s*/`. The
-logos are copied into `page/logos/` from calcofi.io (`brand/v2/logo_calcofi_h.svg`, `images/partners/sio.png`,
-`images/partners/noaa.png`, 160 px, shown at 156 px).
+logos are copied into `page/logos/`: from calcofi.io `brand/v2/logo_calcofi_h.svg` and `images/partners/noaa.png` (160 px,
+shown at 156 px); and Scripps's own lockup, `ucsd-sio_vertical_white.png` (the vertical lockup, full-color globe with the
+logotype reversed to white, as the [Scripps brand guidelines](https://scripps.ucsd.edu/portal/employee-resources/scripps-oceanography-brand-guidelines)
+ask over a dark ground; rendered from `UCSD-SIO_Vertical-White_RGB.pdf` of the Scripps logo kit, cropped to the artwork,
+1200 px wide, shown at 380 px, with no caption since it carries its name).
 
 **When a release carries all 53 casts of cruise 2611** (the 18 Nov file adds 17 casts on lines 80 and 83.3, 7–10 Nov;
 its 36 earlier casts are identical in `TempAve`): rebuild the analysis database from it (`analysis/fetch_release.py`,
