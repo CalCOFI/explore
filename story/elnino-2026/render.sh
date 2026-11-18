@@ -10,6 +10,8 @@
 #   CUT=short …                                      the 28 s cut (main.ts `?cut=short`): …_short.mp4, …_short_poster.png,
 #                                                    out/frames_short/ (with UNITS: …_short_F*, …_short_CF*); the minute's
 #                                                    files are never touched
+#   CUT=35s …                                        the 35 s cut (main.ts `?cut=35s`): …_35s.mp4, …_35s_poster.png,
+#                                                    out/frames_35s/ (with UNITS: …_35s_F*, …_35s_CF*)
 # Rebuilds page/data/*.json, type-checks and builds the page, serves the build on its own port for the length of the
 # capture (capture.mjs stops if the page's own check fails), encodes, probes.
 set -euo pipefail
@@ -17,11 +19,11 @@ HERE=${0:A:h}; REPO=${HERE:h:h}
 JOB=${JOB:-$HOME/_big/calcofi/story_elnino_2026-11}; PORT=${PORT:-5182}
 UNITS=${UNITS:-C}; [[ $UNITS == (C|F|CF) ]] || { print -u2 "UNITS must be C, F or CF"; exit 2 }
 SFX=${${UNITS:#C}:+_$UNITS}                 # "" for the °C cut, _F or _CF for the others
-CUT=${CUT:-long}; [[ $CUT == (long|short) ]] || { print -u2 "CUT must be long or short"; exit 2 }
-STEM=calcofi_elnino_2026_square; if [[ $CUT == short ]]; then STEM=calcofi_elnino_2026_short; SFX=_short$SFX; fi
+CUT=${CUT:-long}; [[ $CUT == (long|short|35s) ]] || { print -u2 "CUT must be long, short or 35s"; exit 2 }
+STEM=calcofi_elnino_2026_square; if [[ $CUT != long ]]; then STEM=calcofi_elnino_2026_$CUT; SFX=_$CUT$SFX; fi
 cd $REPO
 if (( $# )); then NAME=$1$SFX; shift; MP4=$JOB/out/rough/$NAME.mp4; EXTRA=("$@")
-else NAME=final$SFX; MP4=$JOB/out/$STEM${SFX#_short}.mp4; EXTRA=(--poster $JOB/out/$STEM${SFX#_short}_poster.png); fi
+else NAME=final$SFX; MP4=$JOB/out/$STEM${SFX#_$CUT}.mp4; EXTRA=(--poster $JOB/out/$STEM${SFX#_$CUT}_poster.png); fi
 EXTRA+=(--query "units=$UNITS&cut=$CUT")
 
 $HERE/build_data.sh $JOB > /dev/null
@@ -36,7 +38,10 @@ ffprobe -v error -show_entries stream=codec_name,profile,pix_fmt,width,height,r_
 
 if [[ $NAME == final$SFX ]]; then   # a frame per beat (two for beats 6 and 7), from the MP4 itself; five of them at phone width
   F=$JOB/out/frames$SFX;rm -rf $F; mkdir -p $F
-  if [[ $CUT == short ]]; then
+  if [[ $CUT == 35s ]]; then
+    SPECS=(b0_partners:1.0 b1_cruise:4.6 b2_baseline:6.8 b3_baseline_map:9.2 b5_change:11.5 b6a_2015:14.0 b6b_2026:25.8 b7a_tilt:28.6 b7b_section:34.9)
+    PHONE=(b0_partners_t1.0 b5_change_t11.5 b6a_2015_t14.0 b6b_2026_t25.8 b7b_section_t34.9)
+  elif [[ $CUT == short ]]; then
     SPECS=(b1_cruise:2.5 b2_baseline:5.2 b3_baseline_map:7.4 b5_change:9.0 b6a_2015:10.8 b6b_2026:19.0 b7a_tilt:21.5 b7b_section:27.9)
     PHONE=(b1_cruise_t2.5 b3_baseline_map_t7.4 b6a_2015_t10.8 b6b_2026_t19.0 b7b_section_t27.9)
   else

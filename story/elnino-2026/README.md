@@ -35,6 +35,46 @@ frame for frame.
 It writes `out/calcofi_elnino_2026_short.mp4` (and `_short_F`, `_short_CF`), their posters and `out/frames_short*/`;
 the minute's files are never touched.
 
+### The 35 s cut (`?cut=35s`, 2026-11-18)
+
+The notes on the 28 s cut (same thread, 2026-11-18: Mark Gold; Rasmus Swalethorp; Lauren Fimbres Wood and Hallie
+Jacobs of Scripps communications) make a third cut, again beside the other two: `?cut=35s`, `CUT=35s` for `render.sh`.
+It is the short cut's structure, slower, with the partners and the warm events named. The minute and the 28 s cut are
+unchanged: their frames, captured before and after this change at 11 times, match to 2 pixels.
+
+| the note | what the 35 s cut does |
+|---|---|
+| "Can we get away with 35 seconds. Same content with slower pace? Especially from Blob to present?"; "it moved realllly fast since there are numbers / data on top of it" | 35 s. 2014 holds 2.2 s (1.6), 2015 2.8 s (2.2), 2016 1.4 s (0.55), each later year 0.85 s (0.55), 2026 2.75 s (2.5); a year's map fades in 0.3 s (0.22); the section 8.5 s, the record held 4.5 s |
+| "putting SWFSC and SIO-UCSD in there, maybe flashing the logos on the first page of the video" | the first 2 s are a card over the still empty map: the CalCOFI lockup, the Scripps Institution of Oceanography (UC San Diego) and NOAA seals, and their names (NOAA Fisheries, Southwest Fisheries Science Center); it leaves as the ship sets out |
+| "UCSD, SIO needs to be acknowledged on all. NOAA too" | the credit on every frame: "CalCOFI · Scripps Institution of Oceanography, UC San Diego · NOAA Fisheries · calcofi.io · v2026.11.12" |
+| "say the 2014-2016 period was the Blob plus El Nino"; "briefly show the Blob + El Nino in big text on 15-16" | a second line beside the year, in the display face, "THE BLOB + EL NIÑO", on 2014, 2015 and 2016; and a bracket "Blob + El Niño" over those three bars on the strip, which stays to the last frame, so 2026's bar is read against them |
+| "emphasize that this is El Nino plus MHW driven" | the same line on 2026: "EL NIÑO + MARINE HEATWAVE" (the posts' wording: NOAA reports a strong El Niño on top of a marine heatwave) |
+
+The event names are editorial labels typed in `page/main.ts` (`BLOB_YEARS`, `BLOB`, `NOW_EVENT`), not data. The
+year that pauses as the previous high is read from `cruises.json`: the warmest fall since 2014 before the last (2015).
+It is not `facts.json` `fp_prev_cruise`, which ranks every season, so a later release could name a cruise this beat
+never plays (with all 53 casts of cruise 2611 that is likely: fall 1997 comes out a little above fall 2015 over the
+larger footprint).
+
+| t (s) | beat |
+|---|---|
+| 0 – 2.3 | the partners' card; the headline and the strip already up; the year row and the legend come as it leaves |
+| 2.1 – 6.1 | 1993 sailed; "Each fall, a ship samples the same stations" |
+| 6.1 – 9.7 | the baseline at each station, then its map; "1993–2013 baseline" |
+| 9.7 – 11.9 | 2014 as its change from the baseline; at 10.9 "THE BLOB + EL NIÑO" and the bracket |
+| 11.9 – 26.5 | 2015 (2.8 s, its value over its bar), 2016 (1.4 s), 2017–2025 (0.85 s each), 2026 (2.75 s, its value, "EL NIÑO + MARINE HEATWAVE") |
+| 26.5 – 35 | the section, as in the other cuts: the tilt, the tag, at 30.5 s the record |
+
+It writes `out/calcofi_elnino_2026_35s.mp4` (and `_35s_F`, `_35s_CF`), their posters and `out/frames_35s*/`. The
+logos are copied into `page/logos/` from calcofi.io (`brand/v2/logo_calcofi_h.svg`, `images/partners/sio.png`,
+`images/partners/noaa.png`, 160 px, shown at 156 px).
+
+**When a release carries all 53 casts of cruise 2611** (the 18 Nov file adds 17 casts on lines 80 and 83.3, 7–10 Nov;
+its 36 earlier casts are identical in `TempAve`): rebuild the analysis database from it (`analysis/fetch_release.py`,
+then `01`–`04`), then `CUT=35s UNITS=CF render.sh` (and `F`, `C`). No code changes: the map, the bars, the pause year
+and every number are read from the data. The bars are averaged over the stations 2026 occupied, so every bar moves
+with the larger footprint, not only 2026's.
+
 The earlier cut, 1920 × 1080 and 30 s against the November normal at the surface, is the page at commit `ec730cc`
 (rendered from releases v2026.11.09 and v2026.11.12; <https://www.youtube.com/watch?v=5ReTP7iafkc>). It is linked
 under the summary of <https://calcofi.io/workflows/2026-11_temperature-anomaly.html>.

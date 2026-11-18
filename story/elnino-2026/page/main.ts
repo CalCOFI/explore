@@ -56,29 +56,50 @@ const first = cruises.find((c) => c.role === "first")!, series = cruises.filter(
 const last = series[series.length - 1];
 
 // ── the frame, the clock, the beats ──────────────────────────────────────────────────────────────────────────────
-// two cuts of one film (`?cut=`): "long" (the default), the minute; "short", 28 s after Rasmus's notes of 2026-11-17.
-// Beat 4 (the next year's own track and temperature map) has no length in the short cut, and beat 2 draws no tracks.
-const CUT: "long" | "short" = new URLSearchParams(location.search).get("cut") === "short" ? "short" : "long";
-const SHORT = CUT === "short";
+// three cuts of one film (`?cut=`): "long" (the default), the minute; "short", 28 s after Rasmus's notes of 2026-11-17;
+// "35s", the short cut slowed to 35 s after the notes of 2026-11-18 (below). Beat 4 (the next year's own track and
+// temperature map) has no length in the short and 35 s cuts, and their beat 2 draws no tracks (BRISK: that structure).
+const CUT: "long" | "short" | "35s" = ((c) => (c === "short" || c === "35s" ? c : "long"))(new URLSearchParams(location.search).get("cut"));
+const SHORT = CUT === "short", MID = CUT === "35s", BRISK = SHORT || MID;
 const W = 1080, H = 1080, FPS = 30;
 //    1 one cruise · 2 all of them · 3 the baseline mapped · 4 the next year · 5 its change · 6 each fall since · 7 below
 const { B1, B2, B3, B4, B5, B6, B7, DURATION } = SHORT
   ? { B1: 0, B2: 4.4, B3: 5.4, B4: 7.8, B5: 7.8, B6: 9.4, B7: 19.6, DURATION: 28 }
+  : MID
+  ? { B1: 0, B2: 6.1, B3: 7.1, B4: 9.7, B5: 9.7, B6: 11.9, B7: 26.5, DURATION: 35 }
   : { B1: 0, B2: 7.0, B3: 12.0, B4: 17.0, B5: 23.0, B6: 27.5, B7: 47.5, DURATION: 60 };
-/** the years that pause in the short cut, and carry their value over their bar: the previous high (facts.json) and the last */
-const PAUSE = new Set([facts.fp_prev_cruise, last.cruise_key]);
-/** beat 6: how long each fall since holds (the last then holds to B7). Long: 1.4 s each. Short: 0.55 s, the previous high 2.2 s */
-const HOLD = series.map((c) => (!SHORT ? 1.4 : c.cruise_key === facts.fp_prev_cruise ? 2.2 : 0.55));
+// the 35 s cut, after the notes of 2026-11-18 (Mark Gold; Rasmus Swalethorp; Lauren Fimbres Wood and Hallie Jacobs of
+// Scripps communications), and where each went:
+//   · about 35 s, the same content at a slower pace, above all from the Blob to the present → 35 s; 2015 holds 2.8 s,
+//     2016 1.4 s, each later year 0.85 s (0.55 s in the short cut), 2026 2.75 s; 2014 2.2 s; the section 8.5 s
+//   · the SWFSC and SIO-UCSD logos on the first page                → the partners' card, 0–2 s, over the empty map
+//   · UCSD/SIO and NOAA acknowledged                                → the card, and both named in the credit throughout
+//   · say that 2014–2016 was the Blob plus El Niño, in big text     → a second line beside 2014, 2015 and 2016, and a
+//                                                                     bracket over their bars that stays to the end
+//   · emphasize that 2026 is El Niño plus a marine heatwave         → the same line beside 2026
+/** the warm events the 35 s cut names: editorial labels, not data (NOAA's names for them) */
+const BLOB_YEARS = [2014, 2015, 2016], BLOB = "The Blob + El Niño", BLOB_SHORT = "Blob + El Niño", NOW_EVENT = "El Niño + marine heatwave";
+/** the 35 s cut's previous high: the warmest fall since 2014 before the last, read from cruises.json (2015). Not
+ *  facts.json fp_prev_cruise, which ranks every season and every year, so may name a cruise this beat never plays */
+const prevSeries = series.slice(0, -1).filter((c) => c.mean_fp != null).reduce((a, c) => (c.mean_fp! > a.mean_fp! ? c : a));
+const PREV = MID ? prevSeries.cruise_key : facts.fp_prev_cruise;
+/** the years that pause in the short and 35 s cuts, and carry their value over their bar: the previous high and the last */
+const PAUSE = new Set([PREV, last.cruise_key]);
+/** beat 6: how long each fall since holds (the last then holds to B7). Long: 1.4 s each. Short: 0.55 s, the previous high
+ *  2.2 s. 35 s: 0.85 s, the previous high 2.8 s, the other Blob years 1.4 s */
+const HOLD = series.map((c) => (SHORT ? (c.cruise_key === PREV ? 2.2 : 0.55) : MID ? (c.cruise_key === PREV ? 2.8 : BLOB_YEARS.includes(c.year) ? 1.4 : 0.85) : 1.4));
 const START = HOLD.map((_, i) => B6 + HOLD.slice(0, i).reduce((a, h) => a + h, 0));
 // the long cut keeps its own arithmetic (B6 + i × 1.4), so its frames stay exactly those rendered before the short cut
-const beat6Start = (i: number) => (SHORT ? START[i] : B6 + i * 1.4);
+const beat6Start = (i: number) => (BRISK ? START[i] : B6 + i * 1.4);
 const beat6 = (t: number) => {
-  if (!SHORT) return Math.min(series.length - 1, Math.max(0, Math.floor((t - B6) / 1.4)));
+  if (!BRISK) return Math.min(series.length - 1, Math.max(0, Math.floor((t - B6) / 1.4)));
   let i = 0; while (i < series.length - 1 && t >= START[i + 1]) i++; return i;
 };
 const FADE6 = SHORT ? 0.22 : 0.3;                      // beat 6: one year's map giving way to the next
-const SAIL: [number, number] = SHORT ? [0.3, 3.8] : [0.6, 5.6];   // beat 1: the ship's passage through the stations
-const X5: [number, number] = SHORT ? [0.2, 1.0] : [0.4, 1.4];     // beat 5: temperature giving way to the change
+const SAIL: [number, number] = SHORT ? [0.3, 3.8] : MID ? [2.1, 5.6] : [0.6, 5.6];   // beat 1: the ship's passage through the stations
+const X5: [number, number] = SHORT ? [0.2, 1.0] : MID ? [0.3, 1.2] : [0.4, 1.4];     // beat 5: temperature giving way to the change
+/** the 35 s cut: the partners' card leaves as the ship sets out; the Blob line and bracket come once 2014's change is in */
+const CARD_OUT: [number, number] = [1.7, 2.3], BLOB_AT = B5 + 1.2;
 const TRACK_STAGGER = 0.12, TRACK_DRAW = 0.6;          // beat 2 (long): each further baseline cruise's track, one after another
 const HERO_AT = 4.0;                                   // beat 7: the year gives way to the record, this long after B7
 
@@ -317,7 +338,7 @@ interface Shown { key: string; opacity: number; coarse?: number; lines?: number;
 interface Track { path: [number, number][]; opacity: number; width: number }
 /** beat 2: when the k-th further baseline cruise (k = 0 … 21) starts drawing its track */
 const trackStart = (k: number) => B2 + 0.3 + k * TRACK_STAGGER;
-const TRACKS_DONE = SHORT ? B2 : trackStart(baseline.length - 2) + TRACK_DRAW;   // short: no further tracks, the baseline comes at once
+const TRACKS_DONE = BRISK ? B2 : trackStart(baseline.length - 2) + TRACK_DRAW;   // short: no further tracks, the baseline comes at once
 
 function layersAt(t: number) {
   const L: any[] = [];
@@ -369,7 +390,7 @@ function layersAt(t: number) {
   } else if (t < B3) {                                                 // 2 · every other fall cruise of the baseline, at once: the full track
     const u = t - B2;
     tracks.push({ path: full(base0), opacity: lerp(1, 0.42, ramp(u, 0, 0.6)), width: 2.2 });
-    if (!SHORT) baseline.slice(1).forEach((c, k) => {
+    if (!BRISK) baseline.slice(1).forEach((c, k) => {
       const s0 = trackStart(k), p = ramp(t, s0, s0 + TRACK_DRAW); if (p <= 0) return;
       tracks.push({ path: trackTo(stationsOf(c), p).path, opacity: lerp(0.95, 0.42, ramp(t, s0 + TRACK_DRAW, s0 + TRACK_DRAW + 0.5)), width: 2.2 });
     });
@@ -378,11 +399,11 @@ function layersAt(t: number) {
     if (x < 1) for (const s of stationsOf(base0)) if (s.temp != null) dots.push({ lon: s.lon, lat: s.lat, r: R_BIG, fill: rgba(tempColor(s.temp), 1 - x), line: rgba(NAVY, 0.9 * (1 - x)) });
     if (x > 0) normalDots(R_BIG, x);
   } else if (t < B4) {                                                 // 3 · the baseline, interpolated to the regular grid
-    const u = t - B3, fine = SHORT ? ease(ramp(u, 0, 0.6)) : ease(ramp(u, 1.6, 2.3));
-    if (u < 0.7) for (const c of SHORT ? [base0] : baseline) tracks.push({ path: full(c), opacity: 0.42 * (1 - ramp(u, 0, 0.6)), width: 2.2 });
+    const u = t - B3, fine = BRISK ? ease(ramp(u, 0, 0.6)) : ease(ramp(u, 1.6, 2.3));
+    if (u < 0.7) for (const c of BRISK ? [base0] : baseline) tracks.push({ path: full(c), opacity: 0.42 * (1 - ramp(u, 0, 0.6)), width: 2.2 });
     // short: straight to the map, without the coarse grid
-    shown.push({ key: "normal", opacity: fine, coarse: SHORT ? 0 : ease(ramp(u, 0.3, 1.1)) * (1 - fine), lines: SHORT ? ramp(u, 0.4, 1.0) : ramp(u, 2.0, 2.6) });
-    normalDots(lerp(R_BIG, R_SMALL, SHORT ? ease(ramp(u, 0.2, 0.8)) : ease(ramp(u, 0.3, 1.2))), 1);
+    shown.push({ key: "normal", opacity: fine, coarse: BRISK ? 0 : ease(ramp(u, 0.3, 1.1)) * (1 - fine), lines: BRISK ? ramp(u, 0.4, 1.0) : ramp(u, 2.0, 2.6) });
+    normalDots(lerp(R_BIG, R_SMALL, BRISK ? ease(ramp(u, 0.2, 0.8)) : ease(ramp(u, 0.3, 1.2))), 1);
   } else if (t < B5) {                                                 // 4 · the next year: its track, its samples, its map
     const u = t - B4, out = 1 - ramp(u, 0, 0.45), st = stationsOf(first);
     if (out > 0) { shown.push({ key: "normal", opacity: out, lines: out }); normalDots(R_SMALL, out); }
@@ -393,7 +414,7 @@ function layersAt(t: number) {
     st.forEach((s, i) => { if (s.temp == null) return; const a = u < 0.5 ? 0 : ramp(tr.reached, i - 0.4, i + 0.1); if (a > 0) dots.push({ lon: s.lon, lat: s.lat, r: r * (0.6 + 0.4 * a), fill: rgba(tempColor(s.temp), a), line: rgba(NAVY, 0.9 * a) }); });
   } else if (t < B6) {                                                 // 5 · that year as its change from the baseline
     const u = t - B5, x = ease(ramp(u, X5[0], X5[1]));
-    if (SHORT) {   // straight from the baseline's map to 2014's change from it: 2014's temperatures are never shown
+    if (BRISK) {   // straight from the baseline's map to 2014's change from it: 2014's temperatures are never shown
       shown.push({ key: "normal", opacity: 1 - x, lines: 1 - x }, { key: "first-anom", opacity: x, lines: x });
       if (x < 1) normalDots(R_SMALL, 1 - x);
       for (const s of stationsOf(first)) if (s.temp != null) dots.push({ lon: s.lon, lat: s.lat, r: R_SMALL, ...(s.anom == null ? noValue(x) : { fill: rgba(anomColor(s.anom), x), line: rgba(NAVY, 0.9 * x) }) });
@@ -483,7 +504,10 @@ const T_C: TickRow = { ticks: [12, 16, 20, 24], toC: (v) => v, fmt: plain, unit:
 const A_C: TickRow = { ticks: [-12, -6, 0, 6, 12], toC: (v) => v, fmt: plus, unit: "°C" }, A_F: TickRow = { ticks: [-20, -10, 0, 10, 20], toC: fromDF, fmt: plus, unit: "°F" };
 legend("legend-temp", "thermal", TEMP, IN_F ? [{ ...T_F, ticks: [55, 60, 65, 70, 75] }] : WITH_F ? [T_C, T_F] : [T_C]);
 legend("legend-anom", "balance", ANOM, IN_F ? [A_F] : WITH_F ? [A_C, A_F] : [A_C]);
-$("credit").innerHTML = `<b>CalCOFI</b> · calcofi.io · CTD casts · release ${RELEASE}`;
+// the 35 s cut names both partners on every frame (Mark Gold 2026-11-18: "UCSD, SIO needs to be acknowledged on all. NOAA too")
+$("credit").innerHTML = MID ? `<b>CalCOFI</b> · Scripps Institution of Oceanography, UC San Diego · NOAA Fisheries · calcofi.io · ${RELEASE}`
+  : `<b>CalCOFI</b> · calcofi.io · CTD casts · release ${RELEASE}`;
+if (MID) $("stage").classList.add("cut-35s");
 
 // the strip: which cruise, out of all of them. Every fall cruise is a dot on the years' line (the other seasons' CTD
 // cruises a faint texture behind it), the one on screen is the yellow one with its year under it, and once the change
@@ -511,7 +535,7 @@ function stripSvg(t: number): string {
   if (t >= B6) cur = series[beat6(t)];
   const bars: { c: Cruise; grow: number }[] = [];
   if (t >= B5) {
-    const g = SHORT ? ease(ramp(t - B5, 0.3, 1.0)) : ease(ramp(t - B5, 1.0, 1.8));
+    const g = BRISK ? ease(ramp(t - B5, 0.3, 1.0)) : ease(ramp(t - B5, 1.0, 1.8));
     for (const c of cruises) if (c.primary && c.mean_fp != null && (c.role === "baseline" || c === first)) bars.push({ c, grow: g });
   }
   if (t >= B6) { const i = beat6(t); series.slice(0, i + 1).forEach((c, k) => { if (c.mean_fp != null) bars.push({ c, grow: ease(ramp(t - beat6Start(k), 0, FADE6)) }); }); }
@@ -519,21 +543,29 @@ function stripSvg(t: number): string {
     const x = stripX.get(c.cruise_key)!, h = c.mean_fp! * BAR * grow, on = c === cur;
     s.push(`<rect x="${x - BAR_W / 2}" y="${h >= 0 ? SY - h : SY}" width="${BAR_W}" height="${Math.max(2, Math.abs(h))}" fill="${css(anomColor(c.mean_fp!))}" stroke="${on ? "#ffcd00" : "rgba(233,237,243,0.8)"}" stroke-width="${on ? 3.5 : 1.2}"/>`);
   }
-  if (t >= B5) s.push(`<text x="${BASE_X0 + 6}" y="${SY - 104}" font-size="24" opacity="${SHORT ? ramp(t - B5, 0.3, 1.0) : ramp(t - B5, 1.0, 1.8)}">bars: the change, at 2026's stations</text>`);
+  if (t >= B5) s.push(`<text x="${BASE_X0 + 6}" y="${SY - 104}" font-size="24" opacity="${BRISK ? ramp(t - B5, 0.3, 1.0) : ramp(t - B5, 1.0, 1.8)}">bars: the change, at 2026's stations</text>`);
   for (const c of FALL) {
     const x = stripX.get(c.cruise_key)!, on = c.cruise_key === cur?.cruise_key;
     const k = baseline.findIndex((b) => b.cruise_key === c.cruise_key);
-    const lit = k >= 0 && (SHORT ? t >= B2 && t < B4 : t >= B3 && t < B4 || (t >= B2 && t < B3 && (k === 0 || t >= trackStart(k - 1))));
+    const lit = k >= 0 && (BRISK ? t >= B2 && t < B4 : t >= B3 && t < B4 || (t >= B2 && t < B3 && (k === 0 || t >= trackStart(k - 1))));
     s.push(`<circle cx="${x}" cy="${SY}" r="${on ? 11 : 6}" fill="${on ? "#ffcd00" : lit ? "#ffffff" : "rgba(233,237,243,0.75)"}" stroke="#0f1a2e" stroke-width="2"/>`);
     if (on) s.push(`<path d="M${x - 13} ${SY + 30} L${x + 13} ${SY + 30} L${x} ${SY + 14} Z" fill="#ffcd00"/>`);
   }
   // the value over the bar on screen (short: only on the years that pause)
   const cb = cur && bars.find((b) => b.c === cur);
-  if (cb && cb.grow > 0.5 && (!SHORT || PAUSE.has(cur!.cruise_key))) {
+  if (cb && cb.grow > 0.5 && (!BRISK || PAUSE.has(cur!.cruise_key))) {
     const text = change(cur!.mean_fp!), wide = WITH_F, bx = stripX.get(cur!.cruise_key)!, h = cur!.mean_fp! * BAR * cb.grow;
     // the two-unit label is wide: near the right edge it ends there rather than centring on its bar
     const half = wide ? 140 : 70, atEnd = bx + half > SX1 + 40, x = atEnd ? SX1 + 40 : Math.max(bx, SX0 + half - 30);
     s.push(`<text x="${x}" y="${Math.min(SY - h, SY - 30) - 12}" font-size="${wide ? 32 : 38}" font-weight="700" text-anchor="${atEnd ? "end" : "middle"}" style="fill:#ffffff" paint-order="stroke" stroke="#0f1a2e" stroke-width="7">${text}</text>`);
+  }
+  // the 35 s cut: a bracket over the Blob years' bars, from the moment 2014's change is in to the end, so the last bar
+  // is read against them (its words end at the bracket's right end, clear of the last bar's value at the frame's edge)
+  if (MID && t >= BLOB_AT) {
+    const xs = BLOB_YEARS.map((y) => cruises.find((c) => c.year === y && c.primary)).filter((c): c is Cruise => !!c).map((c) => stripX.get(c.cruise_key)!);
+    const x0 = Math.min(...xs) - BAR_W / 2 - 5, x1 = Math.max(...xs) + BAR_W / 2 + 5, y = 20, a = ease(ramp(t - BLOB_AT, 0, 0.4));
+    s.push(`<path d="M${x0} ${y + 11} V${y} H${x1} V${y + 11}" fill="none" stroke="rgba(255,180,162,${a})" stroke-width="3"/>`);
+    s.push(`<text x="${x1 + 4}" y="${y - 9}" font-size="27" font-weight="700" text-anchor="end" style="fill:rgba(255,180,162,${a})" paint-order="stroke" stroke="#0f1a2e" stroke-width="6">${BLOB_SHORT}</text>`);
   }
   // few, large year labels; the current cruise's own year in yellow (a decade label beside it steps aside)
   for (const y of [2000, 2010, 2020]) if (!cur || Math.abs(cur.year - y) > 2) s.push(`<text x="${sx(y + 0.8)}" y="${SY + 70}" font-size="34" text-anchor="middle">${y}</text>`);
@@ -541,7 +573,7 @@ function stripSvg(t: number): string {
   return s.join("");
 }
 
-interface Words { head: string; year: string; hero?: boolean; pill?: boolean; caption: string; small?: boolean }
+interface Words { head: string; year: string; hero?: boolean; pill?: boolean; caption: string; small?: boolean; event?: string }
 const HEAD_MAP = "Fall ocean temperatures at 0–50 m", HEAD_SECTION = "Fall ocean temperatures at 0–200 m";
 /** the record, from facts.json: its value, and where it is */
 const HERO = IN_F ? `${signed(dF(facts.max_anom_raw))} °F` : `${signed(facts.max_anom)} °C`;
@@ -553,11 +585,23 @@ function wordsAt(t: number): Words {
   if (t < B4) return { head: HEAD_MAP, year: "1993–2013", caption: "baseline" };
   if (t < B5) return { head: HEAD_MAP, year: String(first.year), caption: "" };
   const c = t < B6 ? first : series[beat6(t)], prelim = c.data_stage !== "final";
-  if (t < B7) return { head: HEAD_MAP, year: String(c.year), pill: prelim, caption: "Change from baseline" };
+  if (t < B7) return { head: HEAD_MAP, year: String(c.year), pill: prelim, caption: "Change from baseline", ...(MID ? { event: eventOf(c) } : {}) };
   if (t < B7 + HERO_AT) return { head: HEAD_SECTION, year: String(c.year), pill: prelim, caption: "Line 93.3, off San Diego" };
   return { head: HEAD_SECTION, year: HERO, hero: true, pill: prelim, caption: HERO_TEXT, small: true };
 }
 
+/** the 35 s cut's second line beside the year: the Blob years once 2014's change is in, and the last year */
+function eventOf(c: Cruise): string | undefined {
+  if (c === last) return NOW_EVENT;
+  if (BLOB_YEARS.includes(c.year)) return BLOB;
+}
+/** the 35 s cut: how present the second line is at t (it fades in, and out as the camera tilts; 2014's waits for BLOB_AT) */
+function eventAlpha(t: number): number {
+  if (t < BLOB_AT) return 0;
+  const i = t < B6 ? -1 : beat6(t), c = i < 0 ? first : series[i], prev = i < 0 ? null : i === 0 ? first : series[i - 1];
+  const at = i < 0 ? BLOB_AT : beat6Start(i), continues = prev != null && eventOf(prev) != null && eventOf(prev) === eventOf(c);
+  return (continues ? 1 : ease(ramp(t - at, 0, 0.35))) * (1 - ease(ramp(t - B7, 0, 0.5)));
+}
 let lastWords = "";
 function hudAt(t: number, cam: Cam) {
   const w = wordsAt(t), key = JSON.stringify(w);
@@ -566,6 +610,16 @@ function hudAt(t: number, cam: Cam) {
     $("year").textContent = w.year; $("year").classList.toggle("hero", !!w.hero);
     $("caption").textContent = w.caption; $("caption").classList.toggle("small", !!w.small); $("row").classList.toggle("hero", !!w.hero);
     $("pill").classList.toggle("gone", !w.pill);
+    if (MID) {   // the event line: as large as fits beside the year
+      const ev = $("event"); ev.textContent = w.event ?? ""; ev.style.fontSize = "";
+      if (w.event) { const room = $("words").clientWidth, need = ev.scrollWidth; if (need > room) ev.style.fontSize = `${Math.floor(parseFloat(getComputedStyle(ev).fontSize) * (room / need))}px`; }
+    }
+  }
+  if (MID) {   // the partners' card (and the row it hides) at the start; the event line's fade
+    const card = 1 - ease(ramp(t, CARD_OUT[0], CARD_OUT[1]));
+    $("partners").style.opacity = String(card); $("partners").style.visibility = card > 0.003 ? "visible" : "hidden";
+    $("row").style.opacity = String(1 - card);
+    $("event").style.opacity = String(eventAlpha(t));
   }
   // the headline: its second half changes once, as the camera tilts (a short crossfade, not a cut)
   const hx = ease(ramp(t - B7, 0.3, 0.9));
@@ -573,7 +627,8 @@ function hudAt(t: number, cam: Cam) {
   $("head-a").style.opacity = String(1 - hx); $("head-b").style.opacity = String(hx);
   $("pill").style.opacity = w.pill ? "1" : "0";
   const anomLegend = t < B5 ? 0 : ease(ramp(t - B5, X5[0], X5[1]));
-  $("legend-temp").style.opacity = String(1 - anomLegend); $("legend-anom").style.opacity = String(anomLegend);
+  const behindCard = MID ? ease(ramp(t, CARD_OUT[0], CARD_OUT[1])) : 1;   // the 35 s cut: no legend until the partners' card leaves
+  $("legend-temp").style.opacity = String((1 - anomLegend) * behindCard); $("legend-anom").style.opacity = String(anomLegend);
   $("strip").innerHTML = stripSvg(t);
   // beat 7: the tag on the warm layer; the ring on the record's own cell, in the colour of the record's number above
   const u = t - B7, big = ease(ramp(u, HERO_AT, HERO_AT + 0.6)), tagA = ease(ramp(u, 2.8, 3.4));

@@ -37,6 +37,25 @@ html, body { margin: 0; height: 100%; background: #060b14; overflow: hidden; }
   letter-spacing: 0.06em; text-transform: uppercase; color: #182b49; background: var(--cc-yellow, #ffcd00); opacity: 0;
 }
 #pill.gone { display: none; }
+/* the 35 s cut: the pill sits beside "Change from baseline", and a second line names the warm event (the Blob + El Niño
+   on 2014-2016, El Niño + a marine heatwave on 2026) in the display face, as large as fits (main.ts shrinks it) */
+#event { display: none; }
+.cut-35s #line1 { display: flex; flex-wrap: wrap; align-items: center; column-gap: 18px; }
+.cut-35s #line1 #pill { margin-top: 0; }
+.cut-35s #row.hero #line1 #pill { margin-top: 10px; }
+.cut-35s #event { display: block; font-family: var(--display, "Teko", sans-serif); font-weight: 600; font-size: 74px; line-height: 64px;
+  height: 62px; padding-top: 8px; color: #ffb4a2; text-transform: uppercase; letter-spacing: 0.01em; white-space: nowrap; opacity: 0; }
+.cut-35s #event:empty { display: none; }
+
+/* the 35 s cut's first page: the program and its two partners, on a backdrop of its own over the still empty map */
+#partners { display: none; }
+.cut-35s #partners { display: block; position: absolute; left: 80px; top: 290px; width: 920px; box-sizing: border-box; padding: 34px 30px 30px;
+  border-radius: 22px; background: var(--bg, #0f1a2e); box-shadow: 0 0 0 2px rgba(233, 237, 243, 0.28); text-align: center; }
+#partners .calcofi { height: 92px; display: block; margin: 0 auto; }
+#partners .seals { display: flex; justify-content: center; gap: 40px; margin-top: 34px; }
+#partners figure { margin: 0; width: 400px; display: flex; flex-direction: column; align-items: center; }
+#partners figure img { width: 156px; height: 156px; object-fit: contain; background: #fff; border-radius: 50%; padding: 6px; box-sizing: border-box; }
+#partners figcaption { margin-top: 16px; font-size: 30px; line-height: 1.18; font-weight: 600; }
 
 /* the legends: one fixed scale each, for the whole film; in the open ocean north-west of the pattern, on a backdrop of
    their own (under the last beat's camera that corner is the sea surface behind the section) */
@@ -59,6 +78,7 @@ html, body { margin: 0; height: 100%; background: #060b14; overflow: hidden; }
 
 /* the time strip: which cruise, out of all cruises */
 #strip { position: absolute; left: 0; top: 818px; }
+.cut-35s #strip { overflow: visible; }   /* the Blob bracket's words stand just above the strip */
 #strip text { font-family: var(--sans, "Source Sans 3", sans-serif); fill: var(--muted, #9fb0c8); }
 #credit { position: absolute; right: 36px; bottom: 14px; text-align: right; font-size: 22px; line-height: 1.2; color: var(--muted, #9fb0c8); white-space: nowrap; }
 #credit b { color: var(--fg, #e9edf3); font-weight: 700; }
