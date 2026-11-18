@@ -65,6 +65,20 @@ larger footprint).
 | 11.9 – 26.5 | 2015 (2.8 s, its value over its bar), 2016 (1.4 s), 2017–2025 (0.85 s each), 2026 (2.75 s, its value, "EL NIÑO + MARINE HEATWAVE") |
 | 26.5 – 35 | the section, as in the other cuts: the tilt, the tag, at 30.5 s the record |
 
+**°F leads the record in the both-units 35 s cut** (Ben, 2026-11-18: "+21.3 F to be the prominent number"): the big
+number is "+21.3 °F" and the line beside it starts "+11.9 °C, at 50–60 m: …" (`F_FIRST` in `page/main.ts`). The °F
+cut already led with °F, and the °C cut has no °F, so neither changes; nor do the minute and the 28 s cut.
+
+**Widescreen** (`?aspect=wide`, `ASPECT=wide` for `render.sh`; 2026-11-18, for broadcast): the same film on a
+1920 × 1080 stage, its own layout rather than the square with bars at its sides. The headline runs across the top;
+the year, its line, the event line, the pill and the legend stand in a column on the left (690 px, over a scrim of
+their own); the map fills the frame right of x = 760 (`MAP_X0`), larger than in the square (708 px of height for the
+pattern, 592 in the square); the strip runs the full width (bars 26 px wide). The 3-D section keeps the square's
+camera (zoom 8.5, pitch 64, bearing −32) with its middle at (1310, 486): the self-check now also stops a capture whose
+section crosses into the column of words (it spans x 798–1682 through the move). The terrain mosaic is loaded wider
+for the wider view. It writes `out/calcofi_elnino_2026_35s_wide.mp4` (and `_35s_wide_F`, `_35s_wide_CF`), their
+posters and `out/frames_35s_wide*/` (no phone-width frames).
+
 It writes `out/calcofi_elnino_2026_35s.mp4` (and `_35s_F`, `_35s_CF`), their posters and `out/frames_35s*/`. The
 logos are copied into `page/logos/` from calcofi.io (`brand/v2/logo_calcofi_h.svg`, `images/partners/sio.png`,
 `images/partners/noaa.png`, 160 px, shown at 156 px).

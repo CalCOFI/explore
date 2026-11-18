@@ -61,7 +61,12 @@ const last = series[series.length - 1];
 // temperature map) has no length in the short and 35 s cuts, and their beat 2 draws no tracks (BRISK: that structure).
 const CUT: "long" | "short" | "35s" = ((c) => (c === "short" || c === "35s" ? c : "long"))(new URLSearchParams(location.search).get("cut"));
 const SHORT = CUT === "short", MID = CUT === "35s", BRISK = SHORT || MID;
-const W = 1080, H = 1080, FPS = 30;
+// `?aspect=wide`: the same film on a 1920 x 1080 stage (16:9, for broadcast): the headline across the top, the year and
+// its words in a column on the left, the map right of them, the strip across the whole width. The default is square.
+const WIDE = new URLSearchParams(location.search).get("aspect") === "wide";
+const W = WIDE ? 1920 : 1080, H = 1080, FPS = 30;
+/** where the map's own region starts: the square's left edge; on the wide stage, right of the column of words */
+const MAP_X0 = WIDE ? 760 : 0;
 //    1 one cruise · 2 all of them · 3 the baseline mapped · 4 the next year · 5 its change · 6 each fall since · 7 below
 const { B1, B2, B3, B4, B5, B6, B7, DURATION } = SHORT
   ? { B1: 0, B2: 4.4, B3: 5.4, B4: 7.8, B5: 7.8, B6: 9.4, B7: 19.6, DURATION: 28 }
@@ -171,7 +176,7 @@ const stationAt = (n: number) => secStations.find((s) => s.station === n) ?? sec
 interface Cam { longitude: number; latitude: number; zoom: number; pitch: number; bearing: number }
 const q = new URLSearchParams(location.search);
 // bird's-eye: the standard pattern between the two bands of words and the strip
-const MAP_BOX = { top: 226, bottom: 262, left: 26, right: 26 };
+const MAP_BOX = WIDE ? { top: 110, bottom: 262, left: MAP_X0, right: 40 } : { top: 226, bottom: 262, left: 26, right: 26 };
 const fit = new WebMercatorViewport({ width: W, height: H }).fitBounds([[-124.42, 29.76], [-117.2, 35.16]], { padding: MAP_BOX });
 const CAM2D: Cam = { longitude: fit.longitude, latitude: fit.latitude, zoom: fit.zoom, pitch: 0, bearing: 0 };
 // oblique: the section's face from its south side, the coast on the right as on the map, close and low enough that the
@@ -179,7 +184,7 @@ const CAM2D: Cam = { longitude: fit.longitude, latitude: fit.latitude, zoom: fit
 // Stated as zoom, pitch, bearing and WHERE ON SCREEN the section's middle sits; the centre follows
 // (`?cam3=zoom,pitch,bearing,x,y` to try another).
 const camQ = q.get("cam3")?.split(",").map(Number);
-const CAM3D_SPEC = camQ?.length === 5 ? { zoom: camQ[0], pitch: camQ[1], bearing: camQ[2], at: [camQ[3], camQ[4]] } : { zoom: 8.5, pitch: 64, bearing: -32, at: [546, 486] };
+const CAM3D_SPEC = camQ?.length === 5 ? { zoom: camQ[0], pitch: camQ[1], bearing: camQ[2], at: [camQ[3], camQ[4]] } : WIDE ? { zoom: 8.5, pitch: 64, bearing: -32, at: [1310, 486] } : { zoom: 8.5, pitch: 64, bearing: -32, at: [546, 486] };
 const viewport = (c: Cam) => new WebMercatorViewport({ width: W, height: H, ...c });
 const PIVOT: [number, number] = [lon0, lat0];
 /** the camera with this zoom, pitch and bearing that puts the section's middle at a pixel */
@@ -508,13 +513,17 @@ legend("legend-anom", "balance", ANOM, IN_F ? [A_F] : WITH_F ? [A_C, A_F] : [A_C
 $("credit").innerHTML = MID ? `<b>CalCOFI</b> · Scripps Institution of Oceanography, UC San Diego · NOAA Fisheries · calcofi.io · ${RELEASE}`
   : `<b>CalCOFI</b> · calcofi.io · CTD casts · release ${RELEASE}`;
 if (MID) $("stage").classList.add("cut-35s");
+if (WIDE) {   // the stage, its two drawing layers and the scrims take the wide frame's width (style.css #stage.wide)
+  $("stage").classList.add("wide");
+  for (const [id, h] of [["strip", 262], ["leader", H]] as const) { const e = $(id); e.setAttribute("width", String(W)); e.setAttribute("viewBox", `0 0 ${W} ${h}`); }
+}
 
 // the strip: which cruise, out of all of them. Every fall cruise is a dot on the years' line (the other seasons' CTD
 // cruises a faint texture behind it), the one on screen is the yellow one with its year under it, and once the change
 // from the baseline is on screen every year keeps a bar: its mean 0–50 m change over the stations the 2026 cruise
 // occupied (cruises.json mean_fp: the same stations every year). The baseline years' bars arrive together, then each
 // year since as the film plays it.
-const SX0 = 62, SX1 = 1018, SY = 130, Y0 = 1992.75, Y1 = 2027.15, BAR = 21, BAR_W = 17;
+const SX0 = 62, SX1 = W - 62, SY = 130, Y0 = 1992.75, Y1 = 2027.15, BAR = 21, BAR_W = WIDE ? 26 : 17;
 const decYear = (d: string) => { const [y, m, dd] = d.split("-").map(Number); return y + (m - 1) / 12 + (dd - 1) / 365; };
 const sx = (yr: number) => SX0 + ((yr - Y0) / (Y1 - Y0)) * (SX1 - SX0);
 const stripX = new Map(strip.map((c) => [c.cruise_key, sx(decYear(c.date_median))]));
@@ -576,8 +585,10 @@ function stripSvg(t: number): string {
 interface Words { head: string; year: string; hero?: boolean; pill?: boolean; caption: string; small?: boolean; event?: string }
 const HEAD_MAP = "Fall ocean temperatures at 0–50 m", HEAD_SECTION = "Fall ocean temperatures at 0–200 m";
 /** the record, from facts.json: its value, and where it is */
-const HERO = IN_F ? `${signed(dF(facts.max_anom_raw))} °F` : `${signed(facts.max_anom)} °C`;
-const HERO_TEXT = `${WITH_F ? `${signed(dF(facts.max_anom_raw))} °F, ` : ""}at ${facts.max_anom_bin}–${facts.max_anom_bin + 10} m: the largest change from baseline in CalCOFI's record, ${facts.record_from}–${facts.record_to}`;
+// the 35 s cut in both units leads with °F, the °C beside it (Ben 2026-11-18: "+21.3 F to be the prominent number")
+const F_FIRST = MID && WITH_F;
+const HERO = IN_F || F_FIRST ? `${signed(dF(facts.max_anom_raw))} °F` : `${signed(facts.max_anom)} °C`;
+const HERO_TEXT = `${F_FIRST ? `${signed(facts.max_anom)} °C, ` : WITH_F ? `${signed(dF(facts.max_anom_raw))} °F, ` : ""}at ${facts.max_anom_bin}–${facts.max_anom_bin + 10} m: the largest change from baseline in CalCOFI's record, ${facts.record_from}–${facts.record_to}`;
 const TAG_F = `${Math.round(toF(facts.layer_temp_raw))} °F`;
 const TAG = `${IN_F ? TAG_F : WITH_F ? `${facts.layer_temp} °C (${TAG_F})` : `${facts.layer_temp} °C`} water down to ${facts.layer_depth} m`;
 function wordsAt(t: number): Words {
@@ -638,7 +649,7 @@ function hudAt(t: number, cam: Cam) {
     const [x, y] = vp.project([(a.lon + b.lon) / 2, (a.lat + b.lat) / 2, -18 * EXAG]);                      // in the warm layer, between the two core stations
     const [rx, ry] = vp.project([rec.lon, rec.lat, -(facts.max_anom_bin + 5) * EXAG]);                     // the record's cell: its station, the middle of its bin
     tag.textContent = TAG;
-    const tw = tag.offsetWidth, th = tag.offsetHeight, tx = Math.min(W - tw - 26, Math.max(26, x - tw * 0.62)), ty = Math.max(246, y - 150);
+    const tw = tag.offsetWidth, th = tag.offsetHeight, tx = Math.min(W - tw - 26, Math.max(MAP_X0 + 26, x - tw * 0.62)), ty = Math.max(246, y - 150);
     tag.style.transform = `translate(${tx}px, ${ty}px)`;
     leader.innerHTML =
       `<line x1="${Math.min(tx + tw - 40, Math.max(tx + 40, x))}" y1="${ty + th}" x2="${x}" y2="${y}" stroke="rgba(233,237,243,${0.95 * tagA})" stroke-width="3"/><circle cx="${x}" cy="${y}" r="6.5" fill="rgba(233,237,243,${tagA})"/>` +
@@ -665,7 +676,7 @@ function selfCheck() {
     const vp = viewport(camAt(k / FPS));
     for (const s of secStations) for (const z of [0, -SECTION_DEPTH * EXAG]) { const [x, y] = vp.project([s.lon, s.lat, z]); x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
   }
-  const box = [x0, y0, x1, y1].map(Math.round), inFrame = x0 >= 16 && x1 <= W - 16 && y0 >= 236 && y1 <= 812;
+  const box = [x0, y0, x1, y1].map(Math.round), inFrame = x0 >= MAP_X0 + 16 && x1 <= W - 16 && y0 >= 236 && y1 <= 812;
   const recordDrawn = section.some((c) => c.station === facts.max_anom_station && c.depth_bin === facts.max_anom_bin && c.anom != null && Math.abs(c.anom - facts.max_anom) < 0.051);
   return { cut: CUT, duration: DURATION, units: UNITS, sectionBox: box, sectionInFrame: inFrame && recordDrawn, recordDrawn, hero: HERO, heroText: HERO_TEXT, tag: TAG,
     cruises: { baseline: baseline.length, series: series.map((c) => c.year) } };
@@ -682,7 +693,7 @@ async function boot() {
     buildSurf("first-anom", pts(stationsOf(first), (s) => s.anom), "anom", false),
     ...series.map((c) => buildSurf(`anom-${c.cruise_key}`, pts(stationsOf(c), (s) => s.anom), "anom", false)),
     fetch(`${import.meta.env.BASE_URL}land.geojson`).then((r) => r.json()).then((g) => { land = g; }),
-    loadMosaic(-131.7, 28.3, -115.7, 36.1, 7).then((m) => {
+    (WIDE ? loadMosaic(-134.5, 27.3, -114.3, 37.0, 7) : loadMosaic(-131.7, 28.3, -115.7, 36.1, 7)).then((m) => {   // the wide frame shows more of the sea
       bathy = { canvas: flatBathy(m), bounds: mosaicBounds(m) };
       floor = floorMesh(m, { lon0, lat0, exag: EXAG, zFloor: -(SECTION_DEPTH * 1.3 + 40), a: [a.lon, a.lat], b: [b.lon, b.lat], nearKm: 3, blendKm: 16 });
       story.terrain = { tiles: m.tiles, missing: m.missing, W: m.W, H: m.H, vertices: floor.vertices };

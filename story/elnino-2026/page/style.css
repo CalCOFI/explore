@@ -84,3 +84,18 @@ html, body { margin: 0; height: 100%; background: #060b14; overflow: hidden; }
 #credit b { color: var(--fg, #e9edf3); font-weight: 700; }
 
 #loading { position: absolute; left: 44px; top: 500px; font-size: 40px; color: var(--muted, #9fb0c8); }
+
+/* `?aspect=wide` (main.ts WIDE): 1920 x 1080. The headline across the top; the year, its words and the legend in a
+   column on the left, over a scrim of their own; the map right of it; the strip and the credit across the bottom */
+#scrim-left { display: none; }
+#stage.wide { width: 1920px; }
+#stage.wide #scrim-top { width: 1920px; height: 150px;
+  background: linear-gradient(180deg, rgba(15, 26, 46, 0.97) 0, rgba(15, 26, 46, 0.9) 96px, rgba(15, 26, 46, 0) 150px); }
+#stage.wide #scrim-strip { width: 1920px; }
+#stage.wide #scrim-left { display: block; position: absolute; left: 0; top: 0; width: 880px; height: 1080px; pointer-events: none;
+  background: linear-gradient(90deg, rgba(15, 26, 46, 0.95) 0, rgba(15, 26, 46, 0.88) 700px, rgba(15, 26, 46, 0) 880px); }
+#stage.wide #head { width: 1840px; }
+#stage.wide #row { top: 112px; width: 690px; height: auto; flex-direction: column; align-items: flex-start; gap: 10px; }
+#stage.wide #words { width: 100%; }
+#stage.wide #legends { left: 40px; top: 440px; }
+#stage.wide.cut-35s #partners { left: 500px; }
