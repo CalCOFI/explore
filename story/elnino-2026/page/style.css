@@ -102,3 +102,39 @@ html, body { margin: 0; height: 100%; background: #060b14; overflow: hidden; }
 #stage.wide #words { width: 100%; }
 #stage.wide #legends { left: 40px; top: 440px; }
 #stage.wide.cut-35s #partners { left: 500px; }
+
+/* `?cut=social` (main.ts SOCIAL): the cold open's words over the last beat's section, the record's length first, then
+   "Nothing like this." in the record's own colour and face, as large as fits (main.ts shrinks it), then the record in
+   a line with the pill; and the dip to the ground between the hook and the film */
+#hook, #dip { display: none; }
+.cut-social #hook { display: block; position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; visibility: hidden; }
+#hook-lead { position: absolute; left: 44px; top: 30px; width: 1000px; font-weight: 700; font-size: 62px; line-height: 1.1; }
+#hook-big { position: absolute; left: 40px; top: 96px; width: 1000px; font-family: var(--display, "Teko", sans-serif); font-weight: 600; font-size: 150px;
+  line-height: 128px; padding-top: 14px; color: #ffb4a2; text-transform: uppercase; white-space: nowrap; letter-spacing: 0.005em; }
+#hook-line { position: absolute; left: 44px; top: 862px; width: 1000px; font-weight: 600; font-size: 42px; line-height: 1.15; text-wrap: balance; }
+#hook-pill { display: inline-block; margin-left: 16px; padding: 3px 14px 5px; border-radius: 7px; font-weight: 700; font-size: 26px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: #182b49; background: var(--cc-yellow, #ffcd00); vertical-align: 5px; white-space: nowrap; }
+.cut-social #dip { display: block; position: absolute; inset: 0; background: var(--bg, #0f1a2e); opacity: 0; pointer-events: none; }
+#stage.wide #hook-lead { left: 44px; top: 112px; width: 690px; font-size: 58px; }
+#stage.wide #hook-big { left: 40px; top: 186px; width: 700px; white-space: normal; font-size: 168px; line-height: 146px; }
+#stage.wide #hook-line { left: 44px; top: 516px; width: 690px; }
+#stage.wide.cut-social #partners { left: 880px; }
+
+/* `?aspect=tall` (main.ts TALL): 1080 x 1920. The square's bands TOP (318 px) lower, the map EXT (180 px) taller, the
+   strip's right end and the map's RIGHT (130 px) short of the edge, and the credit above the headline, clear of the
+   Reels caption at the foot of the frame */
+#stage.tall { height: 1920px; }
+#stage.tall #scrim-top { height: 618px;
+  background: linear-gradient(180deg, rgba(15, 26, 46, 0.97) 0, rgba(15, 26, 46, 0.9) 540px, rgba(15, 26, 46, 0) 618px); }
+#stage.tall #scrim-strip { top: 1288px; height: 632px;
+  background: linear-gradient(180deg, rgba(15, 26, 46, 0) 0, rgba(15, 26, 46, 0.9) 56px, rgba(15, 26, 46, 0.97) 290px); }
+#stage.tall #head { top: 340px; }
+#stage.tall #row { top: 414px; }
+#stage.tall #legends { top: 554px; }
+#stage.tall #strip { top: 1316px; }
+#stage.tall #credit { top: 290px; bottom: auto; left: 44px; right: auto; text-align: left; }
+#stage.tall.cut-35s #partners { top: 670px; }
+#stage.tall #hook-lead { top: 348px; }
+#stage.tall #hook-big { top: 414px; }
+#stage.tall #hook-line { top: 1360px; }
+#stage.tall #loading { top: 900px; }

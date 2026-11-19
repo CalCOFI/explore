@@ -12,6 +12,7 @@ import { spawnSync } from "node:child_process";
 
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d; };
 const url = arg("url", "http://localhost:5181/"), out = arg("out"), shots = arg("shots"), mp4 = arg("mp4"), poster = arg("poster");
+const posterAt = arg("poster-at");   // the poster's time (seconds); the last frame without it (the social cut's is its first: its hook)
 const query = arg("query", "");   // extra page parameters: units=F or units=CF for the other cuts (main.ts UNITS), cam3=8.5,64,-32,546,486 to try a camera (main.ts CAM3D_SPEC)
 const [VW, VH] = arg("size", "1080x1080").split("x").map(Number);   // the page's stage (main.ts W x H): checked against the page below
 if (!out) { console.error("--out <dir> is required"); process.exit(2); }
@@ -52,7 +53,10 @@ if (shots) {
     if (k % 60 === 0) console.log(`frame ${k} / ${k1}  (${((Date.now() - t0) / 1000).toFixed(0)} s)`);
   }
   console.log(`captured ${k1 - k0} frames in ${((Date.now() - t0) / 1000).toFixed(0)} s`);
-  if (poster) { fs.mkdirSync(path.dirname(poster), { recursive: true }); fs.copyFileSync(path.join(out, `f_${String(k1 - 1).padStart(5, "0")}.png`), poster); console.log("wrote", poster); }   // the last frame, as captured (lossless)
+  if (poster) {   // the last frame (or the one at --poster-at), as captured (lossless)
+    const kp = posterAt == null ? k1 - 1 : Math.min(k1 - 1, Math.max(k0, Math.round(Number(posterAt) * info.fps)));
+    fs.mkdirSync(path.dirname(poster), { recursive: true }); fs.copyFileSync(path.join(out, `f_${String(kp).padStart(5, "0")}.png`), poster); console.log("wrote", poster);
+  }
   if (mp4) {
     fs.mkdirSync(path.dirname(mp4), { recursive: true });
     const r = spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-framerate", String(info.fps), "-start_number", String(k0), "-i", path.join(out, "f_%05d.png"),

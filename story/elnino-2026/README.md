@@ -53,8 +53,8 @@ unchanged: their frames, captured before and after this change at 11 times, matc
 The event names are editorial labels typed in `page/main.ts` (`BLOB_YEARS`, `BLOB`, `NOW_EVENT`), not data. The
 year that pauses as the previous high is read from `cruises.json`: the warmest fall since 2014 before the last (2015).
 It is not `facts.json` `fp_prev_cruise`, which ranks every season, so a later release could name a cruise this beat
-never plays (with all 53 casts of cruise 2611 that is likely: fall 1997 comes out a little above fall 2015 over the
-larger footprint).
+never plays. v2026.11.18 did: with all 53 casts of cruise 2611, fall 1997 (+2.5 °C) comes out above fall 2015 (+2.3 °C)
+over the larger footprint. The 28 s cut read `fp_prev_cruise` until then, and now takes this rule too.
 
 | t (s) | beat |
 |---|---|
@@ -86,11 +86,46 @@ logotype reversed to white, as the [Scripps brand guidelines](https://scripps.uc
 ask over a dark ground; rendered from `UCSD-SIO_Vertical-White_RGB.pdf` of the Scripps logo kit, cropped to the artwork,
 1200 px wide, shown at 380 px, with no caption since it carries its name).
 
-**When a release carries all 53 casts of cruise 2611** (the 18 Nov file adds 17 casts on lines 80 and 83.3, 7–10 Nov;
-its 36 earlier casts are identical in `TempAve`): rebuild the analysis database from it (`analysis/fetch_release.py`,
-then `01`–`04`), then `CUT=35s UNITS=CF render.sh` (and `F`, `C`). No code changes: the map, the bars, the pause year
-and every number are read from the data. The bars are averaged over the stations 2026 occupied, so every bar moves
-with the larger footprint, not only 2026's.
+### The social cut (`?cut=social`, 2026-11-19) and the tall frame (`?aspect=tall`)
+
+Lauren Fimbres Wood (Scripps communications, 2026-11-19): "for social I recommend only doing the logos at the end. You
+only have so many seconds to catch people's attention and the video should go straight into it." Ben chose the hook
+"77 years of measurements. Nothing like this." and kept the Blob, El Niño and the marine heatwave for later in the
+film, where the 35 s cut already names them. The social cut is the 35 s cut with a cold open and its partners' card
+moved to the end; `CUT=social` for `render.sh`. The 35 s cut's files (the ones sent to CBS) are untouched.
+
+| v (s, video) | t (s, the film's clock) | what |
+|---|---|---|
+| 0 – 3.0 | 31.5, held | the hook: the last beat's section under a slow push-in (zoom 8.26 → 8.46, `hookCam`), the record's ring, no tag, legend, headline or strip; "77 years of measurements." (from `facts.json`: `record_to − record_from`), "NOTHING LIKE THIS." in the record's colour and face, and "+21.3 °F (+11.9 °C) warmer than normal at 50–60 m, off San Diego" with the pill |
+| 2.75 – 3.25 | | the dip to the ground (`#dip`), the cut at its darkest, at 3.0 |
+| 3.0 – 36.6 | 1.8 – 35.4 | the 35 s cut from just before the ship sets out: its beats 1.2 s later than in the 35 s cut |
+| 34.2 – 36.6 | 32.4 – 35.4 | the partners' card over the record (fading in over 0.4 s); the legend, the tag, the ring, the depth marks and San Diego leave under it |
+
+The poster is the first frame (the hook; `capture.mjs --poster-at 0`), which most feeds also show before a video plays.
+On a loop the card runs straight back into the hook. The credit stays on every frame, hook included. "Warmer than normal"
+in the hook is the film's "change from baseline" in plain words: the normal is the 1993–2013 fall mean (the
+baseline).
+
+**Tall** (`?aspect=tall`, `ASPECT=tall`; 2026-11-19, for Instagram Reels): 1080 × 1920. The square's bands are set
+318 px lower (`TOP`) and the map is 180 px taller between them (`EXT`); the credit moves above the headline. Everything
+that carries meaning sits inside the 4:5 band (y 285–1635) that a feed shows of a Reel, below the top 250 px and above
+the bottom 340 px (Reels' own header, caption and name), and the strip's right end and the map stop 130 px short of the
+right edge (`RIGHT`), where Reels puts its buttons. The 3-D section's camera is zoom 8.4 (8.5 in the square, whose
+section would cross the left edge here) with its middle at (530, 894); it spans x 42–900 through the move.
+
+It writes `out/calcofi_elnino_2026_social.mp4` (and `_social_F`, `_social_CF`), `_social_wide*` and `_social_tall*`,
+their posters and `out/frames_social*/` (phone-width frames for the square and the tall frame).
+
+**All 53 casts of cruise 2611: release v2026.11.18** (2026-11-19; Ben Gire's file of 18 Nov adds 17 casts on lines 80
+and 83.3, 7–10 Nov, and its 36 earlier casts are identical in `TempAve`). The analysis database was rebuilt from it
+(`analysis/fetch_release.py $JOB/work/release_v2026.11.18 v2026.11.18`, then `01`–`04`, into a fresh
+`$JOB/work/elnino.duckdb`; `$JOB/work/release` is now a symlink to `release_v2026.11.18`, and the v2026.11.12 database
+is kept as `elnino_v2026.11.12.duckdb`), and every published film was re-rendered from it: the minute, the 28 s, the
+35 s (square and wide) and the social cut (square, wide and tall), each in C, F and CF. What moved: 2026's stations
+with a 0–50 m mean, 32 → 46; 2026's bar, +4.5 → +4.4 °C (+8.0 → +7.8 °F); 2015's, +2.7 → +2.3 °C (+4.8 → +4.2 °F); the
+previous high over the same stations (`fp_prev_cruise`) is now fall 1997, +2.5 °C. The record (+11.9 °C at 50–60 m on
+line 93.3 28.0) and the 25 °C layer to 55 m are unchanged. The only code change is the 28 s cut's pause year (above).
+The bars are averaged over the stations 2026 occupied, so every bar moved with the larger footprint, not only 2026's.
 
 The earlier cut, 1920 × 1080 and 30 s against the November normal at the surface, is the page at commit `ec730cc`
 (rendered from releases v2026.11.09 and v2026.11.12; <https://www.youtube.com/watch?v=5ReTP7iafkc>). It is linked

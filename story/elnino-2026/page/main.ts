@@ -57,14 +57,20 @@ const last = series[series.length - 1];
 
 // ── the frame, the clock, the beats ──────────────────────────────────────────────────────────────────────────────
 // three cuts of one film (`?cut=`): "long" (the default), the minute; "short", 28 s after Rasmus's notes of 2026-11-17;
-// "35s", the short cut slowed to 35 s after the notes of 2026-11-18 (below). Beat 4 (the next year's own track and
-// temperature map) has no length in the short and 35 s cuts, and their beat 2 draws no tracks (BRISK: that structure).
-const CUT: "long" | "short" | "35s" = ((c) => (c === "short" || c === "35s" ? c : "long"))(new URLSearchParams(location.search).get("cut"));
-const SHORT = CUT === "short", MID = CUT === "35s", BRISK = SHORT || MID;
+// "35s", the short cut slowed to 35 s after the notes of 2026-11-18 (below); "social", the 35 s cut with a cold open and
+// its logos at the end (below, SOCIAL). Beat 4 (the next year's own track and temperature map) has no length in the
+// short, 35 s and social cuts, and their beat 2 draws no tracks (BRISK: that structure).
+const CUT: "long" | "short" | "35s" | "social" = ((c) => (c === "short" || c === "35s" || c === "social" ? c : "long"))(new URLSearchParams(location.search).get("cut"));
+const SHORT = CUT === "short", SOCIAL = CUT === "social", MID = CUT === "35s" || SOCIAL, BRISK = SHORT || MID;
 // `?aspect=wide`: the same film on a 1920 x 1080 stage (16:9, for broadcast): the headline across the top, the year and
-// its words in a column on the left, the map right of them, the strip across the whole width. The default is square.
-const WIDE = new URLSearchParams(location.search).get("aspect") === "wide";
-const W = WIDE ? 1920 : 1080, H = 1080, FPS = 30;
+// its words in a column on the left, the map right of them, the strip across the whole width. `?aspect=tall`: on a
+// 1080 x 1920 stage (9:16, for Instagram Reels): the square's bands set TOP lower and the map EXT taller between them,
+// and nothing that matters in the top 250 px, the bottom 340 px or the right RIGHT px (where Reels puts its name, its
+// caption and its buttons); all of it inside the 4:5 band (y 285–1635) a feed shows of a Reel. The default is square.
+const ASPECT = new URLSearchParams(location.search).get("aspect");
+const WIDE = ASPECT === "wide", TALL = ASPECT === "tall";
+const W = WIDE ? 1920 : 1080, H = TALL ? 1920 : 1080, FPS = 30;
+const TOP = TALL ? 318 : 0, EXT = TALL ? 180 : 0, RIGHT = TALL ? 130 : 0;
 /** where the map's own region starts: the square's left edge; on the wide stage, right of the column of words */
 const MAP_X0 = WIDE ? 760 : 0;
 //    1 one cruise · 2 all of them · 3 the baseline mapped · 4 the next year · 5 its change · 6 each fall since · 7 below
@@ -84,10 +90,12 @@ const { B1, B2, B3, B4, B5, B6, B7, DURATION } = SHORT
 //   · emphasize that 2026 is El Niño plus a marine heatwave         → the same line beside 2026
 /** the warm events the 35 s cut names: editorial labels, not data (NOAA's names for them) */
 const BLOB_YEARS = [2014, 2015, 2016], BLOB = "The Blob + El Niño", BLOB_SHORT = "Blob + El Niño", NOW_EVENT = "El Niño + marine heatwave";
-/** the 35 s cut's previous high: the warmest fall since 2014 before the last, read from cruises.json (2015). Not
+/** the short and 35 s cuts' previous high: the warmest fall since 2014 before the last, read from cruises.json (2015). Not
  *  facts.json fp_prev_cruise, which ranks every season and every year, so may name a cruise this beat never plays */
 const prevSeries = series.slice(0, -1).filter((c) => c.mean_fp != null).reduce((a, c) => (c.mean_fp! > a.mean_fp! ? c : a));
-const PREV = MID ? prevSeries.cruise_key : facts.fp_prev_cruise;
+// (the short cut read fp_prev_cruise until v2026.11.18, whose 53 casts make fall 1997 the warmest before 2026: a
+// baseline year it never plays, so it takes the 35 s cut's rule, which still names 2015)
+const PREV = BRISK ? prevSeries.cruise_key : facts.fp_prev_cruise;
 /** the years that pause in the short and 35 s cuts, and carry their value over their bar: the previous high and the last */
 const PAUSE = new Set([PREV, last.cruise_key]);
 /** beat 6: how long each fall since holds (the last then holds to B7). Long: 1.4 s each. Short: 0.55 s, the previous high
@@ -107,6 +115,17 @@ const X5: [number, number] = SHORT ? [0.2, 1.0] : MID ? [0.3, 1.2] : [0.4, 1.4];
 const CARD_OUT: [number, number] = [1.7, 2.3], BLOB_AT = B5 + 1.2;
 const TRACK_STAGGER = 0.12, TRACK_DRAW = 0.6;          // beat 2 (long): each further baseline cruise's track, one after another
 const HERO_AT = 4.0;                                   // beat 7: the year gives way to the record, this long after B7
+// the social cut, after Lauren Fimbres Wood's note of 2026-11-19 ("for social I recommend only doing the logos at the
+// end. You only have so many seconds to catch people's attention and the video should go straight into it"): the film
+// opens on its own last beat (HOOK s: the section under a slow push-in, the record's ring, and the hook's words in
+// place of the headline, the legend and the strip), dips to the ground, then plays the 35 s cut from just before the
+// ship sets out (S0) to S_END; the partners' card comes in over the record at its end (CARD_IN) instead of at its start.
+// VIDEO time v runs 0 … VIDEO_DURATION; storyT(v) is the film's own clock t, which every beat above reads.
+const HOOK = 3.0, DIP = 0.25, HOOK_S = 31.5, S0 = 1.8, S_END = 35.4, CARD_IN: [number, number] = [32.4, 32.8];
+const VIDEO_DURATION = SOCIAL ? HOOK + (S_END - S0) : DURATION;
+const storyT = (v: number) => (SOCIAL ? (v < HOOK ? HOOK_S : S0 + (v - HOOK)) : v);
+/** the social cut's partners' card at the film's clock t: what it covers (the legend, the tag, San Diego) leaves under it */
+const endCard = (t: number) => (SOCIAL ? ease(ramp(t, CARD_IN[0], CARD_IN[1])) : 0);
 
 /** the two scales of the whole film: never rescaled, so a redder frame is a warmer ocean */
 const TEMP: [number, number] = [11, 26], ANOM: [number, number] = [-13, 13];
@@ -176,7 +195,7 @@ const stationAt = (n: number) => secStations.find((s) => s.station === n) ?? sec
 interface Cam { longitude: number; latitude: number; zoom: number; pitch: number; bearing: number }
 const q = new URLSearchParams(location.search);
 // bird's-eye: the standard pattern between the two bands of words and the strip
-const MAP_BOX = WIDE ? { top: 110, bottom: 262, left: MAP_X0, right: 40 } : { top: 226, bottom: 262, left: 26, right: 26 };
+const MAP_BOX = WIDE ? { top: 110, bottom: 262, left: MAP_X0, right: 40 } : { top: TOP + 226, bottom: H - (TOP + 818 + EXT), left: 26, right: 26 + RIGHT };
 const fit = new WebMercatorViewport({ width: W, height: H }).fitBounds([[-124.42, 29.76], [-117.2, 35.16]], { padding: MAP_BOX });
 const CAM2D: Cam = { longitude: fit.longitude, latitude: fit.latitude, zoom: fit.zoom, pitch: 0, bearing: 0 };
 // oblique: the section's face from its south side, the coast on the right as on the map, close and low enough that the
@@ -184,7 +203,7 @@ const CAM2D: Cam = { longitude: fit.longitude, latitude: fit.latitude, zoom: fit
 // Stated as zoom, pitch, bearing and WHERE ON SCREEN the section's middle sits; the centre follows
 // (`?cam3=zoom,pitch,bearing,x,y` to try another).
 const camQ = q.get("cam3")?.split(",").map(Number);
-const CAM3D_SPEC = camQ?.length === 5 ? { zoom: camQ[0], pitch: camQ[1], bearing: camQ[2], at: [camQ[3], camQ[4]] } : WIDE ? { zoom: 8.5, pitch: 64, bearing: -32, at: [1310, 486] } : { zoom: 8.5, pitch: 64, bearing: -32, at: [546, 486] };
+const CAM3D_SPEC = camQ?.length === 5 ? { zoom: camQ[0], pitch: camQ[1], bearing: camQ[2], at: [camQ[3], camQ[4]] } : WIDE ? { zoom: 8.5, pitch: 64, bearing: -32, at: [1310, 486] } : TALL ? { zoom: 8.4, pitch: 64, bearing: -32, at: [530, TOP + 486 + EXT / 2] } : { zoom: 8.5, pitch: 64, bearing: -32, at: [546, 486] };
 const viewport = (c: Cam) => new WebMercatorViewport({ width: W, height: H, ...c });
 const PIVOT: [number, number] = [lon0, lat0];
 /** the camera with this zoom, pitch and bearing that puts the section's middle at a pixel */
@@ -202,6 +221,9 @@ function camAt(t: number): Cam {
   if (e >= 1) return CAM3D;
   return camWithPivotAt(lerp(CAM2D.zoom, CAM3D.zoom, e), lerp(CAM2D.pitch, CAM3D.pitch, e), lerp(CAM2D.bearing, CAM3D.bearing, e), [lerp(P2D[0], P3D[0], e), lerp(P2D[1], P3D[1], e)]);
 }
+/** the social cut's hook: the last beat's camera, pushing in slowly about the section's middle (from further out, so the
+ *  section stays in the frame) */
+const hookCam = (v: number): Cam => camWithPivotAt(lerp(CAM3D_SPEC.zoom - 0.24, CAM3D_SPEC.zoom - 0.04, ramp(v, 0, HOOK)), CAM3D_SPEC.pitch, CAM3D_SPEC.bearing, CAM3D_SPEC.at);
 const PX_PER_DEG = (512 * 2 ** CAM2D.zoom) / 360;   // bird's-eye pixels per degree of longitude
 
 // ── the surfaces: the Contours lens's spline, once per map ───────────────────────────────────────────────────────
@@ -375,8 +397,10 @@ function layersAt(t: number) {
       // depth marks just inside the offshore edge, a tick on the edge for each
       const edge = faceStations[0], [ex, ey] = off(edge.lon, edge.lat), next = faceStations[1], [nx2, ny2] = off(next.lon, next.lat);
       const marks = [50, 100, 150].filter((z) => z <= SECTION_DEPTH * d - 8), tk = 0.035;
-      L.push(new PathLayer({ id: "curtain-ticks", ...M3D, ...FLAT, data: marks, getPath: (z: number) => [[ex, ey, -z * EXAG], [ex + (nx2 - ex) * tk, ey + (ny2 - ey) * tk, -z * EXAG]], widthUnits: "pixels", getWidth: 3, getColor: [255, 255, 255, 230] }));
-      L.push(new TextLayer({ id: "curtain-depths", ...M3D, ...TEXT, ...FLAT, data: marks,
+      // the depth marks leave under the social cut's card, whose edge they stand at (the prop only there: the other cuts' frames stay as rendered)
+      const marksA = SOCIAL ? { opacity: 1 - (inHook ? 0 : endCard(t)) } : {};
+      L.push(new PathLayer({ id: "curtain-ticks", ...M3D, ...FLAT, ...marksA, data: marks, getPath: (z: number) => [[ex, ey, -z * EXAG], [ex + (nx2 - ex) * tk, ey + (ny2 - ey) * tk, -z * EXAG]], widthUnits: "pixels", getWidth: 3, getColor: [255, 255, 255, 230] }));
+      L.push(new TextLayer({ id: "curtain-depths", ...M3D, ...TEXT, ...FLAT, ...marksA, data: marks,
         getPosition: (z: number) => [ex + (nx2 - ex) * tk, ey + (ny2 - ey) * tk, -z * EXAG], getText: (z: number) => `${z} m`, getSize: 30, getColor: rgba(INK, 1), getTextAnchor: "start", getAlignmentBaseline: "center", getPixelOffset: [8, 0] }));
     }
   }
@@ -478,9 +502,9 @@ function layersAt(t: number) {
       getTextAnchor: "start", getAlignmentBaseline: "center", getPixelOffset: [10, 0] }));
   }
   if (in7) {
-    const sd = PLACES.filter((p) => p.name === SECTION_PLACE);
-    L.push(new ScatterplotLayer({ id: "place-dot-3d", ...placeProps, data: sd, radiusUnits: "pixels", getRadius: 5, getFillColor: rgba(INK, 0.95), billboard: true }));
-    L.push(new TextLayer({ id: "place-3d", ...TEXT, ...placeProps, data: sd, getText: (p: any) => p.name, getSize: lerp(26, 32, 1 - flat), getColor: rgba(INK, 1),
+    const sd = PLACES.filter((p) => p.name === SECTION_PLACE), sdA = SOCIAL ? { opacity: 1 - (inHook ? 0 : endCard(t)) } : {};   // (it leaves under the social cut's card)
+    L.push(new ScatterplotLayer({ id: "place-dot-3d", ...placeProps, data: sd, radiusUnits: "pixels", getRadius: 5, getFillColor: rgba(INK, 0.95), ...sdA, billboard: true }));
+    L.push(new TextLayer({ id: "place-3d", ...TEXT, ...placeProps, data: sd, ...sdA, getText: (p: any) => p.name, getSize: lerp(26, 32, 1 - flat), getColor: rgba(INK, 1),
       getTextAnchor: "middle", getAlignmentBaseline: "top", getPixelOffset: [lerp(0, 30, 1 - flat), 14] }));   // under its dot, a little east: the record's ring is just west of it, the frame's edge just east
   }
   tracks.forEach((tr, k) => { if (tr.path.length > 1 && tr.opacity > 0.005) L.push(new PathLayer({ id: `track-${k}`, ...FLAT, data: [tr], getPath: (d: any) => d.path, widthUnits: "pixels", getWidth: tr.width, getColor: rgba(INK, 0.85), opacity: tr.opacity, jointRounded: true, capRounded: true })); });
@@ -513,9 +537,18 @@ legend("legend-anom", "balance", ANOM, IN_F ? [A_F] : WITH_F ? [A_C, A_F] : [A_C
 $("credit").innerHTML = MID ? `<b>CalCOFI</b> · Scripps Institution of Oceanography, UC San Diego · NOAA Fisheries · calcofi.io · ${RELEASE}`
   : `<b>CalCOFI</b> · calcofi.io · CTD casts · release ${RELEASE}`;
 if (MID) $("stage").classList.add("cut-35s");
-if (WIDE) {   // the stage, its two drawing layers and the scrims take the wide frame's width (style.css #stage.wide)
-  $("stage").classList.add("wide");
-  for (const [id, h] of [["strip", 262], ["leader", H]] as const) { const e = $(id); e.setAttribute("width", String(W)); e.setAttribute("viewBox", `0 0 ${W} ${h}`); }
+// the social cut's hook: the length of the record ("77 years"), then the record itself in a line, from facts.json
+const HOOK_NUM = IN_F ? `${signed(dF(facts.max_anom_raw))} °F` : WITH_F ? `${signed(dF(facts.max_anom_raw))} °F (${signed(facts.max_anom)} °C)` : `${signed(facts.max_anom)} °C`;
+const HOOK_LEAD = `${facts.record_to - facts.record_from} years of measurements.`, HOOK_BIG = "Nothing like this.";
+// (the depth range is held together with word joiners: the wide column broke "50–" from "60 m")
+const HOOK_SUB = `${HOOK_NUM} warmer than normal at ${facts.max_anom_bin}\u2060–\u2060${facts.max_anom_bin + 10}\u00a0m, off ${SECTION_PLACE}`;
+if (SOCIAL) {
+  $("stage").classList.add("cut-social");
+  $("hook-lead").textContent = HOOK_LEAD; $("hook-big").textContent = HOOK_BIG; $("hook-sub").textContent = HOOK_SUB;
+}
+if (WIDE || TALL) {   // the stage, its two drawing layers and the scrims take the frame's size (style.css #stage.wide, #stage.tall)
+  $("stage").classList.add(WIDE ? "wide" : "tall");
+  for (const [id, h] of [["strip", 262], ["leader", H]] as const) { const e = $(id); e.setAttribute("width", String(W)); e.setAttribute("height", String(h)); e.setAttribute("viewBox", `0 0 ${W} ${h}`); }
 }
 
 // the strip: which cruise, out of all of them. Every fall cruise is a dot on the years' line (the other seasons' CTD
@@ -523,7 +556,7 @@ if (WIDE) {   // the stage, its two drawing layers and the scrims take the wide 
 // from the baseline is on screen every year keeps a bar: its mean 0–50 m change over the stations the 2026 cruise
 // occupied (cruises.json mean_fp: the same stations every year). The baseline years' bars arrive together, then each
 // year since as the film plays it.
-const SX0 = 62, SX1 = W - 62, SY = 130, Y0 = 1992.75, Y1 = 2027.15, BAR = 21, BAR_W = WIDE ? 26 : 17;
+const SX0 = 62, SX1 = W - 62 - RIGHT, SY = 130, Y0 = 1992.75, Y1 = 2027.15, BAR = 21, BAR_W = WIDE ? 26 : 17;
 const decYear = (d: string) => { const [y, m, dd] = d.split("-").map(Number); return y + (m - 1) / 12 + (dd - 1) / 365; };
 const sx = (yr: number) => SX0 + ((yr - Y0) / (Y1 - Y0)) * (SX1 - SX0);
 const stripX = new Map(strip.map((c) => [c.cruise_key, sx(decYear(c.date_median))]));
@@ -626,10 +659,10 @@ function hudAt(t: number, cam: Cam) {
       if (w.event) { const room = $("words").clientWidth, need = ev.scrollWidth; if (need > room) ev.style.fontSize = `${Math.floor(parseFloat(getComputedStyle(ev).fontSize) * (room / need))}px`; }
     }
   }
-  if (MID) {   // the partners' card (and the row it hides) at the start; the event line's fade
-    const card = 1 - ease(ramp(t, CARD_OUT[0], CARD_OUT[1]));
+  if (MID) {   // the partners' card (and the row it hides) at the start; the social cut's at the end, over the record; the event line's fade
+    const card = SOCIAL ? (inHook ? 0 : endCard(t)) : 1 - ease(ramp(t, CARD_OUT[0], CARD_OUT[1]));
     $("partners").style.opacity = String(card); $("partners").style.visibility = card > 0.003 ? "visible" : "hidden";
-    $("row").style.opacity = String(1 - card);
+    $("row").style.opacity = String(SOCIAL ? 1 : 1 - card);
     $("event").style.opacity = String(eventAlpha(t));
   }
   // the headline: its second half changes once, as the camera tilts (a short crossfade, not a cut)
@@ -638,18 +671,20 @@ function hudAt(t: number, cam: Cam) {
   $("head-a").style.opacity = String(1 - hx); $("head-b").style.opacity = String(hx);
   $("pill").style.opacity = w.pill ? "1" : "0";
   const anomLegend = t < B5 ? 0 : ease(ramp(t - B5, X5[0], X5[1]));
-  const behindCard = MID ? ease(ramp(t, CARD_OUT[0], CARD_OUT[1])) : 1;   // the 35 s cut: no legend until the partners' card leaves
-  $("legend-temp").style.opacity = String((1 - anomLegend) * behindCard); $("legend-anom").style.opacity = String(anomLegend);
+  const behindCard = MID && !SOCIAL ? ease(ramp(t, CARD_OUT[0], CARD_OUT[1])) : 1;   // the 35 s cut: no legend until the partners' card leaves
+  const under = inHook ? 0 : endCard(t);
+  $("legend-temp").style.opacity = String((1 - anomLegend) * behindCard); $("legend-anom").style.opacity = String(anomLegend * (1 - under));
   $("strip").innerHTML = stripSvg(t);
   // beat 7: the tag on the warm layer; the ring on the record's own cell, in the colour of the record's number above
-  const u = t - B7, big = ease(ramp(u, HERO_AT, HERO_AT + 0.6)), tagA = ease(ramp(u, 2.8, 3.4));
+  // (the social cut's hook keeps the ring and drops the tag: its words are the hook's)
+  const u = t - B7, big = ease(ramp(u, HERO_AT, HERO_AT + 0.6)) * (1 - under), tagA = inHook ? 0 : ease(ramp(u, 2.8, 3.4)) * (1 - under);
   const tag = $("tag"), leader = $("leader"); tag.style.opacity = String(tagA);
   if (tagA > 0 || big > 0) {
     const vp = viewport(cam), a = stationAt(28), b = stationAt(30), rec = stationAt(facts.max_anom_station);
     const [x, y] = vp.project([(a.lon + b.lon) / 2, (a.lat + b.lat) / 2, -18 * EXAG]);                      // in the warm layer, between the two core stations
     const [rx, ry] = vp.project([rec.lon, rec.lat, -(facts.max_anom_bin + 5) * EXAG]);                     // the record's cell: its station, the middle of its bin
     tag.textContent = TAG;
-    const tw = tag.offsetWidth, th = tag.offsetHeight, tx = Math.min(W - tw - 26, Math.max(MAP_X0 + 26, x - tw * 0.62)), ty = Math.max(246, y - 150);
+    const tw = tag.offsetWidth, th = tag.offsetHeight, tx = Math.min(W - tw - 26, Math.max(MAP_X0 + 26, x - tw * 0.62)), ty = Math.max(TOP + 246, y - 150);
     tag.style.transform = `translate(${tx}px, ${ty}px)`;
     leader.innerHTML =
       `<line x1="${Math.min(tx + tw - 40, Math.max(tx + 40, x))}" y1="${ty + th}" x2="${x}" y2="${y}" stroke="rgba(233,237,243,${0.95 * tagA})" stroke-width="3"/><circle cx="${x}" cy="${y}" r="6.5" fill="rgba(233,237,243,${tagA})"/>` +
@@ -658,11 +693,19 @@ function hudAt(t: number, cam: Cam) {
 }
 
 // ── the clock ────────────────────────────────────────────────────────────────────────────────────────────────────
-let ready = false;
-function setFrame(t: number) {
-  const tt = Math.min(DURATION - 1e-6, Math.max(0, t)), cam = camAt(tt);
+let ready = false, inHook = false;
+/** a frame at video time v: the film's clock storyT(v), and in the social cut its hook, its dip and the bands it hides */
+function setFrame(v: number) {
+  const vv = Math.min(VIDEO_DURATION - 1e-6, Math.max(0, v)), tt = storyT(vv);
+  inHook = SOCIAL && vv < HOOK;
+  const cam = inHook ? hookCam(vv) : camAt(tt);
   deck.setProps({ viewState: { ...cam, maxPitch: 85 }, layers: ready ? layersAt(tt) : [] });
   if (ready) hudAt(tt, cam);
+  if (ready && SOCIAL) {
+    for (const id of ["head", "row", "legends", "strip"]) $(id).style.visibility = inHook ? "hidden" : "visible";
+    $("hook").style.visibility = inHook ? "visible" : "hidden";
+    $("dip").style.opacity = String(ease(1 - ramp(Math.abs(vv - HOOK), 0, DIP)));   // to the ground and back, the cut at its darkest
+  }
 }
 const raf = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
 async function settle() { for (let i = 0; i < 3; i++) await raf(); }
@@ -672,19 +715,24 @@ async function settle() { for (let i = 0; i < 3; i++) await raf(); }
  *  the move; and the record's cell is one the section draws */
 function selfCheck() {
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-  for (let k = Math.round(B7 * FPS); k < DURATION * FPS; k++) {
-    const vp = viewport(camAt(k / FPS));
+  const cams = [...Array.from({ length: Math.round((DURATION - B7) * FPS) }, (_, k) => camAt(B7 + k / FPS)), ...(SOCIAL ? Array.from({ length: HOOK * FPS }, (_, k) => hookCam(k / FPS)) : [])];
+  for (const cam of cams) {
+    const vp = viewport(cam);
     for (const s of secStations) for (const z of [0, -SECTION_DEPTH * EXAG]) { const [x, y] = vp.project([s.lon, s.lat, z]); x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
   }
-  const box = [x0, y0, x1, y1].map(Math.round), inFrame = x0 >= MAP_X0 + 16 && x1 <= W - 16 && y0 >= 236 && y1 <= 812;
+  const box = [x0, y0, x1, y1].map(Math.round), inFrame = x0 >= MAP_X0 + 16 && x1 <= W - 16 - RIGHT && y0 >= TOP + 236 && y1 <= TOP + 812 + EXT;
   const recordDrawn = section.some((c) => c.station === facts.max_anom_station && c.depth_bin === facts.max_anom_bin && c.anom != null && Math.abs(c.anom - facts.max_anom) < 0.051);
-  return { cut: CUT, duration: DURATION, units: UNITS, sectionBox: box, sectionInFrame: inFrame && recordDrawn, recordDrawn, hero: HERO, heroText: HERO_TEXT, tag: TAG,
+  return { cut: CUT, duration: VIDEO_DURATION, units: UNITS, sectionBox: box, sectionInFrame: inFrame && recordDrawn, recordDrawn, hero: HERO, heroText: HERO_TEXT, tag: TAG,
     cruises: { baseline: baseline.length, series: series.map((c) => c.year) } };
 }
 
 async function boot() {
   await Promise.all([document.fonts.load(`600 100px "Teko"`), document.fonts.load(`600 40px "Source Sans 3"`), document.fonts.load(`700 40px "Source Sans 3"`), document.fonts.load(`400 40px "Source Sans 3"`)]);
   await document.fonts.ready;
+  if (SOCIAL && !WIDE) {   // the hook's big line on one line, as large as fits its band (the wide frame's column wraps it)
+    const big = $("hook-big"), room = big.clientWidth, need = big.scrollWidth;
+    if (need > room) big.style.fontSize = `${Math.floor(parseFloat(getComputedStyle(big).fontSize) * (room / need))}px`;
+  }
   const pts = (st: Sta[], f: (s: Sta) => number | null) => st.filter((s) => f(s) != null).map((s) => ({ lon: s.lon, lat: s.lat, z: f(s)! }));
   const a = secStations[0], b = secStations[secStations.length - 1];
   await Promise.all([
@@ -707,7 +755,7 @@ async function boot() {
 }
 
 const story: any = ((window as any).__story = {
-  duration: DURATION, fps: FPS, width: W, height: H, units: UNITS, cut: CUT, beats: { B1, B2, B3, B4, B5, B6, B7 },
+  duration: VIDEO_DURATION, fps: FPS, width: W, height: H, units: UNITS, cut: CUT, beats: { B1, B2, B3, B4, B5, B6, B7 },
   ready: null as Promise<void> | null,
   /** set the clock and resolve once that frame is on screen (capture.mjs steps this) */
   setT: async (t: number) => { setFrame(t); await settle(); },
@@ -720,8 +768,8 @@ story.ready = boot().then(async () => {
   let t0 = performance.now(), paused = false, tp = 0;
   addEventListener("keydown", (e) => {
     if (e.key === " ") { paused = !paused; t0 = performance.now() - tp * 1000; }
-    if (e.key === "ArrowRight" || e.key === "ArrowLeft") { tp = (tp + (e.key === "ArrowRight" ? 1 : -1) + DURATION) % DURATION; t0 = performance.now() - tp * 1000; setFrame(tp); }
+    if (e.key === "ArrowRight" || e.key === "ArrowLeft") { tp = (tp + (e.key === "ArrowRight" ? 1 : -1) + VIDEO_DURATION) % VIDEO_DURATION; t0 = performance.now() - tp * 1000; setFrame(tp); }
   });
-  const loop = () => { if (!paused) { tp = ((performance.now() - t0) / 1000) % DURATION; setFrame(tp); } requestAnimationFrame(loop); };
+  const loop = () => { if (!paused) { tp = ((performance.now() - t0) / 1000) % VIDEO_DURATION; setFrame(tp); } requestAnimationFrame(loop); };
   loop();
 });
