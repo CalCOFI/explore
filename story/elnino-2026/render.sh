@@ -15,9 +15,13 @@
 #   ASPECT=wide CUT=35s …                            the same film at 1920 x 1080 (main.ts `?aspect=wide`): …_35s_wide.mp4,
 #                                                    …_35s_wide_poster.png, out/frames_35s_wide/ (with UNITS: …_35s_wide_F*, …)
 #   CUT=social …                                     the 35 s cut with a cold open and its logos at the end (main.ts
-#                                                    `?cut=social`): …_social.mp4, …_social_poster.png (its FIRST frame,
-#                                                    the hook), out/frames_social/; with ASPECT=wide or ASPECT=tall (1080 x
-#                                                    1920, `?aspect=tall`, for Instagram Reels): …_social_wide*, …_social_tall*
+#                                                    `?cut=social`), its hook "Off the charts.": …_offthecharts.mp4,
+#                                                    …_offthecharts_poster.png (its FIRST frame, the hook),
+#                                                    out/frames_offthecharts/; with ASPECT=wide or ASPECT=tall (1080 x 1920,
+#                                                    `?aspect=tall`, for Instagram Reels): …_offthecharts_wide*, …_tall*.
+#                                                    FILECUT names a cut's files (a new hook, a new name: links already
+#                                                    sent keep what they showed); the published …_social* files are the
+#                                                    "Nothing like this." hook (workflows c5e46b3)
 # Rebuilds page/data/*.json, type-checks and builds the page, serves the build on its own port for the length of the
 # capture (capture.mjs stops if the page's own check fails), encodes, probes.
 set -euo pipefail
@@ -27,9 +31,10 @@ UNITS=${UNITS:-C}; [[ $UNITS == (C|F|CF) ]] || { print -u2 "UNITS must be C, F o
 SFX=${${UNITS:#C}:+_$UNITS}                 # "" for the °C cut, _F or _CF for the others
 CUT=${CUT:-long}; [[ $CUT == (long|short|35s|social) ]] || { print -u2 "CUT must be long, short, 35s or social"; exit 2 }
 ASPECT=${ASPECT:-square}; [[ $ASPECT == (square|wide|tall) ]] || { print -u2 "ASPECT must be square, wide or tall"; exit 2 }
-# the name of the cut in its files: square (the minute), short, 35s, social; with _wide or _tall for the 16:9 and 9:16
-# frames (wide or tall alone for the minute)
-if [[ $CUT == long ]]; then TAG=square; [[ $ASPECT != square ]] && TAG=$ASPECT; else TAG=$CUT; [[ $ASPECT != square ]] && TAG=${CUT}_$ASPECT; fi
+# the name of the cut in its files: square (the minute), short, 35s, offthecharts (the social cut, FILECUT); with _wide
+# or _tall for the 16:9 and 9:16 frames (wide or tall alone for the minute)
+FILECUT=${FILECUT:-$CUT}; [[ $CUT == social && $FILECUT == social ]] && FILECUT=offthecharts
+if [[ $CUT == long ]]; then TAG=square; [[ $ASPECT != square ]] && TAG=$ASPECT; else TAG=$FILECUT; [[ $ASPECT != square ]] && TAG=${FILECUT}_$ASPECT; fi
 STEM=calcofi_elnino_2026_$TAG; [[ $TAG != square ]] && SFX=_$TAG$SFX
 cd $REPO
 if (( $# )); then NAME=$1$SFX; shift; MP4=$JOB/out/rough/$NAME.mp4; EXTRA=("$@")

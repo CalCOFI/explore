@@ -96,7 +96,7 @@ moved to the end; `CUT=social` for `render.sh`. The 35 s cut's files (the ones s
 
 | v (s, video) | t (s, the film's clock) | what |
 |---|---|---|
-| 0 – 3.0 | 31.5, held | the hook: the last beat's section under a slow push-in (zoom 8.26 → 8.46, `hookCam`), the record's ring, no tag, legend, headline or strip; "77 years of measurements." (from `facts.json`: `record_to − record_from`), "NOTHING LIKE THIS." in the record's colour and face, and "+21.3 °F (+11.9 °C) warmer than normal at 50–60 m, off San Diego" with the pill |
+| 0 – 3.0 | 31.5, held | the hook: the last beat's section under a slow push-in (zoom 8.26 → 8.46, `hookCam`), the record's ring, no tag, legend, headline or strip; "77 years of measurements." (from `facts.json`: `record_to − record_from`), "OFF THE CHARTS." in the record's colour and face, and "+21.3 °F (+11.9 °C) warmer than normal at 50–60 m, off San Diego" with the pill |
 | 2.75 – 3.25 | | the dip to the ground (`#dip`), the cut at its darkest, at 3.0 |
 | 3.0 – 36.6 | 1.8 – 35.4 | the 35 s cut from just before the ship sets out: its beats 1.2 s later than in the 35 s cut |
 | 34.2 – 36.6 | 32.4 – 35.4 | the partners' card over the record (fading in over 0.4 s); the legend, the tag, the ring, the depth marks and San Diego leave under it |
@@ -113,8 +113,14 @@ the bottom 340 px (Reels' own header, caption and name), and the strip's right e
 right edge (`RIGHT`), where Reels puts its buttons. The 3-D section's camera is zoom 8.4 (8.5 in the square, whose
 section would cross the left edge here) with its middle at (530, 894); it spans x 42–900 through the move.
 
-It writes `out/calcofi_elnino_2026_social.mp4` (and `_social_F`, `_social_CF`), `_social_wide*` and `_social_tall*`,
-their posters and `out/frames_social*/` (phone-width frames for the square and the tall frame).
+**The hook's words** (`HOOK_BIG`): "Nothing like this." first (Ben's pick from five options, 2026-11-19), then "Off the
+charts." the same day (Mark Gold: "I like 'off the charts!' as a hook. The temps are literally off the charts and it is
+a cliche everyone gets"). Each hook has its own file names, so links already sent keep what they showed:
+`calcofi_elnino_2026_social*` is "Nothing like this." (release v2026.11.18, workflows `c5e46b3`), and
+`calcofi_elnino_2026_offthecharts*` is "Off the charts.". `render.sh` names the social cut's files by `FILECUT`
+(`offthecharts` by default): `out/calcofi_elnino_2026_offthecharts.mp4` (and `_F`, `_CF`), `_offthecharts_wide*` and
+`_offthecharts_tall*`, their posters and `out/frames_offthecharts*/` (phone-width frames for the square and the tall
+frame). A new hook takes a new `FILECUT`.
 
 **All 53 casts of cruise 2611: release v2026.11.18** (2026-11-19; Ben Gire's file of 18 Nov adds 17 casts on lines 80
 and 83.3, 7–10 Nov, and its 36 earlier casts are identical in `TempAve`). The analysis database was rebuilt from it

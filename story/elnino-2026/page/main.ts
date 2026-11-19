@@ -539,7 +539,7 @@ $("credit").innerHTML = MID ? `<b>CalCOFI</b> · Scripps Institution of Oceanogr
 if (MID) $("stage").classList.add("cut-35s");
 // the social cut's hook: the length of the record ("77 years"), then the record itself in a line, from facts.json
 const HOOK_NUM = IN_F ? `${signed(dF(facts.max_anom_raw))} °F` : WITH_F ? `${signed(dF(facts.max_anom_raw))} °F (${signed(facts.max_anom)} °C)` : `${signed(facts.max_anom)} °C`;
-const HOOK_LEAD = `${facts.record_to - facts.record_from} years of measurements.`, HOOK_BIG = "Nothing like this.";
+const HOOK_LEAD = `${facts.record_to - facts.record_from} years of measurements.`, HOOK_BIG = "Off the charts.";   // Mark Gold 2026-11-19: "I like 'off the charts!' as a hook. The temps are literally off the charts" (was "Nothing like this.")
 // (the depth range is held together with word joiners: the wide column broke "50–" from "60 m")
 const HOOK_SUB = `${HOOK_NUM} warmer than normal at ${facts.max_anom_bin}\u2060–\u2060${facts.max_anom_bin + 10}\u00a0m, off ${SECTION_PLACE}`;
 if (SOCIAL) {
