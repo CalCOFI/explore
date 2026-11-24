@@ -18,16 +18,38 @@ says what the app does and how to work on it without needing them.
   the map shows in plain words — *"Pacific sardine (pilchard) larva, the mean per 10 m² of sea surface at
   each station, all years · all seasons."* — with the colour scale and the observation count beside it. Its
   ▾ opens the sentence as the controls: every part becomes a chip whose popover is the same picker the
-  *Controls* panel holds, so the two cannot disagree; opening one folds the other. The *Controls* panel
-  (top-left) has three tabs — **Select** (Biology or Environment, the organism or variable, *View as* the
-  six lenses (the active one full size, the others as icon slivers), and *More options* for the summary statistic, how counts
-  are standardized, whether zeros are counted, the dataset pills and the sources — a disclosure that
-  remembers its state), **Refine** (years, season, depth band, datasets) and **Share**. *Time* floats along
+  *Find data* panel holds, so the two cannot disagree; opening one folds the other. *Time* floats along
   the bottom and *Depth* starts folded to a pill on the right edge; both are brushes — drag on them to
   filter the map to a span of years or a depth band. **Every panel moves** (drag its bar; double-click sends
   it back to its place), **collapses** to a labelled pill on the nearest edge, **expands** to fill the map
-  (Esc restores) and **resizes** from its edges or corner. Under 900 px (a phone) the *Controls* panel is a
+  (Esc restores) and **resizes** from its edges or corner. Under 900 px (a phone) the *Find data* panel is a
   bottom sheet and the strips are pills on the map's edge.
+- **The *Find data* panel (top-left) reads top to bottom, one step under the other** (the lean layout, the
+  default since PR #53, `src/leanpanel.tsx` and `leanBody` in `src/App.tsx`):
+  1. **What** — one search over species and water measurements, browsed by category or by dataset, with the
+     life stage, the units, *Count zeros* and the dataset under the pick, and *+ Add a variable* for a second one.
+  2. **When** — years, seasons and cruises.
+  3. **Where** — a named region (sanctuaries, wind energy areas, maritime zones …), a line or station, the
+     CalCOFI station grids, a drawn area, a box or the map view; blank is the whole survey area.
+  4. **View as** — the six views as a row of icons (*Stations*, *Hexagon*, *Contour*, *Cruise*, *Region*,
+     *Section*), with *? Guide* naming each as a question (*Follow a specific cruise*, *Look down through the
+     water* …). A view that needs its own choice puts it in the panel (*Choose a cruise*, *Pick a line and
+     cruise*, *Compare regions*, the hexagon or contour settings), and a When or Where it cannot draw stays
+     listed as *still in force*, with *Clear*.
+  5. **The depth profile and the summary** (*Each station shows the* mean, median …, and for a species how
+     counts are standardized), then the **download bar**, pinned to the panel's bottom: *Download CSV* (the
+     data behind the view, with its sample count), the zip, *How to cite*, *Copy link*, and *More ▾* for a
+     picture of the view, the map's numbers as CSV, the citation as text or BibTeX, the code and *SQL & timing*.
+  On a phone the less common controls fold under *More options*, a disclosure that remembers its state.
+- **Two layouts of the panel: `?ui=lean` (the default) and `?ui=classic`.** The classic layout is the older
+  *Controls* panel with three tabs — **Select** (Biology or Environment, the organism or variable, *View as*,
+  and *More options*), **Refine** (years, season, depth band, datasets) and **Share** — kept for anyone who
+  wants it. **`?ui=classic` is remembered by the browser** (`localStorage` key `explore.ui`), so every later
+  visit to calcofi.io/explore/ in that browser opens the classic tabs, even from a plain link. If the Explorer
+  looks like it went back to the old tabs, that is why: open https://calcofi.io/explore/?ui=lean once to
+  forget the choice (or delete the `explore.ui` key under DevTools → Application → Local Storage →
+  `https://calcofi.io`). The choice is kept per browser and per profile, and a link someone else opens is
+  not affected (`src/App.tsx`, the `lean` state).
 - **Depth signals; it never opens itself.** The pill is quiet when a pick has no depth axis (a
   depth-integrated net tow), lights up the moment a pick sampled at depth arrives — the band in its label, a
   sparkline of the mean profile, one pulse — and carries the band with a reset once you brush one. The

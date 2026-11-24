@@ -7,3 +7,9 @@ public/data2
 Claude outputs/
 *.zip
 dist-query/
+# local, never committed: Claude Code's worktree state, the smoke check's screenshot (scripts/smoke_release.mjs),
+# and a Quarto preview of a README
+.claude/
+smoke.png
+README.html
+README_files/
