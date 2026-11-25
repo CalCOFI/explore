@@ -141,7 +141,7 @@ export function About(p: { release: string; nTables?: number; datasets: Row[]; c
       <p className="hint">Data: CalCOFI (SIO, NOAA SWFSC, CDFW), CCE LTER, the Farallon Institute and the providers above, each with its own citation in <button type="button" className="linkish" onClick={p.onSources}>Data Sources &amp; Attribution</button> and in the download bundle.
         Built by Ben Best (EcoQuants) for CalCOFI with MapLibre GL, deck.gl, DuckDB-WASM and Plotly; basemap © CARTO © OpenStreetMap contributors.
         Better on a computer — nothing should fail on a phone; if it does, the feedback button in the header (the speech bubble beside the theme toggle) tells us.
-        Source: <a href="https://github.com/CalCOFI/explore" target="_blank" rel="noopener">github.com/CalCOFI/explore</a> · <a href="https://calcofi.io/docs/" target="_blank" rel="noopener">docs</a> · <a href="https://calcofi.io/db-schema/" target="_blank" rel="noopener">schema</a> · <a href="https://calcofi.io/db-query/" target="_blank" rel="noopener">query</a>.</p>
+        Source: <a href="https://github.com/CalCOFI/explore" target="_blank" rel="noopener">github.com/CalCOFI/explore</a> · <a href="https://calcofi.io/docs/" target="_blank" rel="noopener">docs</a> · <a href="https://calcofi.io/db-schema/" target="_blank" rel="noopener">schema</a> · <a href="https://calcofi.io/db-query/" target="_blank" rel="noopener">query</a> · <a href="https://calcofi.io/ai-use/" target="_blank" rel="noopener">How we use AI</a>.</p>
     </Modal>
   );
 }

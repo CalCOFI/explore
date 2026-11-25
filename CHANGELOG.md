@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- About: the credits link to calcofi.io's "How we use AI" page (CalCOFI.github.io#56).
 - **Explorer: the wave lies over the map, and the controls stay clear of it** (Ben, 2026-11-17: the dark blue wave
   "looks weird … because of the plain white sliver underneath and before the map"; then, of a preview that moved
   everything up: "controls are now too high up so bleed into top nav"). The strip under the bar is the brand's
